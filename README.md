@@ -126,7 +126,6 @@ to add the Tampermonkey menu command for showing or hiding the extractor panel.
 ## Authors
 
 * Claude
-* Dominic Mayers
 
 ## License
 
