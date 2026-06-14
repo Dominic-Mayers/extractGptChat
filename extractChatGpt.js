@@ -558,7 +558,7 @@
         return uploads.join('\n') + '\n\n' + body.replace(/^\n+/, '').trimStart();
     }
 
-    async function exportMarkdown(blocks) {
+    async function exportMarkdown(blocks, includeDiag = false) {
         const questions = countPairs(blocks);
         const date  = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
         const title = getChatTitle();
@@ -592,7 +592,7 @@
             const anchor = b.role === 'user' && b.msgId ? `<a id="msg-${b.msgId}"></a>\n\n` : '';
             md += `${anchor}${label}\n\n${text}\n\n---\n\n`;
         }
-        if (_perf.runStartMs > 0) {
+        if (includeDiag && _perf.runStartMs > 0) {
             const _ms    = performance.now() - _perf.runStartMs;
             const _sleep = _ms - _perf.htmlToMarkdownMs - _perf.mergeBlocksMs;
             const _dup   = _perf.htmlToMarkdownCalls
@@ -684,14 +684,32 @@
                 const widths = hdrs.map((h, i) =>
                     Math.min(caps[i], Math.max(h.length, ...rows.map(r => r[i].length)))
                 );
-                let out = `${IND}prompts at different scroll % (v3.15)\n`;
-                out += border('┌', '┬', '┐', widths);
+                const innerW = widths.reduce((a, b) => a + b, 0) + widths.length - 1;
+                const spanBorder  = (l, r) => IND + l + '─'.repeat(innerW) + r + '\n';
+                const spanContent = text  => IND + '│' + clip(text.padEnd(innerW), innerW) + '│\n';
+                const legendItems = [
+                    '%=scroll position',    'dur=elapsed(+Δ)',
+                    'r=confirmed rank',     'size=DOM elements',
+                    'p#=found(+new)',       'p%=coverage(+new)',
+                    '↑=DOM prompts above',  '↓=DOM prompts below',
+                ];
+                const colW = Math.floor(innerW / 2);
+                const legendRow = (l, r) => {
+                    const left  = clip((l || '').padEnd(colW), colW);
+                    const right = clip((r || '').padEnd(innerW - colW), innerW - colW);
+                    return IND + '│' + left + right + '│\n';
+                };
+                let out = spanBorder('┌', '┐');
+                out += spanContent('Scroll-position snapshots');
+                out += spanContent('');
+                const half = legendItems.length >> 1;
+                for (let i = 0; i < half; i++)
+                    out += legendRow(legendItems[i], legendItems[i + half]);
+                out += border('├', '┬', '┤', widths);
                 out += row(hdrs, widths);
                 out += border('├', '┼', '┤', widths);
                 for (const r of rows) out += row(r, widths);
                 out += border('└', '┴', '┘', widths);
-                out += `${IND}%=scroll position  dur=elapsed(+increment)  r=confirmed prompt rank\n`;
-                out += `${IND}p#=prompts found(+new)  p%=coverage(+new)  ↑/↓=DOM prompts above/below\n`;
                 md += out;
             }
         }
@@ -1060,7 +1078,7 @@
         if (_perf.gapsDetected > 0)
             ui.log(`gaps: ${_perf.gapsDetected} detected, ${_perf.gapsRecovered} recovered`);
         if (!ui.skipExport) {
-            await exportMarkdown(master);
+            await exportMarkdown(master, ui.includeDiag);
             ui.log(`Exported ${countPairs(master)} user prompts (${master.length} blocks).`);
         } else {
             ui.log('Export skipped by user.');
@@ -1120,6 +1138,20 @@
         });
         Object.assign(note.style, { marginTop: '8px', color: '#f9e2af', fontSize: '11px' });
 
+        const diagCheck = Object.assign(document.createElement('input'), {
+            type: 'checkbox', id: 'extractor-diag-check',
+        });
+        const diagLabel = Object.assign(document.createElement('label'), {
+            htmlFor: 'extractor-diag-check', innerText: 'Include diagnostics in export',
+        });
+        Object.assign(diagLabel.style, { cursor: 'pointer' });
+        const diagRow = document.createElement('div');
+        Object.assign(diagRow.style, {
+            display: 'flex', alignItems: 'center', gap: '6px',
+            marginTop: '8px', fontSize: '11px', color: '#dde1f4',
+        });
+        diagRow.append(diagCheck, diagLabel);
+
         const btnRow = document.createElement('div');
         Object.assign(btnRow.style, { display: 'flex', gap: '8px', marginTop: '10px' });
 
@@ -1147,7 +1179,7 @@
         btnRow.append(btn, stopBtn);
 
         const body = document.createElement('div');
-        body.append(phaseEl, logEl, statusEl, note, btnRow);
+        body.append(phaseEl, logEl, statusEl, note, diagRow, btnRow);
 
         panel.append(titleRow, body);
 
@@ -1166,6 +1198,7 @@
             stopped: false,
             skipExport: false,
             total: 0,
+            get includeDiag() { return diagCheck.checked; },
             phase(n, label) {
                 phaseEl.innerText = `Phase ${n} — ${label}`;
                 console.log(`[Extractor] PHASE ${n} — ${label}`);
@@ -1187,7 +1220,7 @@
                 this.stopped = true;
                 this.skipExport = true;
                 mergeBlocks(master, getVisibleBlocks(), seen);
-                await exportMarkdown(master);
+                await exportMarkdown(master, this.includeDiag);
             },
         };
 
