@@ -17,16 +17,18 @@
     let _pendingApiCalls = 0;
     const _apiIdleCallbacks = [];
     (function () {
+        if (window.fetch._extractorPatched) return;
         const origFetch = window.fetch;
         window.fetch = function (...args) {
             const url = typeof args[0] === 'string' ? args[0]
                 : (args[0] instanceof Request ? args[0].url : '');
             if (!url.includes('/backend-api/')) return origFetch.apply(this, args);
             _pendingApiCalls++;
-            return origFetch.apply(this, args).finally(() => {
+            return Promise.resolve(origFetch.apply(this, args)).finally(() => {
                 if (--_pendingApiCalls === 0) _apiIdleCallbacks.splice(0).forEach(fn => fn());
             });
         };
+        window.fetch._extractorPatched = true;
     }());
 
     function waitForApiIdle(timeoutMs) {
@@ -73,7 +75,7 @@
             blocksAdded: 0,         blocksSkipped: 0,
             forwardJumps: 0,
             gapsDetected: 0, gapsRecovered: 0,
-            domSamples: [],
+            snapshots: [],
             runStartMs: 0,
             // diagnostic fields written to the output file
             containerTag: '', containerScrollH: 0, containerClientH: 0, containerIsDocEl: false,
@@ -98,6 +100,7 @@
             .map(el => ({
                 role: el.getAttribute('data-message-author-role'), // 'user' | 'assistant'
                 text: htmlToMarkdown(el),
+                plainText: el.innerText.trim(),
                 msgId: el.getAttribute('data-message-id') || null,
             }))
             .filter(b => b.text.length > 0);
@@ -186,7 +189,9 @@
      * `container` (i.e. what the user can actually see on screen).
      */
     function getViewportBlocks(container) {
-        const cRect = container.getBoundingClientRect();
+        const cRect = container === document.documentElement
+            ? { top: 0, bottom: window.innerHeight }
+            : container.getBoundingClientRect();
         const inViewport = el => {
             const r = el.getBoundingClientRect();
             return r.bottom > cRect.top && r.top < cRect.bottom;
@@ -208,26 +213,6 @@
         return [...primary, ...extra];
     }
 
-    /**
-     * Scrolls to targetTop in a single step, then waits for any server request
-     * triggered by the scroll to complete and for the DOM to settle.
-     */
-    async function scrollDownStep(container, targetTop, ui) {
-        const posBefore = getScrollPosition(container);
-
-        if (Math.abs(posBefore.top - targetTop) <= 1)
-            return { moved: true, position: posBefore };
-
-        if (ui?.stopped) return { moved: true, position: posBefore };
-
-        if (container === document.documentElement) window.scrollTo({ top: targetTop, behavior: 'instant' });
-        else container.scrollTop = targetTop;
-
-        await waitForApiIdle(15_000);
-        await waitForDomSettle(container, 8, 2_000);
-
-        return { moved: true, position: getScrollPosition(container) };
-    }
 
     // ════════════════════════════════════════════════════════════════
     // TASK 5 — Move to the top of the chat
@@ -358,14 +343,19 @@
         if (!id) return false;
         const el = document.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
         if (!el) return false;
-        const cRect = container.getBoundingClientRect();
-        const r     = el.getBoundingClientRect();
+        const cRect = container === document.documentElement
+            ? { top: 0, bottom: window.innerHeight }
+            : container.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
         return r.bottom > cRect.top && r.top < cRect.bottom;
     }
 
     function countPairs(blocks) {
         return blocks.filter(b => b.role === 'user').length;
     }
+
+    const escLabel = s => s.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
+    const escUrl   = s => s.replace(/>/g, '%3E');
 
     /** Converts a rendered ChatGPT message element to Markdown. */
     function htmlToMarkdown(el) {
@@ -408,7 +398,8 @@
                 case 'code': {
                     if (node.closest('pre')) return node.textContent;
                     const t = node.textContent;
-                    const fence = t.includes('`') ? '``' : '`';
+                    const maxRun = Math.max(0, ...([...t.matchAll(/`+/g)].map(m => m[0].length)));
+                    const fence = '`'.repeat(maxRun + 1);
                     const pad = t.startsWith('`') || t.endsWith('`') ? ' ' : '';
                     return `${fence}${pad}${t}${pad}${fence}`;
                 }
@@ -422,7 +413,9 @@
                         return [...n.childNodes].map(extractCode).join('');
                     };
                     const text = extractCode(codeEl ?? node).trimEnd();
-                    return `\n\`\`\`${lang}\n${text}\n\`\`\`\n\n`;
+                    const maxRun = Math.max(2, ...([...text.matchAll(/`+/g)].map(m => m[0].length)));
+                    const fence = '`'.repeat(maxRun + 1);
+                    return `\n${fence}${lang}\n${text}\n${fence}\n\n`;
                 }
                 case 'blockquote': {
                     const inner = walkChildren(node, listDepth).trim();
@@ -445,12 +438,12 @@
                     const href = node.getAttribute('href') || '';
                     if (/^(#|javascript:|blob:)/i.test(href)) return '';
                     const inner = walkChildren(node, listDepth);
-                    return href ? `[${inner}](${href})` : inner;
+                    return href ? `[${escLabel(inner)}](<${escUrl(href)}>)` : inner;
                 }
                 case 'img': {
                     const alt = node.getAttribute('alt') || '';
                     const src = node.getAttribute('src') || '';
-                    return src ? `![${alt}](${src})` : alt ? `[image: ${alt}]` : '[image]';
+                    return src ? `![${escLabel(alt)}](<${escUrl(src)}>)` : alt ? `[image: ${escLabel(alt)}]` : '[image]';
                 }
                 case 'button': {
                     // File-attachment buttons carry the clean full filename in aria-label.
@@ -531,8 +524,8 @@
             .trim()
             .replace(/\n{3,}/g, '\n\n')
             .replace(
-                /([^\s/]+\.\w{2,6})\s*(?:File|Image|Document|Spreadsheet|Presentation|[A-Z]{2,6})/g,
-                (_match, filename) => `\nUpload: ${filename}\n\n`
+                /^([^\s/]+\.\w{2,6})\s*(?:File|Image|Document|Spreadsheet|Presentation|[A-Z]{2,6})$/gm,
+                (_match, filename) => `Upload: ${filename}`
             )
             .replace(/\n{3,}/g, '\n\n');
         _perf.htmlToMarkdownMs += performance.now() - _t0;
@@ -579,11 +572,11 @@
         if (userBlocks.length > 0) {
             md += `### Table of Contents\n\n`;
             userBlocks.forEach((b, i) => {
-                const firstLine = b.text.split('\n')
+                const firstLine = (b.plainText || b.text).split('\n')
                     .map(l => l.replace(/[^\x20-\x7E]/g, '').trim())
                     .filter(l => l && !l.startsWith('Upload:'))
                     [0] || '(empty)';
-                const label = firstLine.slice(0, 80);
+                const label = escLabel(firstLine.slice(0, 80));
                 md += b.msgId
                     ? `${i + 1}. [${label}](#msg-${b.msgId})\n`
                     : `${i + 1}. ${label}\n`;
@@ -607,14 +600,14 @@
             const _wast  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
                 / Math.max(_perf.htmlToMarkdownCalls, 1));
 
-            md += `    ── perf (v3.12) ──\n`
+            md += `    ── perf (v3.15) ──\n`
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
                 + `    dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dup}%) → ~${_wast}ms wasted\n`
                 + `    mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}\n`
                 + `    Exported ${countPairs(blocks)} user prompts (${blocks.length} blocks).\n`
                 + `\n`
-                + `    ── diag (v3.12) ──\n`
+                + `    ── diag (v3.15) ──\n`
                 + `    container: <${_perf.containerTag}> scrollH=${_perf.containerScrollH} clientH=${_perf.containerClientH}${_perf.containerIsDocEl ? ' [FALLBACK-docEl]' : ''}\n`
                 + `    top after scrollToTop: ${_perf.topAfterScrollToTop}px${_perf.topAfterScrollToTop > 10 ? ' [WARNING: did not reach top]' : ''}\n`
                 + `    lastMsgId: ${_perf.lastMsgIdFound ? 'found' : 'NOT FOUND — used text sig'}\n`
@@ -631,55 +624,29 @@
                     if (dots === 0) return `    prompt nav: dots not visible at export time\n`;
                     return `    prompt nav: ${dots} dots | exported: ${exported} → ${dots === exported ? 'OK' : 'MISMATCH'}\n`;
                 })();
-            if (_perf.domSamples.filter(s => s.w >= 0).length > 1) {
-                const ds = _perf.domSamples.filter(s => s.w >= 0);
-                const sizes = ds.map(s => s.d).sort((a, b) => a - b);
-                const minD = sizes[0], maxD = sizes[sizes.length - 1];
-                const avgD = Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length);
-                const q = [0.25, 0.5, 0.75].map(p => sizes[Math.floor(sizes.length * p)]);
-                const bands = [
-                    [`≤ ${q[0]}`,         s => s.d <= q[0]],
-                    [`${q[0]+1}–${q[1]}`, s => s.d > q[0] && s.d <= q[1]],
-                    [`${q[1]+1}–${q[2]}`, s => s.d > q[1] && s.d <= q[2]],
-                    [`> ${q[2]}`,         s => s.d > q[2]],
-                ];
-                let out = `    ── dom size vs wait between changes (v3.14) ──\n`
-                        + `    ${ds.length} changes | dom: min=${minD} avg=${avgD} max=${maxD}\n`;
-                for (const [label, fn] of bands) {
-                    const samp = ds.filter(fn);
-                    if (!samp.length) continue;
-                    const avg = Math.round(samp.reduce((a, s) => a + s.w, 0) / samp.length);
-                    out += `    dom ${label}: avg ${avg}ms between changes (${samp.length} samples)\n`;
-                }
-                md += out;
-            }
-            const _hasPQ = _perf.domSamples.length > 0 && _perf.domSamples[0].p !== undefined;
-            if (_hasPQ) {
-                const ds = [..._perf.domSamples].sort((a, b) => a.p - b.p);
+            if (_perf.snapshots.length > 0) {
+                const snaps = _perf.snapshots;
                 const totalPrompts = countPairs(blocks);
-                const qAt = pct => {
-                    const s = ds.filter(s => s.p <= pct);
-                    return s.length ? s[s.length - 1].q : 0;
+                const IND = '    ';
+                const hdrs = ['%', 'dur', 'r', 'size', 'p#', 'p%', '↑', '↓'];
+                const caps = [4, 18, 5, 8, 11, 10, 4, 4]; // sum=64 → 77 chars with borders+indent
+
+                const clip = (s, w) => {
+                    s = String(s);
+                    return s.length <= w ? s : s.slice(0, Math.max(0, w - 1)) + '…';
                 };
-                const breaks = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99, 100];
-                const _hasU = ds.some(s => s.uBefore !== undefined);
-                let out = `    ── prompts at different scroll % (v3.15) ──\n`;
-                // Column field widths (data determines width; header is padStart'd to same):
-                //   pos%     : "100%"              = 4  → header "pos%"      = 4  → use 5
-                //   Duration : "9h59m59s (+999s)"  = 16 → header "Duration"  = 8  → use 16
-                //   rank#    : "999"               = 3  → header "rank#"     = 5  → use 5
-                //   prompts# : "999 (+999)"        = 10 → header "prompts#"  = 8  → use 10
-                //   prompts% : "100% (+100%)"      = 12 → header "prompts%"  = 8  → use 12
-                //   above    : "  999"             = 5  → header "above"    = 5  → use 5
-                //   below    : same as above → 5
-                const _S  = '   '; // inter-column separator
-                const _hasR = ds.some(s => s.r !== undefined);
-                //                   pos%  Duration  rank#  prompts#  prompts%  above  below
-                const _W  = _hasR ? [5, 16, 5, 10, 12, 5, 5] : [5, 16, 10, 12, 5, 5];
-                const fQ  = (q, d) => `${String(q).padStart(3)} (+${String(d).padStart(3)})`; // 10 chars
-                const fP  = (p, d) => `${(p + '%').padStart(4)} (+${String(d).padStart(3)}%)`; // 12 chars
-                const fU  = n => String(n).padStart(5);                                         // 5 chars
-                const fT  = (s, ds) => {
+                const cell = (s, w, left = false) => {
+                    s = clip(s, w);
+                    return left ? s.padEnd(w) : s.padStart(w);
+                };
+                const border = (l, m, r, w) =>
+                    IND + l + w.map(n => '─'.repeat(n)).join(m) + r + '\n';
+                const row = (xs, w) =>
+                    IND + '│' + xs.map((x, i) => cell(x, w[i], i === 1 || i === 4 || i === 5)).join('│') + '│\n';
+
+                const fQ = (q, d) => `${q}(+${d})`;
+                const fP = (p, d) => `${p}%(+${d}%)`;
+                const fT = (s, ds) => {
                     const fmt = t => {
                         const h = Math.floor(t / 3600);
                         const m = Math.floor((t % 3600) / 60);
@@ -688,66 +655,43 @@
                         if (m > 0) return `${m}m${String(r).padStart(2,'0')}s`;
                         return `${r}s`;
                     };
-                    return `${fmt(s).padStart(8)} (+${String(ds).padStart(3)}s)`; // 16 chars
+                    return `${fmt(s)}(+${fmt(ds)})`;
                 };
-                const tAt = pct => {
-                    let cum = 0;
-                    for (const s of ds) { if (s.p > pct) break; if (s.w >= 0) cum += s.w; }
-                    return cum;
-                };
-                const hdrs = _hasR
-                    ? ['pos%', 'Duration', 'rank#', 'prompts#', 'prompts%', 'above', 'below']
-                    : ['pos%', 'Duration', 'prompts#', 'prompts%', 'above', 'below'];
-                let hdrLine = '    ' + hdrs.map((h, i) => h.padStart(_W[i])).join(_S);
-                if (!_hasU) hdrLine = '    ' + hdrs.slice(0, _hasR ? 5 : 4).map((h, i) => h.padStart(_W[i])).join(_S);
-                out += hdrLine + '\n';
-                for (let i = 0; i < breaks.length; i++) {
-                    const hi  = breaks[i];
-                    const lo  = i > 0 ? breaks[i - 1] : null;
-                    const cumQ   = qAt(hi);
-                    const prevQ  = lo !== null ? qAt(lo) : 0;
-                    const incQ   = cumQ - prevQ;
-                    const cumPct = totalPrompts ? Math.round(100 * cumQ  / totalPrompts) : 0;
-                    const prvPct = totalPrompts && lo !== null ? Math.round(100 * prevQ / totalPrompts) : 0;
-                    const incPct = cumPct - prvPct;
-                    const cumTs  = Math.round(tAt(hi) / 1000);
-                    const prevTs = lo !== null ? Math.round(tAt(lo) / 1000) : 0;
+
+                const rows = [];
+                for (let i = 0; i < snaps.length; i++) {
+                    const snap = snaps[i];
+                    const prev = i > 0 ? snaps[i - 1] : null;
+                    const cumTs  = Math.round(snap.t / 1000);
+                    const prevTs = prev ? Math.round(prev.t / 1000) : 0;
                     const incTs  = cumTs - prevTs;
-                    let line = '    ' + (hi + '%').padStart(_W[0])
-                             + _S + fT(cumTs, incTs);
-                    if (_hasR) {
-                        const bandR = lo !== null
-                            ? ds.filter(s => s.p > lo && s.p <= hi && s.r !== undefined)
-                            : [];
-                        const avgR = bandR.length
-                            ? Math.round(bandR.reduce((a, s) => a + s.r, 0) / bandR.length)
-                            : null;
-                        const _defaultR = lo === null ? 1
-                            : (hi === 100 && bandR.length === 0) ? totalPrompts : null;
-                        const _dispR = avgR !== null ? avgR : _defaultR;
-                        line += _S + (_dispR !== null ? String(_dispR).padStart(_W[2]) : ' '.repeat(_W[2]));
-                    }
-                    line += _S + fQ(cumQ, incQ)
-                          + _S + fP(cumPct, incPct);
-                    if (_hasU) {
-                        if (lo === null) {
-                            if (ds.length && ds[0].uAfter !== undefined)
-                                line += _S + fU(0) + _S + fU((ds[0].uBefore || 0) + ds[0].uAfter);
-                        } else {
-                            const band = ds.filter(s => s.p > lo && s.p <= hi && s.uBefore !== undefined);
-                            if (band.length) {
-                                const avgB = Math.round(band.reduce((a, s) => a + s.uBefore, 0) / band.length);
-                                const avgA = Math.round(band.reduce((a, s) => a + s.uAfter,  0) / band.length);
-                                line += _S + fU(avgB) + _S + fU(avgA);
-                            } else if (hi === 100) {
-                                const _last = ds.length ? ds[ds.length - 1] : null;
-                                if (_last && _last.uBefore !== undefined)
-                                    line += _S + fU(_last.uBefore + _last.uAfter) + _S + fU(0);
-                            }
-                        }
-                    }
-                    out += line + '\n';
+                    const incQ   = prev ? snap.q - prev.q : snap.q;
+                    const cumPct = totalPrompts ? Math.round(100 * snap.q / totalPrompts) : 0;
+                    const prvPct = prev && totalPrompts ? Math.round(100 * prev.q / totalPrompts) : 0;
+                    const incPct = cumPct - prvPct;
+                    rows.push([
+                        String(snap.p),
+                        fT(cumTs, incTs),
+                        String(snap.r),
+                        String(snap.d),
+                        fQ(snap.q, incQ),
+                        fP(cumPct, incPct),
+                        String(snap.uBefore),
+                        String(snap.uAfter),
+                    ]);
                 }
+
+                const widths = hdrs.map((h, i) =>
+                    Math.min(caps[i], Math.max(h.length, ...rows.map(r => r[i].length)))
+                );
+                let out = `${IND}prompts at different scroll % (v3.15)\n`;
+                out += border('┌', '┬', '┐', widths);
+                out += row(hdrs, widths);
+                out += border('├', '┼', '┤', widths);
+                for (const r of rows) out += row(r, widths);
+                out += border('└', '┴', '┘', widths);
+                out += `${IND}%=scroll position  dur=elapsed(+increment)  r=confirmed prompt rank\n`;
+                out += `${IND}p#=prompts found(+new)  p%=coverage(+new)  ↑/↓=DOM prompts above/below\n`;
                 md += out;
             }
         }
@@ -893,7 +837,7 @@
         let iteration = 0;
         let scriptScrollTop = getScrollPosition(container).top;
 
-        if (stopBtn) stopBtn.onclick = () => ui.stopAndExport(master);
+        if (stopBtn) stopBtn.onclick = () => ui.stopAndExport(master, seen);
 
         // stepPx is constant for the session — compute once outside the loop.
         const stepPx = container.clientHeight || 600;
@@ -917,13 +861,14 @@
                 const labels = getPromptDots().map(b => b.getAttribute('aria-label') || '');
                 const descriptive = labels.filter(l => !/^Prompt \d+$/i.test(l) && l.length > 3);
                 if (descriptive.length > 0) {
-                    runPanelNorms = labels.map(l =>
-                        l.replace(/\s*(…|\.\.\.)$/, '')
-                         .replace(/[^\x20-\x7E]/g, '')
-                         .replace(/\s+/g, ' ')
-                         .trim()
-                         .toLowerCase()
-                    ).filter(l => l && !/^prompt \d+$/i.test(l));
+                    runPanelNorms = labels.map(l => {
+                        const norm = l.replace(/\s*(…|\.\.\.)$/, '')
+                                      .replace(/[^\x20-\x7E]/g, '')
+                                      .replace(/\s+/g, ' ')
+                                      .trim()
+                                      .toLowerCase();
+                        return (norm && !/^prompt \d+$/i.test(norm)) ? norm : null;
+                    });
                     ui.total = runPanelNorms.length;
                     ui.log(`${runPanelNorms.length} user prompts from the menu`);
                 } else {
@@ -936,11 +881,51 @@
             }
         }
 
-        let _lastChangeMs = -1; // performance.now() at the last iteration that added new blocks
+        const BREAKPOINTS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        let _nextBpIdx = 0;
+
+        const takeSnapshot = (bp) => {
+            const _uEls = [...document.querySelectorAll('[data-message-author-role="user"]')];
+            const _cnorm = runPanelNorms && lastConfirmedPanelIndex >= 0
+                ? runPanelNorms[lastConfirmedPanelIndex] : null;
+            const _cidx = _cnorm !== null
+                ? _uEls.findIndex(el => el.innerText.toLowerCase().includes(_cnorm)) : -1;
+            const _cRect = (_cidx < 0 && lastConfirmedPanelIndex >= 0)
+                ? (container === document.documentElement
+                    ? { top: 0, bottom: window.innerHeight }
+                    : container.getBoundingClientRect())
+                : null;
+            const uBefore = _cidx >= 0 ? _cidx
+                : lastConfirmedPanelIndex < 0 ? 0
+                : _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length;
+            const uAfter = _cidx >= 0 ? _uEls.length - _cidx - 1
+                : lastConfirmedPanelIndex < 0 ? Math.max(0, _uEls.length - 1)
+                : _uEls.filter(el => el.getBoundingClientRect().top > _cRect.bottom).length;
+            _perf.snapshots.push({
+                p: bp,
+                t: Math.round(performance.now() - _perf.runStartMs),
+                q: countPairs(master),
+                r: Math.max(1, lastConfirmedPanelIndex + 1),
+                d: document.getElementsByTagName('*').length,
+                uBefore,
+                uAfter,
+            });
+        };
+
+        const pushSnapshotsIfNeeded = () => {
+            const pos = runPanelNorms && runPanelNorms.length > 0 && lastConfirmedPanelIndex >= 0
+                ? Math.round(100 * (lastConfirmedPanelIndex + 1) / runPanelNorms.length)
+                : getScrollPosition(container).percent;
+            while (_nextBpIdx < BREAKPOINTS.length && BREAKPOINTS[_nextBpIdx] <= pos)
+                takeSnapshot(BREAKPOINTS[_nextBpIdx++]);
+        };
+
+        // Capture initial state at 0%
+        takeSnapshot(0);
+        _nextBpIdx = 1;
 
         while (true) {
             iteration++;
-            const _blocksAtIterStart = _perf.blocksAdded;
 
             if (ui.stopped) {
                 const _sp = getScrollPosition(container);
@@ -971,6 +956,7 @@
                 const current = getVisibleBlocks();
                 const { added, skipped } = mergeBlocks(master, current, seen);
                 _perf.blocksAdded += added; _perf.blocksSkipped += skipped;
+                if (!runPanelNorms) lastConfirmedPanelIndex = countPairs(master) - 1;
                 ui.status(countPairs(master), currentPercent);
             } else {
                 ui.status(countPairs(master), currentPercent);
@@ -990,6 +976,7 @@
                 let recovered = false;
                 for (const targetIdx of vpIndices) {
                     for (let J = lastConfirmedPanelIndex + 1; J < targetIdx; J++) {
+                        if (runPanelNorms[J] === null) continue;
                         if (!isInMaster(runPanelNorms[J], master)) {
                             _perf.gapsDetected++;
                             ui.log(`GAP: panel prompt ${J + 1} missing — recovering`);
@@ -1042,92 +1029,19 @@
             }
 
             const targetTop = scriptScrollTop + stepPx;
-            const step = await scrollDownStep(container, targetTop, ui);
-            if (!step.moved) {
-                _perf.exitReason = 'scrollTimeout'; _perf.exitIter = iteration;
-                _perf.exitPercent = step.position.percent; _perf.exitScrollH = container.scrollHeight;
-                ui.log('Scroll stuck for 30s — choose an action:');
-                const decision = await ui.promptTimeout();
-                if (decision === 'continue') {
-                    _perf.exitReason = 'none';
-                    continue;
-                }
-                if (decision === 'stop') ui.skipExport = true;
-                break;
+            if (ui.stopped) break;
+            if (Math.abs(getScrollPosition(container).top - targetTop) > 1) {
+                if (container === document.documentElement) window.scrollTo({ top: targetTop, behavior: 'instant' });
+                else container.scrollTop = targetTop;
+                await waitForApiIdle(15_000);
+                await waitForDomSettle(container, 8, 2_000);
             }
-            scriptScrollTop = Math.max(targetTop, step.position.top);
-            const _confirmedAdvanced = lastConfirmedPanelIndex >= 0
-                && (_perf.domSamples.length === 0
-                    || _perf.domSamples[_perf.domSamples.length - 1].r !== lastConfirmedPanelIndex + 1);
-            if (_perf.blocksAdded > _blocksAtIterStart || _confirmedAdvanced) {
-                const _now  = performance.now();
-                const _uEls  = [...document.querySelectorAll('[data-message-author-role="user"]')];
-                const _cnorm = runPanelNorms && lastConfirmedPanelIndex >= 0
-                    ? runPanelNorms[lastConfirmedPanelIndex] : null;
-                const _cidx  = _cnorm !== null
-                    ? _uEls.findIndex(el => el.innerText.toLowerCase().includes(_cnorm)) : -1;
-                // _cidx >= 0  → confirmed prompt found: count by index
-                // _cidx  < 0, lastConfirmedPanelIndex < 0 → very start: above=0, below=all DOM
-                // _cidx  < 0, lastConfirmedPanelIndex >= 0 → not in DOM: fall back to viewport
-                const _cRect = (_cidx < 0 && lastConfirmedPanelIndex >= 0)
-                    ? container.getBoundingClientRect() : null;
-                const _uBefore = _cidx >= 0 ? _cidx
-                    : lastConfirmedPanelIndex < 0 ? 0
-                    : _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length;
-                const _uAfter  = _cidx >= 0 ? _uEls.length - _cidx - 1
-                    : lastConfirmedPanelIndex < 0 ? Math.max(0, _uEls.length - 1)
-                    : _uEls.filter(el => el.getBoundingClientRect().top    > _cRect.bottom).length;
-                _perf.domSamples.push({
-                    d: document.getElementsByTagName('*').length,
-                    w: _lastChangeMs >= 0 ? Math.round(_now - _lastChangeMs) : -1,
-                    p: runPanelNorms && runPanelNorms.length > 0
-                        ? (lastConfirmedPanelIndex < 0 ? 0 : Math.round(100 * (lastConfirmedPanelIndex + 1) / runPanelNorms.length))
-                        : getScrollPosition(container).percent,
-                    q: countPairs(master),
-                    uBefore: _uBefore,
-                    uAfter:  _uAfter,
-                    r: lastConfirmedPanelIndex >= 0 ? lastConfirmedPanelIndex + 1 : undefined,
-                });
-                _lastChangeMs = _now;
-            }
+            scriptScrollTop = Math.max(targetTop, getScrollPosition(container).top);
+            pushSnapshotsIfNeeded();
         }
 
-        // Sentinel: capture any blocks added in the exit-path merge that
-        // happened before the break and never got a sample pushed.
-        // Use exitPercent (recorded at break time) rather than a live
-        // getScrollPosition() call — scrollHeight may have grown since then,
-        // which would make the computed percent too small and misplace the
-        // sentinel in the wrong scroll band.
-        {
-            const _finalQ = countPairs(master);
-            const _lastQ = _perf.domSamples.length ? _perf.domSamples[_perf.domSamples.length - 1].q : 0;
-            if (_finalQ > _lastQ) {
-                const _uEls  = [...document.querySelectorAll('[data-message-author-role="user"]')];
-                const _cnorm = runPanelNorms && lastConfirmedPanelIndex >= 0
-                    ? runPanelNorms[lastConfirmedPanelIndex] : null;
-                const _cidx  = _cnorm !== null
-                    ? _uEls.findIndex(el => el.innerText.toLowerCase().includes(_cnorm)) : -1;
-                const _cRect = (_cidx < 0 && lastConfirmedPanelIndex >= 0)
-                    ? container.getBoundingClientRect() : null;
-                const _uBefore = _cidx >= 0 ? _cidx
-                    : lastConfirmedPanelIndex < 0 ? 0
-                    : _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length;
-                const _uAfter  = _cidx >= 0 ? _uEls.length - _cidx - 1
-                    : lastConfirmedPanelIndex < 0 ? Math.max(0, _uEls.length - 1)
-                    : _uEls.filter(el => el.getBoundingClientRect().top    > _cRect.bottom).length;
-                _perf.domSamples.push({
-                    d: document.getElementsByTagName('*').length,
-                    w: -1,
-                    p: runPanelNorms && runPanelNorms.length > 0 && lastConfirmedPanelIndex >= 0
-                        ? Math.round(100 * (lastConfirmedPanelIndex + 1) / runPanelNorms.length)
-                        : 100,
-                    q: _finalQ,
-                    uBefore: _uBefore,
-                    uAfter:  _uAfter,
-                    r: lastConfirmedPanelIndex >= 0 ? lastConfirmedPanelIndex + 1 : undefined,
-                });
-            }
-        }
+        // Capture state at any remaining breakpoints (exit may happen before 100%)
+        while (_nextBpIdx < BREAKPOINTS.length) takeSnapshot(BREAKPOINTS[_nextBpIdx++]);
 
         // ── Phase 4: Export ───────────────────────────────────────────────
         ui.phase('4/4', 'Exporting');
@@ -1138,7 +1052,7 @@
             ? Math.round(100 * _perf.blocksSkipped / _perf.htmlToMarkdownCalls) : 0;
         const _wastMs   = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
             / Math.max(_perf.htmlToMarkdownCalls, 1));
-        ui.log('── perf (v3.11) ──');
+        ui.log('── perf (v3.15) ──');
         ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`  dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
@@ -1174,7 +1088,7 @@
         });
 
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v3.12',
+            innerText: 'ChatGPT Extractor v3.15',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
 
@@ -1269,35 +1183,11 @@
                 logEl.scrollTop = logEl.scrollHeight;
                 console.log(`[Extractor] ${msg}`);
             },
-            async stopAndExport(master) {
+            async stopAndExport(master, seen) {
                 this.stopped = true;
+                this.skipExport = true;
+                mergeBlocks(master, getVisibleBlocks(), seen);
                 await exportMarkdown(master);
-            },
-            promptTimeout() {
-                return new Promise(resolve => {
-                    const row = document.createElement('div');
-                    Object.assign(row.style, {
-                        display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap',
-                    });
-                    const makeBtn = (label, bg) => {
-                        const b = Object.assign(document.createElement('button'), { innerText: label });
-                        Object.assign(b.style, {
-                            flex: '1', padding: '6px 10px', background: bg, color: '#11111b',
-                            border: 'none', borderRadius: '4px',
-                            fontWeight: 'bold', cursor: 'pointer', fontFamily: 'monospace',
-                        });
-                        return b;
-                    };
-                    const exportBtn   = makeBtn('Export',    '#89b4fa');
-                    const continueBtn = makeBtn('Continue',  '#a6e3a1');
-                    const stopBtn     = makeBtn('Stop',      '#f38ba8');
-                    const cleanup = () => row.remove();
-                    exportBtn.onclick   = () => { cleanup(); resolve('export'); };
-                    continueBtn.onclick = () => { cleanup(); resolve('continue'); };
-                    stopBtn.onclick     = () => { cleanup(); resolve('stop'); };
-                    row.append(exportBtn, continueBtn, stopBtn);
-                    body.appendChild(row);
-                });
             },
         };
 
