@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.39
+// @version      3.40
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1149,4 +1149,179 @@
     }
 
     buildUI();
+
+    // ════════════════════════════════════════════════════════════════
+    // COMPATIBILITY CHECK
+    // ════════════════════════════════════════════════════════════════
+
+    const _MARKUP_CHECKS = [
+        { label: 'Ordered list',   pat: /^\d+\. /m,             prompt: 'List the three primary colors as a numbered list.' },
+        { label: 'Unordered list', pat: /^- /m,                 prompt: 'List three types of fruit using bullet points.' },
+        { label: 'Code block',     pat: /^```/m,                prompt: 'Write a Python function that returns the square of a number, with a docstring.' },
+        { label: 'Inline code',    pat: /`[^`\n]+`/,            prompt: 'In one sentence, refer to the variable `count` using inline code.' },
+        { label: 'Bold',           pat: /\*\*[^*\n]+\*\*/,     prompt: 'Write one sentence where the word "important" appears in bold.' },
+        { label: 'Italic',         pat: /(?<!\*)\*[^*\s][^*\n]*\*(?!\*)/,  prompt: 'Write one sentence where the word "gently" appears in italic.' },
+        { label: 'Table',          pat: /\| ?-+ ?\|/,           prompt: 'Make a table with columns Name and Score, and two data rows.' },
+        { label: 'Blockquote',     pat: /^> /m,                 prompt: 'Write this sentence as a blockquote: To be or not to be.' },
+        { label: 'Heading',        pat: /^#{1,6} /m,            prompt: 'Write a level-2 heading "Results" followed by one sentence.' },
+    ];
+
+    function buildDiagUI() {
+        const DIAG_ID = 'chatgpt-extractor-diag';
+        const existing = document.getElementById(DIAG_ID);
+        if (existing) { existing.remove(); return; }
+
+        const panel = document.createElement('div');
+        panel.id = DIAG_ID;
+        Object.assign(panel.style, {
+            position: 'fixed', top: '20px', left: '20px', zIndex: '99999',
+            padding: '14px', background: '#1e1e2e', color: '#cdd6f4',
+            border: '2px solid #a6e3a1', borderRadius: '8px',
+            fontFamily: 'monospace', fontSize: '11px', width: '400px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.5)', lineHeight: '1.5',
+            maxHeight: '85vh', overflowY: 'auto',
+        });
+
+        const titleRow = document.createElement('div');
+        Object.assign(titleRow.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' });
+        const title = Object.assign(document.createElement('div'), { innerText: 'Compatibility Check' });
+        Object.assign(title.style, { fontWeight: 'bold', color: '#a6e3a1', fontSize: '13px' });
+        const closeBtn = Object.assign(document.createElement('button'), { innerText: '×' });
+        Object.assign(closeBtn.style, { background: 'none', border: 'none', color: '#a6e3a1', cursor: 'pointer', fontSize: '16px', fontFamily: 'monospace', padding: '0' });
+        closeBtn.onclick = () => panel.remove();
+        titleRow.append(title, closeBtn);
+
+        // ── Structural section ────────────────────────────────────
+        const structHead = Object.assign(document.createElement('div'), { innerText: '── Structural ──' });
+        Object.assign(structHead.style, { color: '#89b4fa', marginBottom: '6px' });
+
+        const structLog = document.createElement('div');
+        Object.assign(structLog.style, { marginBottom: '10px' });
+
+        const addLine = (log, ok, label, detail) => {
+            const icon  = ok === null ? '[?]' : ok ? '[✓]' : '[✗]';
+            const color = ok === null ? '#585b70' : ok ? '#a6e3a1' : '#f38ba8';
+            const row = document.createElement('div');
+            row.innerHTML = `<span style="color:${color};font-weight:bold">${icon}</span> ${label}`;
+            log.appendChild(row);
+            if (detail) {
+                const det = document.createElement('div');
+                det.innerText = '    ' + detail;
+                Object.assign(det.style, { color: '#6c7086', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: '2px' });
+                log.appendChild(det);
+            }
+        };
+
+        const runStructural = () => {
+            structLog.innerHTML = '';
+
+            const container = findScrollContainer();
+            const fallback = container === document.documentElement;
+            addLine(structLog, !fallback, 'Scroll container',
+                fallback ? 'FALLBACK: using <html> — container detection may be wrong'
+                         : `<${container.tagName.toLowerCase()}> scrollH=${container.scrollHeight} clientH=${container.clientHeight}`);
+
+            const strip = [...document.querySelectorAll('div')]
+                .find(d => d.className.includes('w-9') && d.className.includes('max-h-[50lvh]') && d.className.includes('no-scrollbar'));
+            addLine(structLog, !!strip, 'TOC strip (primary selector)',
+                strip ? 'div.w-9.max-h-[50lvh].no-scrollbar' : 'NOT FOUND — using button-class fallback');
+
+            const dots = getPromptDots();
+            addLine(structLog, dots.length > 0, 'TOC buttons',
+                dots.length > 0 ? `${dots.length} found` : 'NOT FOUND — navigation impossible');
+
+            const msgs = document.querySelectorAll('[data-message-author-role]');
+            addLine(structLog, msgs.length > 0, '[data-message-author-role]',
+                msgs.length > 0 ? `${msgs.length} in DOM` : 'MISSING — cannot extract messages');
+
+            const msgIds = document.querySelectorAll('[data-message-id]');
+            addLine(structLog, msgIds.length > 0, '[data-message-id]',
+                msgIds.length > 0 ? `${msgIds.length} in DOM` : 'MISSING — export TOC will have no anchors');
+
+            const allPH   = [...document.querySelectorAll('[data-turn-id-container]')];
+            const blankPH = [...document.querySelectorAll('[data-turn-id-container][data-is-intersecting="false"]')];
+            if (allPH.length === 0) {
+                addLine(structLog, null, '[data-turn-id-container] (lazy placeholder)',
+                    'None in DOM — scroll to the middle of a long conversation and re-check');
+            } else {
+                const p = allPH[0];
+                const hasAttr  = p.hasAttribute('data-is-intersecting');
+                const classOk  = p.className.includes('h-(--last-known-height') && p.className.includes('min-h-14');
+                const cssVar   = getComputedStyle(p).getPropertyValue('--last-known-height').trim();
+                addLine(structLog, hasAttr && classOk, '[data-turn-id-container] (lazy placeholder)',
+                    [
+                        `${allPH.length} total, ${blankPH.length} unloaded (blank)`,
+                        hasAttr  ? 'data-is-intersecting ✓' : 'data-is-intersecting MISSING ← blank detection broken',
+                        classOk  ? 'class h-(--last-known-height,50vh) min-h-14 ✓' : `class mismatch: "${p.className.slice(0, 70)}"`,
+                        cssVar   ? `--last-known-height: ${cssVar}` : '--last-known-height not set in CSS',
+                    ].join('\n    ')
+                );
+            }
+        };
+
+        const recheckBtn = Object.assign(document.createElement('button'), { innerText: 'Re-check' });
+        Object.assign(recheckBtn.style, {
+            padding: '3px 8px', background: '#313244', color: '#cdd6f4',
+            border: '1px solid #585b70', borderRadius: '4px', cursor: 'pointer',
+            fontFamily: 'monospace', fontSize: '10px', marginBottom: '10px',
+        });
+        recheckBtn.onclick = runStructural;
+
+        // ── Markup fidelity section ───────────────────────────────
+        const markupHead = Object.assign(document.createElement('div'), { innerText: '── Markup Fidelity ──' });
+        Object.assign(markupHead.style, { color: '#89b4fa', marginBottom: '6px' });
+
+        const intro = Object.assign(document.createElement('div'), {
+            innerText: 'Paste these prompts into a new ChatGPT conversation, run extraction on it, then click Check:',
+        });
+        Object.assign(intro.style, { color: '#bac2de', marginBottom: '6px', lineHeight: '1.4' });
+
+        const promptsBox = document.createElement('div');
+        Object.assign(promptsBox.style, {
+            background: '#181825', padding: '8px', borderRadius: '4px',
+            whiteSpace: 'pre-wrap', color: '#cdd6f4', lineHeight: '1.7', marginBottom: '6px',
+        });
+        promptsBox.innerText = _MARKUP_CHECKS.map((c, i) => `${i + 1}. ${c.prompt}`).join('\n');
+
+        const copyBtn = Object.assign(document.createElement('button'), { innerText: 'Copy prompts' });
+        Object.assign(copyBtn.style, {
+            padding: '3px 10px', background: '#313244', color: '#cdd6f4',
+            border: '1px solid #585b70', borderRadius: '4px', cursor: 'pointer',
+            fontFamily: 'monospace', fontSize: '10px', marginBottom: '8px', display: 'block',
+        });
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(_MARKUP_CHECKS.map((c, i) => `${i + 1}. ${c.prompt}`).join('\n'));
+            copyBtn.innerText = 'Copied!';
+            setTimeout(() => { copyBtn.innerText = 'Copy prompts'; }, 2000);
+        };
+
+        const checkBtn = Object.assign(document.createElement('button'), { innerText: 'Check Extracted Content' });
+        Object.assign(checkBtn.style, {
+            padding: '5px 12px', background: '#a6e3a1', color: '#11111b',
+            border: 'none', borderRadius: '4px', cursor: 'pointer',
+            fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', marginBottom: '8px',
+        });
+
+        const markupLog = document.createElement('div');
+
+        checkBtn.onclick = () => {
+            markupLog.innerHTML = '';
+            if (!_savedState?.master?.length) {
+                const msg = document.createElement('div');
+                msg.innerText = 'No extracted content — run extraction first.';
+                Object.assign(msg.style, { color: '#f38ba8' });
+                markupLog.appendChild(msg);
+                return;
+            }
+            const text = _savedState.master.filter(b => b.role === 'assistant').map(b => b.text).join('\n');
+            for (const { label, pat } of _MARKUP_CHECKS)
+                addLine(markupLog, pat.test(text), label, null);
+        };
+
+        panel.append(titleRow, structHead, structLog, recheckBtn, markupHead, intro, promptsBox, copyBtn, checkBtn, markupLog);
+        document.body.appendChild(panel);
+        runStructural();
+    }
+
+    GM_registerMenuCommand('Compatibility Check', buildDiagUI);
 })();
