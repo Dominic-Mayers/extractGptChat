@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.44
+// @version      3.45
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -621,7 +621,7 @@
             const _wast  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
                 / Math.max(_perf.htmlToMarkdownCalls, 1));
 
-            md += `    ── perf (v3.39) ──\n`
+            md += `    ── perf (v3.45) ──\n`
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
                 + `    dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dup}%) → ~${_wast}ms wasted\n`
@@ -831,7 +831,7 @@
     async function run(ui, stopBtn) {
         _resetPerf();
         _perf.runStartMs = performance.now();
-        let container = findScrollContainer();
+        const container = findScrollContainer();
         _perf.containerTag     = container.tagName.toLowerCase();
         _perf.containerScrollH = container.scrollHeight;
         _perf.containerClientH = container.clientHeight;
@@ -840,92 +840,55 @@
         const master = [];
         const seen = new Set();
 
-        // ── Phase 1: Move to top ──────────────────────────────────────────
-        ui.phase('1/3', 'Scrolling to top');
-        const topPos = await scrollToTop(container, ui);
-        _perf.topAfterScrollToTop = topPos.top;
-        if (topPos.top > 10)
-            ui.log(`WARNING: scroll top=${topPos.top} — container may be wrong.`);
-
-        // ── Phase 2: Navigate to each TOC item, collect after each ────────
-        ui.phase('2/3', 'Navigating');
-
-        // Hover the strip to reveal real label text, then collect dot buttons.
-        let dots = getPromptDots();
-        if (dots.length === 0) {
-            ui.log('WARNING: TOC menu not found — cannot navigate');
-            return;
-        }
-        const strip = dots[0].closest('div[class*="no-scrollbar"]') || dots[0].parentElement;
-        for (const t of ['pointerover', 'mouseover', 'mouseenter'])
-            strip.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
-        await sleep(500);
-        dots = getPromptDots();
-        ui.total = dots.length;
-        _perf.panelTotal = dots.length;
-        ui.log(`${dots.length} user prompts from the menu`);
-        for (const t of ['pointerout', 'mouseout', 'mouseleave'])
-            strip.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
-
         if (stopBtn) stopBtn.onclick = () => {
             ui.stopped = true;
             mergeBlocks(master, getVisibleBlocks(), seen);
         };
 
-        // Snapshot infrastructure
-        let firstUnconfirmedPrompt = 0;
-        const BREAKPOINTS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-        let _nextBpIdx = 1;
-
-        const takeSnapshot = (bp) => {
-            const _uEls = [...document.querySelectorAll('[data-message-author-role="user"]')];
-            const _cRect = container === document.documentElement
-                ? { top: 0, bottom: window.innerHeight }
-                : container.getBoundingClientRect();
-            const uBefore = _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length;
-            const uAfter  = _uEls.filter(el => el.getBoundingClientRect().top   > _cRect.bottom).length;
-            _perf.snapshots.push({
-                p: bp,
-                t: Math.round(performance.now() - _perf.runStartMs),
-                q: countPairs(master),
-                r: firstUnconfirmedPrompt,
-                d: document.getElementsByTagName('*').length,
-                uBefore, uAfter,
-            });
+        const scrollTo = top => {
+            if (container === document.documentElement)
+                window.scrollTo({ top, behavior: 'instant' });
+            else
+                container.scrollTop = top;
         };
 
-        const pushSnapshotsIfNeeded = () => {
-            const pct = dots.length > 0
-                ? Math.round(100 * firstUnconfirmedPrompt / dots.length)
-                : 0;
-            while (_nextBpIdx < BREAKPOINTS.length && BREAKPOINTS[_nextBpIdx] <= pct)
-                takeSnapshot(BREAKPOINTS[_nextBpIdx++]);
-        };
-
-        takeSnapshot(0);
-
-        // Capture any content visible at the top before the first click.
-        { const blks = getVisibleBlocks();
-          const { added, skipped } = mergeBlocks(master, blks, seen);
-          _perf.blocksAdded += added; _perf.blocksSkipped += skipped; }
-
-        // Navigate to each TOC item in order.
-        for (let k = 0; k < dots.length && !ui.stopped; k++) {
-            dots[k].click();
-            await sleep(50);
-            await waitForContent(container, 5000);
+        const collectCurrent = () => {
             const blks = getVisibleBlocks();
             const { added, skipped } = mergeBlocks(master, blks, seen);
             _perf.blocksAdded += added; _perf.blocksSkipped += skipped;
-            firstUnconfirmedPrompt = k + 1;
-            ui.status(countPairs(master), Math.round(100 * firstUnconfirmedPrompt / dots.length));
-            pushSnapshotsIfNeeded();
+        };
+
+        // Save starting position so we can head both ways from here.
+        const startTop = getScrollPosition(container).top;
+
+        // ── Phase 1: scroll down to bottom ───────────────────────
+        ui.phase('1/2', 'Scrolling down');
+        while (!ui.stopped) {
+            collectCurrent();
+            const { top, bottom, percent } = getScrollPosition(container);
+            ui.status(countPairs(master), percent);
+            if (bottom <= 0) break;
+            scrollTo(top + container.clientHeight);
+            await sleep(50);
+            await waitForContent(container, 5000);
         }
 
-        while (_nextBpIdx < BREAKPOINTS.length) takeSnapshot(BREAKPOINTS[_nextBpIdx++]);
+        // ── Phase 2: return to start, then scroll up to top ──────
+        ui.phase('2/2', 'Scrolling up');
+        scrollTo(startTop);
+        await sleep(50);
+        await waitForContent(container, 5000);
+        while (!ui.stopped) {
+            collectCurrent();
+            const { top, percent } = getScrollPosition(container);
+            ui.status(countPairs(master), 100 - percent);
+            if (top <= 0) break;
+            scrollTo(Math.max(0, top - container.clientHeight));
+            await sleep(50);
+            await waitForContent(container, 5000);
+        }
 
-        // ── Phase 3: Perf log — export is triggered by the Export button ──
-        ui.phase('3/3', 'Ready');
+        ui.phase('Done', 'Ready');
         const _totalMs = performance.now() - _perf.runStartMs;
         const _procMs  = _perf.htmlToMarkdownMs + _perf.mergeBlocksMs;
         const _sleepMs = _totalMs - _procMs;
@@ -933,7 +896,7 @@
             ? Math.round(100 * _perf.blocksSkipped / _perf.htmlToMarkdownCalls) : 0;
         const _wastMs  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
             / Math.max(_perf.htmlToMarkdownCalls, 1));
-        ui.log('── perf (v3.39) ──');
+        ui.log('── perf (v3.45) ──');
         ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`  dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
