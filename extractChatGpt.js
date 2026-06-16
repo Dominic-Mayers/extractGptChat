@@ -579,7 +579,7 @@
         return uploads.join('\n') + '\n\n' + body.replace(/^\n+/, '').trimStart();
     }
 
-    async function exportMarkdown(blocks, includeDiag = false) {
+    async function exportMarkdown(blocks, includeDiag = false, stopped = false) {
         const questions = countPairs(blocks);
         const date  = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
         const title = getChatTitle();
@@ -628,14 +628,13 @@
                 + `    mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}\n`
                 + `    Exported ${countPairs(blocks)} user prompts (${blocks.length} prompts).\n`
                 + `\n`
-                + `    ── diag (v3.36) ──\n`
-                + `    container: <${_perf.containerTag}> scrollH=${_perf.containerScrollH} clientH=${_perf.containerClientH}${_perf.containerIsDocEl ? ' [FALLBACK-docEl]' : ''}\n`
-                + `    top after scrollToTop: ${_perf.topAfterScrollToTop}px${_perf.topAfterScrollToTop > 10 ? ' [WARNING: did not reach top]' : ''}\n`
+                + `    ── diag (v3.39) ──\n`
                 + (() => {
                     const n = promptDots.length;
                     const exported = countPairs(blocks);
                     if (n === 0) return `    prompt nav: TOC not visible at export time\n`;
-                    return `    prompt nav: ${n} TOC items | exported: ${exported} → ${n === exported ? 'OK' : 'MISMATCH'}\n`;
+                    const status = n === exported ? 'OK' : stopped ? 'STOPPED' : 'MISMATCH';
+                    return `    prompt nav: ${n} TOC items | exported: ${exported} → ${status}\n`;
                 })();
             if (_perf.snapshots.length > 0 && _perf.panelTotal > 0) {
                 const snaps = _perf.snapshots;
@@ -940,7 +939,7 @@
         ui.log(`  dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
         ui.log(`mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}`);
         ui.log(`Exported ${countPairs(master)} user prompts (${master.length} prompts).`);
-        _savedState = { master };
+        _savedState = { master, stopped: ui.stopped };
     }
 
 // ════════════════════════════════════════════════════════════════
@@ -1137,7 +1136,7 @@
             if (!_savedState) return;
             exportBtn.disabled = true;
             exportBtn.innerText = 'Exporting…';
-            await exportMarkdown(_savedState.master, ui.includeDiag);
+            await exportMarkdown(_savedState.master, ui.includeDiag, _savedState.stopped);
             const count = countPairs(_savedState.master);
             ui.log(`Exported ${count} user prompts (${_savedState.master.length} blocks).`);
             exportBtn.disabled = false;
