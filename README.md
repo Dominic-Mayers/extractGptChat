@@ -88,7 +88,6 @@ Assistant response...
 ## Notes
 
 * Extraction speed is limited by ChatGPT's server-side lazy loading. Expect roughly **0.5 seconds per user prompt** — for example, about 4 minutes for a 500-prompt conversation.
-* The script requires ChatGPT's TOC navigation sidebar to be visible. This sidebar appears automatically for conversations with more than a few prompts.
 * The script depends on ChatGPT's DOM structure. If ChatGPT changes its markup, extraction may need adjustment.
 
 ## Troubleshooting
@@ -97,12 +96,12 @@ If the export misses content or stops too early:
 
 1. Reload the ChatGPT page.
 2. Run the extractor again.
+3. Open **Compatibility Check** from the Tampermonkey menu to identify which selectors have changed.
 
 Common causes of issues include:
 
-* ChatGPT DOM changes
-* TOC sidebar not visible (very short conversations)
-* incomplete lazy-loading under heavy network throttling (the 5-second per-prompt timeout may need increasing)
+* Change in ChatGPT markup structure
+* Incomplete lazy-loading under heavy network throttling (the 5-second per-prompt timeout may need increasing)
 
 ## Permissions
 
