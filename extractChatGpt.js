@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.43
+// @version      3.44
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1328,7 +1328,7 @@
             promptsContainer.appendChild(row);
         }
 
-        const checkBtn = Object.assign(document.createElement('button'), { innerText: 'Check Extracted Content' });
+        const checkBtn = Object.assign(document.createElement('button'), { innerText: 'Extract & Check' });
         Object.assign(checkBtn.style, {
             padding: '5px 12px', background: '#a6e3a1', color: '#11111b',
             border: 'none', borderRadius: '4px', cursor: 'pointer',
@@ -1337,18 +1337,49 @@
 
         const markupLog = document.createElement('div');
 
-        checkBtn.onclick = () => {
+        checkBtn.onclick = async () => {
             markupLog.innerHTML = '';
-            if (!_savedState?.master?.length) {
-                const msg = document.createElement('div');
-                msg.innerText = 'No extracted content — run extraction first.';
-                Object.assign(msg.style, { color: '#f38ba8' });
-                markupLog.appendChild(msg);
+            checkBtn.disabled = true;
+            checkBtn.innerText = 'Extracting…';
+
+            const addLog = (msg, color = '#6c7086') => {
+                const line = document.createElement('div');
+                line.innerText = msg;
+                Object.assign(line.style, { color, fontSize: '10px' });
+                markupLog.appendChild(line);
+            };
+
+            const diagUi = {
+                stopped: false, total: 0,
+                phase(n, label) { addLog(`Phase ${n} — ${label}`, '#89b4fa'); },
+                status() {},
+                log(msg) { addLog(`> ${msg}`); },
+            };
+
+            try {
+                await run(diagUi, null);
+            } catch (e) {
+                addLog(`Error: ${e.message}`, '#f38ba8');
+                checkBtn.disabled = false;
+                checkBtn.innerText = 'Extract & Check';
                 return;
             }
-            const text = _savedState.master.filter(b => b.role === 'assistant').map(b => b.text).join('\n');
-            for (const { label, pat } of _MARKUP_CHECKS)
-                addLine(markupLog, pat.test(text), label, null);
+
+            const sep = document.createElement('div');
+            sep.innerText = '──';
+            Object.assign(sep.style, { color: '#585b70', margin: '4px 0' });
+            markupLog.appendChild(sep);
+
+            const text = (_savedState?.master ?? []).filter(b => b.role === 'assistant').map(b => b.text).join('\n');
+            if (!text) {
+                addLog('Extraction produced no assistant content.', '#f38ba8');
+            } else {
+                for (const { label, pat } of _MARKUP_CHECKS)
+                    addLine(markupLog, pat.test(text), label, null);
+            }
+
+            checkBtn.disabled = false;
+            checkBtn.innerText = 'Extract & Check';
         };
 
         panel.append(titleRow, structHead, structLog, recheckBtn, markupHead, intro, promptsContainer, checkBtn, markupLog);
