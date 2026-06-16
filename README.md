@@ -1,12 +1,12 @@
 # ChatGPT Chat Extractor
 
-A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by automatically scrolling through the chat, collecting visible user and assistant messages, and downloading a `.md` file.
+A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by navigating each user prompt via the TOC sidebar, waiting for lazy-loaded content to appear, and downloading a `.md` file.
 
 ## Features
 
 * Exports ChatGPT conversations as Markdown
 * Preserves message roles `USER` and `ASSISTANT`
-* Handles long conversations by scrolling automatically
+* Handles long conversations via ChatGPT's TOC navigation panel — no manual scrolling required
 * Converts common HTML content to Markdown, including:
   * headings
   * lists
@@ -33,12 +33,11 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
 ## Usage
 
 1. Open the ChatGPT conversation you want to export.
-2. Scroll to the **bottom** of the conversation first.
-3. Open the Tampermonkey menu.
-4. Select **Show / Hide Extractor Panel**.
-5. Click **Start Extraction**.
-6. Wait while the script scrolls to the top, scans downward, and exports the conversation.
-7. A Markdown file will be downloaded automatically.
+2. Open the Tampermonkey menu.
+3. Select **Show / Hide Extractor Panel**.
+4. Click **Start Extraction**.
+5. Wait while the script navigates each user prompt and collects the conversation.
+6. When done, click **Export** to download the Markdown file.
 
 The exported file name is based on the chat title and a timestamp.
 
@@ -88,24 +87,22 @@ Assistant response...
 
 ## Notes
 
-* Extraction speed is limited by ChatGPT’s server-side lazy loading, not by bandwidth or local processing. Expect roughly **2 seconds per user prompt** — for example, about 15 minutes for a 500-prompt conversation.
-* The script depends on ChatGPT’s DOM structure. If ChatGPT changes its markup, extraction may need adjustment.
+* Extraction speed is limited by ChatGPT's server-side lazy loading. Expect roughly **0.5 seconds per user prompt** — for example, about 4 minutes for a 500-prompt conversation.
+* The script requires ChatGPT's TOC navigation sidebar to be visible. This sidebar appears automatically for conversations with more than a few prompts.
+* The script depends on ChatGPT's DOM structure. If ChatGPT changes its markup, extraction may need adjustment.
 
 ## Troubleshooting
 
 If the export misses content or stops too early:
 
 1. Reload the ChatGPT page.
-2. Scroll to the bottom manually.
-3. Run the extractor again.
+2. Run the extractor again.
 
 Common causes of issues include:
 
 * ChatGPT DOM changes
-* incomplete lazy-loading
-* wrong scroll container detection
-* repeated or very short message endings when message IDs are unavailable
-* external scroll interference during extraction (the diagnostic block in the exported file will report any forward position jumps detected)
+* TOC sidebar not visible (very short conversations)
+* incomplete lazy-loading under heavy network throttling (the 5-second per-prompt timeout may need increasing)
 
 ## Permissions
 
