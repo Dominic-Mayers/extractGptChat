@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.16
+// @version      3.39
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -218,6 +218,22 @@
         return [...primary, ...extra];
     }
 
+
+    // ════════════════════════════════════════════════════════════════
+    // WAIT — Poll until no blank placeholders remain in the DOM
+    // ════════════════════════════════════════════════════════════════
+
+    async function waitForContent(container, timeoutMs = 5000) {
+        const vTop    = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+        const vBottom = container === document.documentElement ? window.innerHeight : container.getBoundingClientRect().bottom;
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+            const hasBlank = [...document.querySelectorAll('[data-turn-id-container][data-is-intersecting="false"]')]
+                .some(el => { const r = el.getBoundingClientRect(); return r.bottom > vTop && r.top < vBottom; });
+            if (!hasBlank) return;
+            await sleep(50);
+        }
+    }
 
     // ════════════════════════════════════════════════════════════════
     // TASK 5 — Move to the top of the chat
@@ -605,34 +621,21 @@
             const _wast  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
                 / Math.max(_perf.htmlToMarkdownCalls, 1));
 
-            md += `    ── perf (v3.15) ──\n`
+            md += `    ── perf (v3.39) ──\n`
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
                 + `    dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dup}%) → ~${_wast}ms wasted\n`
                 + `    mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}\n`
-                + `    Exported ${countPairs(blocks)} user prompts (${blocks.length} blocks).\n`
+                + `    Exported ${countPairs(blocks)} user prompts (${blocks.length} prompts).\n`
                 + `\n`
-                + `    ── diag (v3.15) ──\n`
+                + `    ── diag (v3.36) ──\n`
                 + `    container: <${_perf.containerTag}> scrollH=${_perf.containerScrollH} clientH=${_perf.containerClientH}${_perf.containerIsDocEl ? ' [FALLBACK-docEl]' : ''}\n`
                 + `    top after scrollToTop: ${_perf.topAfterScrollToTop}px${_perf.topAfterScrollToTop > 10 ? ' [WARNING: did not reach top]' : ''}\n`
-                + `    lastMsgId: ${_perf.lastMsgIdFound ? 'found' : 'NOT FOUND — used text sig'}\n`
-                + `    exit: ${_perf.exitReason} (${_perf.exitPercent}%), scrollH at exit: ${_perf.exitScrollH}\n`
-                + (_perf.forwardJumps > 0
-                    ? `    WARNING: ${_perf.forwardJumps} forward position jump(s) detected — output may be incomplete\n`
-                    : `    forward jumps: none\n`)
-                + (_perf.gapsDetected > 0
-                    ? `    gaps detected: ${_perf.gapsDetected}, recovered: ${_perf.gapsRecovered}\n`
-                    : `    gap detection: no gaps found\n`)
-                + (_perf.blockGapsDetected > 0
-                    ? `    WARNING: ${_perf.blockGapsDetected} block gap(s) detected\n`
-                    : `    block contiguity: OK\n`)
                 + (() => {
-                    const dots = promptDots.length;
+                    const n = promptDots.length;
                     const exported = countPairs(blocks);
-                    if (dots === 0) return `    prompt nav: dots not visible at export time\n`;
-                    if (_perf.exitReason === 'stopped')
-                        return `    prompt nav: ${dots} dots | exported: ${exported}/${dots} (partial — stopped)\n`;
-                    return `    prompt nav: ${dots} dots | exported: ${exported} → ${dots === exported ? 'OK' : 'MISMATCH'}\n`;
+                    if (n === 0) return `    prompt nav: TOC not visible at export time\n`;
+                    return `    prompt nav: ${n} TOC items | exported: ${exported} → ${n === exported ? 'OK' : 'MISMATCH'}\n`;
                 })();
             if (_perf.snapshots.length > 0 && _perf.panelTotal > 0) {
                 const snaps = _perf.snapshots;
@@ -826,333 +829,118 @@
     // ORCHESTRATION
     // ════════════════════════════════════════════════════════════════
 
-    async function run(ui, stopBtn, resumeState = null) {
+    async function run(ui, stopBtn) {
         _resetPerf();
         _perf.runStartMs = performance.now();
         let container = findScrollContainer();
-        _perf.containerTag      = container.tagName.toLowerCase();
-        _perf.containerScrollH  = container.scrollHeight;
-        _perf.containerClientH  = container.clientHeight;
-        _perf.containerIsDocEl  = container === document.documentElement;
+        _perf.containerTag     = container.tagName.toLowerCase();
+        _perf.containerScrollH = container.scrollHeight;
+        _perf.containerClientH = container.clientHeight;
+        _perf.containerIsDocEl = container === document.documentElement;
 
-        let master, seen, lastMsgId, endSig;
+        const master = [];
+        const seen = new Set();
 
-        if (!resumeState) {
-            // ── Phase 1: Sample termination anchors at the bottom of the chat ──
-            ui.phase('1/4', 'Sampling end anchors');
+        // ── Phase 1: Move to top ──────────────────────────────────────────
+        ui.phase('1/3', 'Scrolling to top');
+        const topPos = await scrollToTop(container, ui);
+        _perf.topAfterScrollToTop = topPos.top;
+        if (topPos.top > 10)
+            ui.log(`WARNING: scroll top=${topPos.top} — container may be wrong.`);
 
-            lastMsgId = getLastVisibleMessageId();
-            _perf.lastMsgIdFound = !!lastMsgId;
+        // ── Phase 2: Navigate to each TOC item, collect after each ────────
+        ui.phase('2/3', 'Navigating');
 
-            const sample = sampleEndSignature(20);
-            if (!sample.ok) throw new Error(sample.error);
-            if (sample.warning) ui.log(`Note: ${sample.warning}`);
-            endSig = sample.lines;
-
-            // ── Phase 2: Move to top ──────────────────────────────────────────
-            ui.phase('2/4', 'Scrolling to top');
-            const topPos = await scrollToTop(container, ui);
-            _perf.topAfterScrollToTop = topPos.top;
-            if (topPos.top > 10) {
-                ui.log(`WARNING: scroll top=${topPos.top} after scroll — container may be wrong.`);
-            }
-            if (topPos.top > 0) ui.log(`at top: ${topPos.top}px remaining`);
-
-            master = [];
-            seen = new Set();
-        } else {
-            ({ master, seen, lastMsgId, endSig } = resumeState);
-            _perf.lastMsgIdFound = !!lastMsgId;
+        // Hover the strip to reveal real label text, then collect dot buttons.
+        let dots = getPromptDots();
+        if (dots.length === 0) {
+            ui.log('WARNING: TOC menu not found — cannot navigate');
+            return;
         }
-
-        // ── Phase 3: Scan downwards, accumulate unique content ────────────
-        ui.phase('3/4', resumeState ? 'Resuming scan' : 'Scanning');
-        let iteration = resumeState ? resumeState.iteration : 0;
-        let scriptScrollTop = resumeState
-            ? resumeState.scrollTop
-            : getScrollPosition(container).top;
+        const strip = dots[0].closest('div[class*="no-scrollbar"]') || dots[0].parentElement;
+        for (const t of ['pointerover', 'mouseover', 'mouseenter'])
+            strip.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
+        await sleep(500);
+        dots = getPromptDots();
+        ui.total = dots.length;
+        _perf.panelTotal = dots.length;
+        ui.log(`${dots.length} user prompts from the menu`);
+        for (const t of ['pointerout', 'mouseout', 'mouseleave'])
+            strip.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
 
         if (stopBtn) stopBtn.onclick = () => {
             ui.stopped = true;
             mergeBlocks(master, getVisibleBlocks(), seen);
         };
 
-        // stepPx is constant for the session — compute once outside the loop.
-        const stepPx = container.clientHeight || 600;
-        if (!container.clientHeight) {
-            ui.log('WARNING: container.clientHeight is 0 — using 600 px fallback. Container may be wrong.');
-        }
-
-        // ── Collect panel snippets for runtime gap detection ──────────────────
-        let runPanelNorms = resumeState ? resumeState.runPanelNorms : null;
-        let firstUnconfirmedPrompt = resumeState ? resumeState.firstUnconfirmedPrompt : 0;
-
-        if (!resumeState) {
-            // Dot aria-labels are "Prompt N" at rest; they update to descriptive text
-            // when the strip is hovered. Hover once at startup to capture real text,
-            // then un-hover so the UI returns to its normal state.
-            const gapDots = getPromptDots();
-            if (gapDots.length > 0) {
-                const strip = gapDots[0].closest('div[class*="no-scrollbar"]') || gapDots[0].parentElement;
-                for (const t of ['pointerover', 'mouseover', 'mouseenter'])
-                    strip.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
-                await sleep(500);
-                const labels = getPromptDots().map(b => b.getAttribute('aria-label') || '');
-                const descriptive = labels.filter(l => !/^Prompt \d+$/i.test(l) && l.length > 3);
-                if (descriptive.length > 0) {
-                    runPanelNorms = labels.map(l => {
-                        const norm = l.replace(/\s*(…|\.\.\.)$/, '')
-                                      .replace(/[^\x20-\x7E]/g, '')
-                                      .replace(/\s+/g, ' ')
-                                      .trim()
-                                      .toLowerCase();
-                        return (norm && !/^prompt \d+$/i.test(norm)) ? norm : null;
-                    });
-                    ui.total = runPanelNorms.length;
-                    _perf.panelTotal = runPanelNorms.length;
-                    ui.log(`${runPanelNorms.length} user prompts from the menu`);
-                } else {
-                    ui.log('Gap detection: hover did not reveal text labels — disabled');
-                }
-                for (const t of ['pointerout', 'mouseout', 'mouseleave'])
-                    strip.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
-            } else {
-                ui.log('Gap detection: prompt dots not found — disabled');
-            }
-        } else {
-            ui.total = runPanelNorms ? runPanelNorms.length : 0;
-            _perf.panelTotal = runPanelNorms ? runPanelNorms.length : 0;
-            ui.log(`Resumed: ${countPairs(master)} blocks, ${firstUnconfirmedPrompt} confirmed`);
-        }
-
-        let lastConfirmedBlockIdx = resumeState ? resumeState.lastConfirmedBlockIdx : -1;
-        const sameBlock = (a, b) => {
-            if (a.msgId && b.msgId) return a.msgId === b.msgId;
-            const ta = a.plainText || a.text || '';
-            const tb = b.plainText || b.text || '';
-            return a.role === b.role && ta === tb;
-        };
-
+        // Snapshot infrastructure
+        let firstUnconfirmedPrompt = 0;
         const BREAKPOINTS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-        let _nextBpIdx = resumeState ? resumeState._nextBpIdx : 0;
+        let _nextBpIdx = 1;
 
         const takeSnapshot = (bp) => {
             const _uEls = [...document.querySelectorAll('[data-message-author-role="user"]')];
-            const _cnorm = runPanelNorms && firstUnconfirmedPrompt > 0
-                ? runPanelNorms[firstUnconfirmedPrompt - 1] : null;
-            const _cidx = _cnorm !== null
-                ? _uEls.findIndex(el => el.innerText.toLowerCase().includes(_cnorm)) : -1;
-            const _cRect = (_cidx < 0 && firstUnconfirmedPrompt > 0)
-                ? (container === document.documentElement
-                    ? { top: 0, bottom: window.innerHeight }
-                    : container.getBoundingClientRect())
-                : null;
-            const uBefore = _cidx >= 0 ? _cidx
-                : firstUnconfirmedPrompt === 0 ? 0
-                : _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length;
-            const uAfter = _cidx >= 0 ? _uEls.length - _cidx - 1
-                : firstUnconfirmedPrompt === 0 ? Math.max(0, _uEls.length - 1)
-                : _uEls.filter(el => el.getBoundingClientRect().top > _cRect.bottom).length;
+            const _cRect = container === document.documentElement
+                ? { top: 0, bottom: window.innerHeight }
+                : container.getBoundingClientRect();
+            const uBefore = _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length;
+            const uAfter  = _uEls.filter(el => el.getBoundingClientRect().top   > _cRect.bottom).length;
             _perf.snapshots.push({
                 p: bp,
                 t: Math.round(performance.now() - _perf.runStartMs),
                 q: countPairs(master),
                 r: firstUnconfirmedPrompt,
                 d: document.getElementsByTagName('*').length,
-                uBefore,
-                uAfter,
+                uBefore, uAfter,
             });
         };
 
         const pushSnapshotsIfNeeded = () => {
-            const pos = runPanelNorms && runPanelNorms.length > 0 && firstUnconfirmedPrompt > 0
-                ? Math.round(100 * firstUnconfirmedPrompt / runPanelNorms.length)
-                : getScrollPosition(container).percent;
-            while (_nextBpIdx < BREAKPOINTS.length && BREAKPOINTS[_nextBpIdx] <= pos)
+            const pct = dots.length > 0
+                ? Math.round(100 * firstUnconfirmedPrompt / dots.length)
+                : 0;
+            while (_nextBpIdx < BREAKPOINTS.length && BREAKPOINTS[_nextBpIdx] <= pct)
                 takeSnapshot(BREAKPOINTS[_nextBpIdx++]);
         };
 
-        // Capture initial state at 0% (skip on resume — already have prior snapshots)
-        if (!resumeState) {
-            takeSnapshot(0);
-            _nextBpIdx = 1;
-        }
+        takeSnapshot(0);
 
-        const _saveState = () => {
-            _savedState = {
-                master, seen, lastMsgId, endSig,
-                runPanelNorms, firstUnconfirmedPrompt,
-                lastConfirmedBlockIdx, iteration,
-                scrollTop: getScrollPosition(container).top,
-                _nextBpIdx,
-            };
-        };
+        // Capture any content visible at the top before the first click.
+        { const blks = getVisibleBlocks();
+          const { added, skipped } = mergeBlocks(master, blks, seen);
+          _perf.blocksAdded += added; _perf.blocksSkipped += skipped; }
 
-        while (true) {
-            iteration++;
-
-            if (ui.stopped) {
-                const _sp = getScrollPosition(container);
-                _perf.exitReason = 'stopped'; _perf.exitIter = iteration;
-                _perf.exitPercent = _sp.percent; _perf.exitScrollH = container.scrollHeight;
-                _saveState();
-                break;
-            }
-
-            // Re-acquire container if ChatGPT remounted it — a detached node
-            // silently ignores scrollTop writes and causes a 30 s timeout.
-            // Must happen before termination checks that call container.getBoundingClientRect().
-            if (!document.contains(container)) {
-                ui.log(`container detached — re-finding`);
-                container = findScrollContainer();
-                scriptScrollTop = getScrollPosition(container).top;
-            }
-
-            // Position guard: if the scroll landed significantly behind the expected
-            // position (e.g. WheelEvent caused an unintended snap), skip content
-            // capture this iteration to avoid inserting out-of-order messages.
-            const { top: currentTop, percent: currentPercent } = getScrollPosition(container);
-            if (currentTop > scriptScrollTop + stepPx * 2) {
-                const gap = Math.round(currentTop - scriptScrollTop);
-                _perf.forwardJumps++;
-                ui.log(`WARNING: pos jumped forward ${gap}px — content gap likely`);
-            }
-            if (currentTop >= scriptScrollTop - 2 * stepPx) {
-                const current = getVisibleBlocks();
-                const { added, skipped } = mergeBlocks(master, current, seen);
-                _perf.blocksAdded += added; _perf.blocksSkipped += skipped;
-                if (!runPanelNorms) firstUnconfirmedPrompt = countPairs(master);
-                ui.status(countPairs(master), currentPercent);
-            } else {
-                ui.status(countPairs(master), currentPercent);
-            }
-
-            // ── Block contiguity check ────────────────────────────────────────
-            // Any two consecutive blocks in the viewport are guaranteed contiguous
-            // by ChatGPT's rendering invariant. Chain pairs across scroll steps
-            // (via overlap) to build a verified contiguous sequence from the start.
-            const vpBlocks = getViewportBlocks(container);
-            if (master.length > 0 && vpBlocks.length >= 2) {
-                if (lastConfirmedBlockIdx < 0) lastConfirmedBlockIdx = 0;
-                const k = vpBlocks.findIndex(b => sameBlock(master[lastConfirmedBlockIdx], b));
-                if (k >= 0) {
-                    for (let j = k + 1; j < vpBlocks.length; j++) {
-                        const next = master[lastConfirmedBlockIdx + 1];
-                        if (!next) break;
-                        if (sameBlock(next, vpBlocks[j])) {
-                            lastConfirmedBlockIdx++;
-                        } else {
-                            _perf.blockGapsDetected++;
-                            ui.log(`BLOCK GAP after block ${lastConfirmedBlockIdx + 1} of ${master.length}`);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // ── Runtime gap detection ─────────────────────────────────────────
-            // Invariant: when panel prompt K is visible in the viewport, all prompts
-            // 0..K-1 must already be in master. Process each visible user prompt in
-            // ascending index order so no assumption is made about future visibility.
-            // Stop after any gap recovery — DOM state may have changed.
-            if (runPanelNorms && runPanelNorms.length > 0) {
-                const vpUsers = vpBlocks.filter(b => b.role === 'user');
-                const vpIndices = vpUsers
-                    .map(b => findPanelIndex(b.text, runPanelNorms))
-                    .filter(k => k >= firstUnconfirmedPrompt)
-                    .sort((a, b) => a - b);
-                let recovered = false;
-                for (const targetIdx of vpIndices) {
-                    for (let J = firstUnconfirmedPrompt; J < targetIdx; J++) {
-                        if (runPanelNorms[J] === null) continue;
-                        if (!isInMaster(runPanelNorms[J], master)) {
-                            _perf.gapsDetected++;
-                            ui.log(`GAP: panel prompt ${J + 1} missing — recovering`);
-                            const savedTop = scriptScrollTop;
-                            await recoverGap(J, container, master, seen, ui);
-                            _perf.gapsRecovered++;
-                            scriptScrollTop = savedTop;
-                            firstUnconfirmedPrompt = J + 1;
-                            recovered = true;
-                            break;
-                        }
-                    }
-                    if (recovered) break;
-                    firstUnconfirmedPrompt = targetIdx + 1;
-                }
-            }
-
-            const pos = getScrollPosition(container);
-
-            // Primary termination: last message UUID is physically on screen
-            // AND we are within 3 viewport heights of the physical bottom.
-            // The pos.bottom guard prevents false termination when lastMsgId was
-            // captured from a partially-loaded chat whose scrollHeight later grew
-            // (the ID element can appear in the DOM mid-chat for the old extent).
-            if (isLastMessageInViewport(lastMsgId, container) && pos.bottom <= stepPx * 3) {
-                const { added: _a, skipped: _s } = mergeBlocks(master, getVisibleBlocks(), seen);
-                _perf.blocksAdded += _a; _perf.blocksSkipped += _s;
-                _perf.exitReason = 'lastMsgId'; _perf.exitIter = iteration;
-                _perf.exitPercent = pos.percent; _perf.exitScrollH = container.scrollHeight;
-                ui.log(`Exit: last message in viewport (${pos.percent}%) — done.`);
-                _saveState();
-                break;
-            }
-
-            // Fallback termination: end signature visible in the viewport
-            // (used only when data-message-id is unavailable)
-            if (!lastMsgId && endSignaturePresent(endSig, getViewportBlocks(container))) {
-                _perf.exitReason = 'textSig'; _perf.exitIter = iteration;
-                _perf.exitPercent = getScrollPosition(container).percent;
-                _perf.exitScrollH = container.scrollHeight;
-                ui.log(`Exit: text signature in viewport — done.`);
-                _saveState();
-                break;
-            }
-
-            // Safety net: physical scroll bottom
-            if (pos.bottom <= 2) {
-                _perf.exitReason = 'physBottom'; _perf.exitIter = iteration;
-                _perf.exitPercent = pos.percent; _perf.exitScrollH = container.scrollHeight;
-                ui.log(`Exit: physical bottom (${pos.percent}%).`);
-                _saveState();
-                break;
-            }
-
-            const targetTop = scriptScrollTop + stepPx;
-            if (ui.stopped) break;
-            if (Math.abs(getScrollPosition(container).top - targetTop) > 1) {
-                if (container === document.documentElement) window.scrollTo({ top: targetTop, behavior: 'instant' });
-                else container.scrollTop = targetTop;
-                await waitForApiIdle(15_000);
-                await waitForDomSettle(container, 8, 2_000);
-            }
-            scriptScrollTop = Math.max(targetTop, getScrollPosition(container).top);
+        // Navigate to each TOC item in order.
+        for (let k = 0; k < dots.length && !ui.stopped; k++) {
+            dots[k].click();
+            await sleep(50);
+            await waitForContent(container, 5000);
+            const blks = getVisibleBlocks();
+            const { added, skipped } = mergeBlocks(master, blks, seen);
+            _perf.blocksAdded += added; _perf.blocksSkipped += skipped;
+            firstUnconfirmedPrompt = k + 1;
+            ui.status(countPairs(master), Math.round(100 * firstUnconfirmedPrompt / dots.length));
             pushSnapshotsIfNeeded();
         }
 
-        // Capture state at any remaining breakpoints (exit may happen before 100%)
         while (_nextBpIdx < BREAKPOINTS.length) takeSnapshot(BREAKPOINTS[_nextBpIdx++]);
 
-        // ── Phase 4: Perf log — export is triggered by the Export button ─────
-        ui.phase('4/4', 'Ready');
-        const _totalMs  = performance.now() - _perf.runStartMs;
-        const _procMs   = _perf.htmlToMarkdownMs + _perf.mergeBlocksMs;
-        const _sleepMs  = _totalMs - _procMs;
-        const _dupPct   = _perf.htmlToMarkdownCalls
+        // ── Phase 3: Perf log — export is triggered by the Export button ──
+        ui.phase('3/3', 'Ready');
+        const _totalMs = performance.now() - _perf.runStartMs;
+        const _procMs  = _perf.htmlToMarkdownMs + _perf.mergeBlocksMs;
+        const _sleepMs = _totalMs - _procMs;
+        const _dupPct  = _perf.htmlToMarkdownCalls
             ? Math.round(100 * _perf.blocksSkipped / _perf.htmlToMarkdownCalls) : 0;
-        const _wastMs   = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
+        const _wastMs  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
             / Math.max(_perf.htmlToMarkdownCalls, 1));
-        ui.log('── perf (v3.16) ──');
+        ui.log('── perf (v3.39) ──');
         ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`  dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
         ui.log(`mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}`);
-        if (_perf.gapsDetected > 0)
-            ui.log(`gaps: ${_perf.gapsDetected} detected, ${_perf.gapsRecovered} recovered`);
-        if (_perf.blockGapsDetected > 0)
-            ui.log(`block gaps: ${_perf.blockGapsDetected} detected`);
-        ui.log(`${countPairs(master)} user prompts (${master.length} blocks) ready to export.`);
+        ui.log(`Exported ${countPairs(master)} user prompts (${master.length} prompts).`);
+        _savedState = { master };
     }
 
 // ════════════════════════════════════════════════════════════════
@@ -1357,23 +1145,8 @@
         };
 
         continueBtn.onclick = async () => {
-            if (!_savedState) return;
-            const stateToResume = _savedState;
-            _savedState = null;
-            showRunningState();
-            try {
-                await run(ui, stopBtn, stateToResume);
-                showIdleState('Restart', ui.stopped);
-                ui.phase(ui.stopped ? 'Stopped' : 'Done',
-                    ui.stopped ? 'Paused — Export or Continue' : 'Scan complete — Export or Continue');
-            } catch (err) {
-                stopBtn.style.display = 'none';
-                ui.phase('Error', err.message);
-                ui.log(`ERROR: ${err.message}`);
-                showIdleState('Retry', true);
-                Object.assign(btn.style, { background: '#f38ba8', color: '#11111b' });
-            }
         };
+
     }
 
     buildUI();
