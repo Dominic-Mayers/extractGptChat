@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.45
+// @version      3.46
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -73,17 +73,9 @@
             htmlToMarkdownCalls: 0, htmlToMarkdownMs: 0,
             mergeBlocksCalls: 0,    mergeBlocksMs: 0,
             blocksAdded: 0,         blocksSkipped: 0,
-            forwardJumps: 0,
-            gapsDetected: 0, gapsRecovered: 0,
-            blockGapsDetected: 0,
-            panelTotal: 0,
             snapshots: [],
             runStartMs: 0,
-            // diagnostic fields written to the output file
             containerTag: '', containerScrollH: 0, containerClientH: 0, containerIsDocEl: false,
-            lastMsgIdFound: false,
-            topAfterScrollToTop: -1,
-            exitReason: 'none', exitIter: 0, exitPercent: 0, exitScrollH: 0,
         };
     }
     _resetPerf();
@@ -621,27 +613,26 @@
             const _wast  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
                 / Math.max(_perf.htmlToMarkdownCalls, 1));
 
-            md += `    ── perf (v3.45) ──\n`
+            md += `    ── perf (v3.46) ──\n`
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
                 + `    dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dup}%) → ~${_wast}ms wasted\n`
                 + `    mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}\n`
                 + `    Exported ${countPairs(blocks)} user prompts (${blocks.length} prompts).\n`
                 + `\n`
-                + `    ── diag (v3.39) ──\n`
+                + `    ── diag (v3.46) ──\n`
                 + (() => {
                     const n = promptDots.length;
                     const exported = countPairs(blocks);
-                    if (n === 0) return `    prompt nav: TOC not visible at export time\n`;
+                    if (n === 0) return `    TOC count: not visible at export time | exported: ${exported}\n`;
                     const status = n === exported ? 'OK' : stopped ? 'STOPPED' : 'MISMATCH';
-                    return `    prompt nav: ${n} TOC items | exported: ${exported} → ${status}\n`;
+                    return `    TOC count: ${n} items | exported: ${exported} → ${status}\n`;
                 })();
-            if (_perf.snapshots.length > 0 && _perf.panelTotal > 0) {
+            if (_perf.snapshots.length > 0) {
                 const snaps = _perf.snapshots;
-                const totalPrompts = _perf.panelTotal;
                 const IND = '    ';
-                const hdrs = ['c', 'dur', 'size', 'p#', 'p%', '↑', '↓'];
-                const caps = [10, 18, 8, 11, 10, 4, 4]; // sum=65 → 77 chars with borders+indent
+                const hdrs = ['pos', 'dur', 'size', 'p#', '↑', '↓'];
+                const caps = [8, 18, 8, 11, 4, 4];
 
                 const clip = (s, w) => {
                     s = String(s);
@@ -654,10 +645,9 @@
                 const border = (l, m, r, w) =>
                     IND + l + w.map(n => '─'.repeat(n)).join(m) + r + '\n';
                 const row = (xs, w) =>
-                    IND + '│' + xs.map((x, i) => cell(x, w[i], i === 1 || i === 3 || i === 4)).join('│') + '│\n';
+                    IND + '│' + xs.map((x, i) => cell(x, w[i], i === 1 || i === 3)).join('│') + '│\n';
 
                 const fQ = (q, d) => `${q}(+${d})`;
-                const fP = (p, d) => `${p}%(+${d}%)`;
                 const fT = (s, ds) => {
                     const fmt = t => {
                         const h = Math.floor(t / 3600);
@@ -676,17 +666,12 @@
                     const prev = i > 0 ? snaps[i - 1] : null;
                     const cumTs  = Math.round(snap.t / 1000);
                     const prevTs = prev ? Math.round(prev.t / 1000) : 0;
-                    const incTs  = cumTs - prevTs;
                     const incQ   = prev ? snap.q - prev.q : snap.q;
-                    const cumPct = totalPrompts ? Math.round(100 * snap.q / totalPrompts) : 0;
-                    const prvPct = prev && totalPrompts ? Math.round(100 * prev.q / totalPrompts) : 0;
-                    const incPct = cumPct - prvPct;
                     rows.push([
-                        `${snap.r}(${snap.p}%)`,
-                        fT(cumTs, incTs),
+                        `${snap.ph}${String(snap.p).padStart(4)}%`,
+                        fT(cumTs, cumTs - prevTs),
                         String(snap.d),
                         fQ(snap.q, incQ),
-                        fP(cumPct, incPct),
                         String(snap.uBefore),
                         String(snap.uAfter),
                     ]);
@@ -699,10 +684,9 @@
                 const spanBorder  = (l, r) => IND + l + '─'.repeat(innerW) + r + '\n';
                 const spanContent = text  => IND + '│' + clip(text.padEnd(innerW), innerW) + '│\n';
                 const legendItems = [
-                    'c=confirmed(at threshold%)', 'p#=found(+new)',
-                    'dur=elapsed(+Δ)',            'p%=found %(of total)',
-                    'size=DOM elements',          '↑=DOM prompts above',
-                    'rows at 0%,10%,…confirmed',  '↓=DOM prompts below',
+                    'pos=▼down/▲up + scroll%', 'p#=found(+new)',
+                    'dur=elapsed(+Δ)',          '↑=user prompts above viewport',
+                    'size=DOM elements',        '↓=user prompts below viewport',
                 ];
                 const colW = Math.floor(innerW / 2);
                 const legendRow = (l, r) => {
@@ -711,7 +695,7 @@
                     return IND + '│' + left + right + '│\n';
                 };
                 let out = spanBorder('┌', '┐');
-                out += spanContent('Snapshots at confirmed-prompt thresholds (0%, 10%, …)');
+                out += spanContent('Snapshots at 10% scroll intervals (▼=down pass, ▲=up pass)');
                 out += spanContent('');
                 const half = legendItems.length >> 1;
                 for (let i = 0; i < half; i++)
@@ -858,15 +842,32 @@
             _perf.blocksAdded += added; _perf.blocksSkipped += skipped;
         };
 
+        const takeSnap = (ph, p) => {
+            const _uEls = [...document.querySelectorAll('[data-message-author-role="user"]')];
+            const _cRect = container === document.documentElement
+                ? { top: 0, bottom: window.innerHeight }
+                : container.getBoundingClientRect();
+            _perf.snapshots.push({
+                ph, p,
+                t: Math.round(performance.now() - _perf.runStartMs),
+                q: countPairs(master),
+                d: document.getElementsByTagName('*').length,
+                uBefore: _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length,
+                uAfter:  _uEls.filter(el => el.getBoundingClientRect().top   > _cRect.bottom).length,
+            });
+        };
+
         // Save starting position so we can head both ways from here.
         const startTop = getScrollPosition(container).top;
 
         // ── Phase 1: scroll down to bottom ───────────────────────
         ui.phase('1/2', 'Scrolling down');
+        let bp1 = 0;
         while (!ui.stopped) {
             collectCurrent();
             const { top, bottom, percent } = getScrollPosition(container);
             ui.status(countPairs(master), percent);
+            while (bp1 <= 100 && percent >= bp1) { takeSnap('▼', bp1); bp1 += 10; }
             if (bottom <= 0) break;
             scrollTo(top + container.clientHeight);
             await sleep(50);
@@ -878,10 +879,12 @@
         scrollTo(startTop);
         await sleep(50);
         await waitForContent(container, 5000);
+        let bp2 = 0;
         while (!ui.stopped) {
             collectCurrent();
             const { top, percent } = getScrollPosition(container);
             ui.status(countPairs(master), 100 - percent);
+            while (bp2 <= 100 && (100 - percent) >= bp2) { takeSnap('▲', bp2); bp2 += 10; }
             if (top <= 0) break;
             scrollTo(Math.max(0, top - container.clientHeight));
             await sleep(50);
@@ -896,7 +899,7 @@
             ? Math.round(100 * _perf.blocksSkipped / _perf.htmlToMarkdownCalls) : 0;
         const _wastMs  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
             / Math.max(_perf.htmlToMarkdownCalls, 1));
-        ui.log('── perf (v3.45) ──');
+        ui.log('── perf (v3.46) ──');
         ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`  dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
