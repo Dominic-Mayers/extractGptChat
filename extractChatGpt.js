@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.41
+// @version      3.42
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1245,15 +1245,14 @@
                     'None in DOM — scroll to the middle of a long conversation and re-check');
             } else {
                 const p = allPH[0];
-                const hasAttr  = p.hasAttribute('data-is-intersecting');
-                const classOk  = p.className.includes('h-(--last-known-height') && p.className.includes('min-h-14');
-                const cssVar   = getComputedStyle(p).getPropertyValue('--last-known-height').trim();
-                addLine(structLog, hasAttr && classOk, '[data-turn-id-container] (lazy placeholder)',
+                const hasAttr = p.hasAttribute('data-is-intersecting');
+                const cssVar  = getComputedStyle(p).getPropertyValue('--last-known-height').trim();
+                addLine(structLog, hasAttr, '[data-turn-id-container] (lazy placeholder)',
                     [
                         `${allPH.length} total, ${blankPH.length} unloaded (blank)`,
-                        hasAttr  ? 'data-is-intersecting ✓' : 'data-is-intersecting MISSING ← blank detection broken',
-                        classOk  ? 'class h-(--last-known-height,50vh) min-h-14 ✓' : `class mismatch: "${p.className.slice(0, 70)}"`,
-                        cssVar   ? `--last-known-height: ${cssVar}` : '--last-known-height not set in CSS',
+                        hasAttr ? 'data-is-intersecting ✓' : 'data-is-intersecting MISSING ← blank detection broken',
+                        p.className ? `class: "${p.className.slice(0, 70)}"` : 'class: (empty)',
+                        cssVar ? `--last-known-height: ${cssVar}` : '--last-known-height: not set',
                     ].join('\n    ')
                 );
             }
