@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.40
+// @version      3.41
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1174,7 +1174,7 @@
         const panel = document.createElement('div');
         panel.id = DIAG_ID;
         Object.assign(panel.style, {
-            position: 'fixed', top: '20px', left: '20px', zIndex: '99999',
+            position: 'fixed', top: '20px', right: '380px', zIndex: '99999',
             padding: '14px', background: '#1e1e2e', color: '#cdd6f4',
             border: '2px solid #a6e3a1', borderRadius: '8px',
             fontFamily: 'monospace', fontSize: '11px', width: '400px',
@@ -1272,28 +1272,42 @@
         Object.assign(markupHead.style, { color: '#89b4fa', marginBottom: '6px' });
 
         const intro = Object.assign(document.createElement('div'), {
-            innerText: 'Paste these prompts into a new ChatGPT conversation, run extraction on it, then click Check:',
+            innerText: 'Start a new conversation and send these prompts one by one. After extraction, click Check:',
         });
-        Object.assign(intro.style, { color: '#bac2de', marginBottom: '6px', lineHeight: '1.4' });
+        Object.assign(intro.style, { color: '#bac2de', marginBottom: '8px', lineHeight: '1.4' });
 
-        const promptsBox = document.createElement('div');
-        Object.assign(promptsBox.style, {
-            background: '#181825', padding: '8px', borderRadius: '4px',
-            whiteSpace: 'pre-wrap', color: '#cdd6f4', lineHeight: '1.7', marginBottom: '6px',
-        });
-        promptsBox.innerText = _MARKUP_CHECKS.map((c, i) => `${i + 1}. ${c.prompt}`).join('\n');
-
-        const copyBtn = Object.assign(document.createElement('button'), { innerText: 'Copy prompts' });
-        Object.assign(copyBtn.style, {
-            padding: '3px 10px', background: '#313244', color: '#cdd6f4',
-            border: '1px solid #585b70', borderRadius: '4px', cursor: 'pointer',
-            fontFamily: 'monospace', fontSize: '10px', marginBottom: '8px', display: 'block',
-        });
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(_MARKUP_CHECKS.map((c, i) => `${i + 1}. ${c.prompt}`).join('\n'));
-            copyBtn.innerText = 'Copied!';
-            setTimeout(() => { copyBtn.innerText = 'Copy prompts'; }, 2000);
+        const mkCopyBtn = (text) => {
+            const b = Object.assign(document.createElement('button'), { innerText: 'Copy' });
+            Object.assign(b.style, {
+                padding: '2px 7px', background: '#313244', color: '#cdd6f4',
+                border: '1px solid #585b70', borderRadius: '3px', cursor: 'pointer',
+                fontFamily: 'monospace', fontSize: '10px', flexShrink: '0',
+            });
+            b.onclick = () => {
+                navigator.clipboard.writeText(text);
+                b.innerText = '✓';
+                setTimeout(() => { b.innerText = 'Copy'; }, 1500);
+            };
+            return b;
         };
+
+        const promptsContainer = document.createElement('div');
+        Object.assign(promptsContainer.style, { marginBottom: '10px' });
+        for (let i = 0; i < _MARKUP_CHECKS.length; i++) {
+            const { label, prompt } = _MARKUP_CHECKS[i];
+            const row = document.createElement('div');
+            Object.assign(row.style, {
+                display: 'flex', alignItems: 'baseline', gap: '6px',
+                marginBottom: '4px', background: '#181825',
+                padding: '5px 7px', borderRadius: '4px',
+            });
+            const num = Object.assign(document.createElement('span'), { innerText: `${i + 1}.` });
+            Object.assign(num.style, { color: '#6c7086', flexShrink: '0', minWidth: '14px' });
+            const txt = Object.assign(document.createElement('span'), { innerText: prompt });
+            Object.assign(txt.style, { flex: '1', lineHeight: '1.4' });
+            row.append(num, txt, mkCopyBtn(prompt));
+            promptsContainer.appendChild(row);
+        }
 
         const checkBtn = Object.assign(document.createElement('button'), { innerText: 'Check Extracted Content' });
         Object.assign(checkBtn.style, {
@@ -1318,7 +1332,7 @@
                 addLine(markupLog, pat.test(text), label, null);
         };
 
-        panel.append(titleRow, structHead, structLog, recheckBtn, markupHead, intro, promptsBox, copyBtn, checkBtn, markupLog);
+        panel.append(titleRow, structHead, structLog, recheckBtn, markupHead, intro, promptsContainer, checkBtn, markupLog);
         document.body.appendChild(panel);
         runStructural();
     }
