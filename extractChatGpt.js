@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.42
+// @version      3.43
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1174,7 +1174,7 @@
         const panel = document.createElement('div');
         panel.id = DIAG_ID;
         Object.assign(panel.style, {
-            position: 'fixed', top: '20px', right: '380px', zIndex: '99999',
+            position: 'fixed', top: '20px', left: `${Math.max(0, window.innerWidth - 780)}px`, zIndex: '99999',
             padding: '14px', background: '#1e1e2e', color: '#cdd6f4',
             border: '2px solid #a6e3a1', borderRadius: '8px',
             fontFamily: 'monospace', fontSize: '11px', width: '400px',
@@ -1183,13 +1183,33 @@
         });
 
         const titleRow = document.createElement('div');
-        Object.assign(titleRow.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' });
+        Object.assign(titleRow.style, {
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: '10px', cursor: 'move', userSelect: 'none',
+        });
         const title = Object.assign(document.createElement('div'), { innerText: 'Compatibility Check' });
         Object.assign(title.style, { fontWeight: 'bold', color: '#a6e3a1', fontSize: '13px' });
         const closeBtn = Object.assign(document.createElement('button'), { innerText: '×' });
         Object.assign(closeBtn.style, { background: 'none', border: 'none', color: '#a6e3a1', cursor: 'pointer', fontSize: '16px', fontFamily: 'monospace', padding: '0' });
         closeBtn.onclick = () => panel.remove();
         titleRow.append(title, closeBtn);
+
+        { // drag
+            let ox = 0, oy = 0;
+            const onMove = e => {
+                panel.style.left = `${e.clientX - ox}px`;
+                panel.style.top  = `${e.clientY - oy}px`;
+            };
+            const onUp = () => document.removeEventListener('mousemove', onMove);
+            titleRow.addEventListener('mousedown', e => {
+                if (e.target === closeBtn) return;
+                const r = panel.getBoundingClientRect();
+                ox = e.clientX - r.left; oy = e.clientY - r.top;
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp, { once: true });
+                e.preventDefault();
+            });
+        }
 
         // ── Structural section ────────────────────────────────────
         const structHead = Object.assign(document.createElement('div'), { innerText: '── Structural ──' });
