@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      3.46
+// @version      3.56
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -71,8 +71,10 @@
     function _resetPerf() {
         _perf = {
             htmlToMarkdownCalls: 0, htmlToMarkdownMs: 0,
-            mergeBlocksCalls: 0,    mergeBlocksMs: 0,
-            blocksAdded: 0,         blocksSkipped: 0,
+            mergeCalls: 0,          mergeMs: 0,
+            promptsAdded: 0,        dupPromptsSkipped: 0,
+            confirmed: 0,           blankWaits: 0,
+            emptyScans: 0,          contentTimeouts: 0,     nullCurrentSnaps: 0,
             snapshots: [],
             runStartMs: 0,
             containerTag: '', containerScrollH: 0, containerClientH: 0, containerIsDocEl: false,
@@ -87,10 +89,10 @@
     // ════════════════════════════════════════════════════════════════
 
     /**
-     * Returns every message block currently present in the DOM.
+     * Returns every prompt currently present in the DOM.
      * @returns {{ role: string, text: string }[]}
      */
-    function getVisibleBlocks() {
+    function getDOMPrompts() {
         // Primary: elements with explicit author role
         const primary = [...document.querySelectorAll('[data-message-author-role]')]
             .map(el => ({
@@ -99,7 +101,7 @@
                 plainText: el.innerText.trim(),
                 msgId: el.getAttribute('data-message-id') || null,
             }))
-            .filter(b => b.text.length > 0);
+            .filter(pr => pr.text.length > 0);
 
         // Fallback: [data-message-id] elements not inside any [data-message-author-role].
         // If present these are messages the primary selector silently skips; role is
@@ -107,19 +109,19 @@
         const extra = [...document.querySelectorAll('[data-message-id]')]
             .filter(el => !el.closest('[data-message-author-role]'))
             .map(el => ({ role: '?', text: el.innerText.trim(), msgId: el.getAttribute('data-message-id') || null }))
-            .filter(b => b.text.length > 0);
+            .filter(pr => pr.text.length > 0);
 
         return [...primary, ...extra];
     }
 
-    /** Flattens blocks into labelled lines for signature comparison. */
-    function blocksToLines(blocks) {
-        return blocks.flatMap(b =>
-            b.text
+    /** Flattens prompts into labelled lines for signature comparison. */
+    function normalizePromptsToLines(prompts) {
+        return prompts.flatMap(pr =>
+            pr.text
                 .split('\n')
                 .map(l => l.trim())
                 .filter(Boolean)
-                .map(l => `[${b.role.toUpperCase()}] ${l}`)
+                .map(l => `[${pr.role.toUpperCase()}] ${l}`)
         );
     }
 
@@ -135,7 +137,7 @@
      * @returns {{ ok: boolean, lines: string[], warning?: string, error?: string }}
      */
     function sampleEndSignature(n = 10) {
-        const allLines = blocksToLines(getVisibleBlocks());
+        const allLines = normalizePromptsToLines(getDOMPrompts());
 
         if (allLines.length === 0)
             return { ok: false, error: 'No chat content found — is a conversation open?' };
@@ -173,15 +175,15 @@
     // ════════════════════════════════════════════════════════════════
     // TASK 3 (refined) — Viewport content vs DOM content
     //
-    // getVisibleBlocks()  → entire DOM window (~40 messages). Used for
-    //                       content accumulation (wider net = safer).
+    // getDOMPrompts()  → all prompts loaded in DOM (~40 messages). Used for
+    //                    content accumulation (wider net = safer).
     // getViewportBlocks() → only elements physically on screen. Used for
     //                       end-of-chat detection and scroll change detection.
     //                       Cannot produce false positives from off-screen DOM.
     // ════════════════════════════════════════════════════════════════
 
     /**
-     * Returns message blocks whose elements intersect the visible area of
+     * Returns message prompts whose elements intersect the visible area of
      * `container` (i.e. what the user can actually see on screen).
      */
     function getViewportBlocks(container) {
@@ -200,12 +202,12 @@
                 text: el.innerText.trim(),
                 msgId: el.getAttribute('data-message-id') || null,
             }))
-            .filter(b => b.text.length > 0);
+            .filter(pr => pr.text.length > 0);
 
         const extra = [...document.querySelectorAll('[data-message-id]')]
             .filter(el => !el.closest('[data-message-author-role]') && inViewport(el))
             .map(el => ({ role: '?', text: el.innerText.trim(), msgId: el.getAttribute('data-message-id') || null }))
-            .filter(b => b.text.length > 0);
+            .filter(pr => pr.text.length > 0);
 
         return [...primary, ...extra];
     }
@@ -219,12 +221,15 @@
         const vTop    = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
         const vBottom = container === document.documentElement ? window.innerHeight : container.getBoundingClientRect().bottom;
         const deadline = Date.now() + timeoutMs;
+        let counted = false;
         while (Date.now() < deadline) {
             const hasBlank = [...document.querySelectorAll('[data-turn-id-container][data-is-intersecting="false"]')]
                 .some(el => { const r = el.getBoundingClientRect(); return r.bottom > vTop && r.top < vBottom; });
             if (!hasBlank) return;
+            if (!counted) { _perf.blankWaits++; counted = true; }
             await sleep(50);
         }
+        _perf.contentTimeouts++;  // blank content still present after timeout — proceeding anyway
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -273,61 +278,61 @@
     }
 
     /**
-     * Merges `incoming` blocks into `master`, skipping exact duplicates.
+     * Merges `domPrompts` prompts into `allPrompts`, skipping exact duplicates.
      * Dedup key: full role + full text (handles virtual-DOM partial renders).
-     * @returns {number} count of newly added blocks
+     * @returns {number} count of newly added prompts
      */
-    function mergeBlocks(master, incoming, seen) {
+    function merge(allPrompts, domPrompts, seen) {
         const _t0 = performance.now();
         // Pre-build a key→index map for O(1) anchor lookups.
         // Updated after each splice to stay accurate.
-        const masterMap = new Map(master.map((b, i) => [`${b.role}\x00${b.text}`, i]));
+        const allPromptsMap = new Map(allPrompts.map((pr, i) => [`${pr.role}\x00${pr.text}`, i]));
         let added = 0;
         let skipped = 0;
-        for (let i = 0; i < incoming.length; i++) {
-            const block = incoming[i];
-            const key = `${block.role}\x00${block.text}`;
+        for (let i = 0; i < domPrompts.length; i++) {
+            const prompt = domPrompts[i];
+            const key = `${prompt.role}\x00${prompt.text}`;
             if (seen.has(key)) { skipped++; continue; }
             seen.add(key);
 
             // Find insertion point using neighbours in the current snapshot as
-            // anchors into master.  Two passes to handle blocks that appear at
+            // anchors into allPrompts.  Two passes to handle prompts that appear at
             // the start of a snapshot (no known predecessor visible).
-            let insertIndex = master.length;
+            let insertIndex = allPrompts.length;
 
             // Pass 1: nearest preceding neighbour → insert after it.
             for (let j = i - 1; j >= 0; j--) {
-                const prevKey = `${incoming[j].role}\x00${incoming[j].text}`;
-                const idx = masterMap.get(prevKey);
+                const prevKey = `${domPrompts[j].role}\x00${domPrompts[j].text}`;
+                const idx = allPromptsMap.get(prevKey);
                 if (idx !== undefined) { insertIndex = idx + 1; break; }
             }
 
             // Pass 2: if no backward anchor, use nearest following neighbour
             // → insert before it.
-            if (insertIndex === master.length) {
-                for (let j = i + 1; j < incoming.length; j++) {
-                    const nextKey = `${incoming[j].role}\x00${incoming[j].text}`;
-                    const idx = masterMap.get(nextKey);
+            if (insertIndex === allPrompts.length) {
+                for (let j = i + 1; j < domPrompts.length; j++) {
+                    const nextKey = `${domPrompts[j].role}\x00${domPrompts[j].text}`;
+                    const idx = allPromptsMap.get(nextKey);
                     if (idx !== undefined) { insertIndex = idx; break; }
                 }
             }
 
-            master.splice(insertIndex, 0, block);
-            // Shift all map entries at or after insertIndex, then register the new block.
-            for (const [k, v] of masterMap) {
-                if (v >= insertIndex) masterMap.set(k, v + 1);
+            allPrompts.splice(insertIndex, 0, prompt);
+            // Shift all map entries at or after insertIndex, then register the new prompt.
+            for (const [k, v] of allPromptsMap) {
+                if (v >= insertIndex) allPromptsMap.set(k, v + 1);
             }
-            masterMap.set(key, insertIndex);
+            allPromptsMap.set(key, insertIndex);
             added++;
         }
-        _perf.mergeBlocksMs += performance.now() - _t0;
-        _perf.mergeBlocksCalls++;
+        _perf.mergeMs += performance.now() - _t0;
+        _perf.mergeCalls++;
         return { added, skipped };
     }
 
     /** Returns true when the end signature appears at the tail of current visible content. */
     function endSignaturePresent(endSig, currentBlocks) {
-        const lines = blocksToLines(currentBlocks);
+        const lines = normalizePromptsToLines(currentBlocks);
         if (lines.length < endSig.length) return false;
         const tail = lines.slice(-endSig.length);
         return tail.every((line, i) => line === endSig[i]);
@@ -363,8 +368,8 @@
         return r.bottom > cRect.top && r.top < cRect.bottom;
     }
 
-    function countPairs(blocks) {
-        return blocks.filter(b => b.role === 'user').length;
+    function countSaved(prompts) {
+        return prompts.filter(pr => pr.role === 'user').length;
     }
 
     const escLabel = s => s.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
@@ -560,7 +565,7 @@
             .slice(0, 80);
     }
 
-    /** Compiles master blocks to a Markdown document and triggers a download. */
+    /** Compiles allPrompts prompts to a Markdown document and triggers a download. */
     function hoistUploads(text) {
         const uploads = [];
         const body = text.replace(/\nUpload:([^\n]+)/g, (_m, name) => {
@@ -571,27 +576,27 @@
         return uploads.join('\n') + '\n\n' + body.replace(/^\n+/, '').trimStart();
     }
 
-    async function exportMarkdown(blocks, includeDiag = false, stopped = false) {
-        const questions = countPairs(blocks);
+    async function exportMarkdown(prompts, includeDiag = false, stopped = false) {
+        const questions = countSaved(prompts);
         const date  = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
         const title = getChatTitle();
 
         // Count prompt navigation dots for the diagnostic (dot count vs exported count).
-        const promptDots = getPromptDots();
+        const promptDots = getNavMenuItems();
 
         let md = `# ${title}\n_${questions} user prompts — ${date}_\n\n`;
 
-        const userBlocks = blocks.filter(b => b.role === 'user');
-        if (userBlocks.length > 0) {
+        const userPrompts = prompts.filter(pr => pr.role === 'user');
+        if (userPrompts.length > 0) {
             md += `### Table of Contents\n\n`;
-            userBlocks.forEach((b, i) => {
-                const firstLine = (b.plainText || b.text).split('\n')
+            userPrompts.forEach((pr, i) => {
+                const firstLine = (pr.plainText || pr.text).split('\n')
                     .map(l => l.replace(/[^\x20-\x7E]/g, '').trim())
                     .filter(l => l && !l.startsWith('Upload:'))
                     [0] || '(empty)';
                 const label = escLabel(firstLine.slice(0, 80));
-                md += b.msgId
-                    ? `${i + 1}. [${label}](#msg-${b.msgId})\n`
+                md += pr.msgId
+                    ? `${i + 1}. [${label}](#msg-${pr.msgId})\n`
                     : `${i + 1}. ${label}\n`;
             });
             md += '\n';
@@ -599,40 +604,57 @@
 
         md += `---\n\n`;
 
-        for (const b of blocks) {
-            const label = b.role === 'user' ? '### USER' : b.role === 'assistant' ? '### ASSISTANT' : '### UNKNOWN';
-            const text  = b.role === 'user' ? hoistUploads(b.text) : b.text;
-            const anchor = b.role === 'user' && b.msgId ? `<a id="msg-${b.msgId}"></a>\n\n` : '';
+        for (const pr of prompts) {
+            const label = pr.role === 'user' ? '### USER' : pr.role === 'assistant' ? '### ASSISTANT' : '### UNKNOWN';
+            const text  = pr.role === 'user' ? hoistUploads(pr.text) : pr.text;
+            const anchor = pr.role === 'user' && pr.msgId ? `<a id="msg-${pr.msgId}"></a>\n\n` : '';
             md += `${anchor}${label}\n\n${text}\n\n---\n\n`;
         }
         if (includeDiag && _perf.runStartMs > 0) {
             const _ms    = performance.now() - _perf.runStartMs;
-            const _sleep = _ms - _perf.htmlToMarkdownMs - _perf.mergeBlocksMs;
+            const _sleep = _ms - _perf.htmlToMarkdownMs - _perf.mergeMs;
             const _dup   = _perf.htmlToMarkdownCalls
-                ? Math.round(100 * _perf.blocksSkipped / _perf.htmlToMarkdownCalls) : 0;
-            const _wast  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
+                ? Math.round(100 * _perf.dupPromptsSkipped / _perf.htmlToMarkdownCalls) : 0;
+            const _wast  = Math.round(_perf.htmlToMarkdownMs * _perf.dupPromptsSkipped
                 / Math.max(_perf.htmlToMarkdownCalls, 1));
 
-            md += `    ── perf (v3.46) ──\n`
-                + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
+            md += `    ── perf (v3.56) ──\n`
+                + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%) | blank waits ${_perf.blankWaits}\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
-                + `    dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dup}%) → ~${_wast}ms wasted\n`
-                + `    mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}\n`
-                + `    Exported ${countPairs(blocks)} user prompts (${blocks.length} prompts).\n`
+                + `    dups ${_perf.dupPromptsSkipped}/${_perf.htmlToMarkdownCalls} (${_dup}%) → ~${_wast}ms wasted\n`
+                + `    merge: ${_perf.mergeCalls} calls, ${Math.round(_perf.mergeMs)}ms | new ${_perf.promptsAdded}\n`
+                + `    empty scans ${_perf.emptyScans} | content timeouts ${_perf.contentTimeouts} | null current at snapshot ${_perf.nullCurrentSnaps}\n`
+                + `    Exported ${countSaved(prompts)} user prompts (${prompts.length} prompts).\n`
                 + `\n`
-                + `    ── diag (v3.46) ──\n`
+                + `    ── diag (v3.56) ──\n`
                 + (() => {
                     const n = promptDots.length;
-                    const exported = countPairs(blocks);
+                    const exported = countSaved(prompts);
                     if (n === 0) return `    TOC count: not visible at export time | exported: ${exported}\n`;
                     const status = n === exported ? 'OK' : stopped ? 'STOPPED' : 'MISMATCH';
                     return `    TOC count: ${n} items | exported: ${exported} → ${status}\n`;
                 })();
             if (_perf.snapshots.length > 0) {
                 const snaps = _perf.snapshots;
+                const finalQ = Math.max(1, snaps[snaps.length - 1].q);
+
+                // Select one representative snapshot per 10% prompt-discovery milestone
+                const BKPTS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+                const displaySnaps = []; // { snap, bp }
+                let bpI = 0;
+                for (const snap of snaps) {
+                    const pct = snap.q / finalQ * 100;
+                    while (bpI < BKPTS.length && pct >= BKPTS[bpI])
+                        displaySnaps.push({ snap, bp: BKPTS[bpI++] });
+                }
+                if (bpI < BKPTS.length) {
+                    const last = snaps[snaps.length - 1];
+                    while (bpI < BKPTS.length) displaySnaps.push({ snap: last, bp: BKPTS[bpI++] });
+                }
+
                 const IND = '    ';
-                const hdrs = ['pos', 'dur', 'size', 'p#', '↑', '↓'];
-                const caps = [8, 18, 8, 11, 4, 4];
+                const hdrs = ['c', 'dur', 'all', 'size', '↑', '↓'];
+                const caps = [10, 18, 11, 8, 4, 4];
 
                 const clip = (s, w) => {
                     s = String(s);
@@ -645,7 +667,7 @@
                 const border = (l, m, r, w) =>
                     IND + l + w.map(n => '─'.repeat(n)).join(m) + r + '\n';
                 const row = (xs, w) =>
-                    IND + '│' + xs.map((x, i) => cell(x, w[i], i === 1 || i === 3)).join('│') + '│\n';
+                    IND + '│' + xs.map((x, i) => cell(x, w[i], i === 1 || i === 2)).join('│') + '│\n';
 
                 const fQ = (q, d) => `${q}(+${d})`;
                 const fT = (s, ds) => {
@@ -661,17 +683,17 @@
                 };
 
                 const rows = [];
-                for (let i = 0; i < snaps.length; i++) {
-                    const snap = snaps[i];
-                    const prev = i > 0 ? snaps[i - 1] : null;
+                for (let i = 0; i < displaySnaps.length; i++) {
+                    const { snap, bp } = displaySnaps[i];
+                    const prev = i > 0 ? displaySnaps[i - 1].snap : null;
                     const cumTs  = Math.round(snap.t / 1000);
                     const prevTs = prev ? Math.round(prev.t / 1000) : 0;
                     const incQ   = prev ? snap.q - prev.q : snap.q;
                     rows.push([
-                        `${snap.ph}${String(snap.p).padStart(4)}%`,
+                        `${snap.c ?? 0}(${bp}%)`,
                         fT(cumTs, cumTs - prevTs),
-                        String(snap.d),
                         fQ(snap.q, incQ),
+                        String(snap.d),
                         String(snap.uBefore),
                         String(snap.uAfter),
                     ]);
@@ -680,13 +702,20 @@
                 const widths = hdrs.map((h, i) =>
                     Math.min(caps[i], Math.max(h.length, ...rows.map(r => r[i].length)))
                 );
+                // colW = leftSum+3; need colW >= 29 for legend items → leftSum >= 26
+                const leftSum0 = widths[0] + widths[1] + widths[2];
+                if (leftSum0 < 26) widths[1] += 26 - leftSum0;
+                // Align size column's left edge with legend's second column: rightSum = leftSum+1
+                const leftSum = widths[0] + widths[1] + widths[2];
+                const rightSum = widths[3] + widths[4] + widths[5];
+                if (rightSum < leftSum + 1) widths[3] += leftSum + 1 - rightSum;
+                else if (rightSum > leftSum + 1) widths[1] += rightSum - leftSum - 1;
                 const innerW = widths.reduce((a, b) => a + b, 0) + widths.length - 1;
                 const spanBorder  = (l, r) => IND + l + '─'.repeat(innerW) + r + '\n';
                 const spanContent = text  => IND + '│' + clip(text.padEnd(innerW), innerW) + '│\n';
                 const legendItems = [
-                    'pos=▼down/▲up + scroll%', 'p#=found(+new)',
-                    'dur=elapsed(+Δ)',          '↑=user prompts above viewport',
-                    'size=DOM elements',        '↓=user prompts below viewport',
+                    'c=confirmed prompts', 'dur=elapsed(+Δ)',  'all=all prompts',
+                    'size=DOM elements',   '↑=confirmed in DOM', '↓=not confirmed in DOM',
                 ];
                 const colW = Math.floor(innerW / 2);
                 const legendRow = (l, r) => {
@@ -695,7 +724,7 @@
                     return IND + '│' + left + right + '│\n';
                 };
                 let out = spanBorder('┌', '┐');
-                out += spanContent('Snapshots at 10% scroll intervals (▼=down pass, ▲=up pass)');
+                out += spanContent('Prompt discovery snapshots (▼ down pass)');
                 out += spanContent('');
                 const half = legendItems.length >> 1;
                 for (let i = 0; i < half; i++)
@@ -703,7 +732,9 @@
                 out += border('├', '┬', '┤', widths);
                 out += row(hdrs, widths);
                 out += border('├', '┼', '┤', widths);
-                for (const r of rows) out += row(r, widths);
+                for (let i = 0; i < rows.length; i++) {
+                    out += row(rows[i], widths);
+                }
                 out += border('└', '┴', '┘', widths);
                 md += out;
             }
@@ -731,7 +762,7 @@
      * Primary: look inside the narrow vertical strip (div.w-9.max-h-[50lvh].no-scrollbar).
      * Fallback: match by button class (h-0.5 w-4.5 rounded-full).
      */
-    function getPromptDots() {
+    function getNavMenuItems() {
         const strip = [...document.querySelectorAll('div')]
             .find(d => d.className.includes('w-9') &&
                        d.className.includes('max-h-[50lvh]') &&
@@ -744,55 +775,11 @@
     }
 
     /**
-     * Matches a viewport block's innerText to a 0-based panel snippet index.
-     * Returns -1 if no match is found.
-     * Checks the first 3 non-trivial lines of the block against all panel norms.
-     */
-    function findPanelIndex(blockInnerText, panelNorms) {
-        const candidates = blockInnerText.split('\n')
-            .map(l => l.replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().toLowerCase())
-            .filter(l => l.length > 3)
-            .slice(0, 3);
-        for (const bNorm of candidates) {
-            for (let i = 0; i < panelNorms.length; i++) {
-                const pNorm = panelNorms[i];
-                if (pNorm.length < 5) continue;
-                // Normal case: block starts with (truncated) panel snippet.
-                // Short-prompt case: panel snippet starts with the full block text.
-                if (bNorm.startsWith(pNorm) || pNorm.startsWith(bNorm)) return i;
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * Returns true when panelNorm (a pre-normalised panel snippet) is present
-     * somewhere in the full normalised text of a master user block.
-     * Uses the same join-all-lines + includes() strategy as the export diagnostic.
-     */
-    function isInMaster(panelNorm, master) {
-        if (!panelNorm) return true;
-        // Strip markdown chars that htmlToMarkdown may remove from the extracted text
-        // so that panel labels containing e.g. `code` or **bold** still match.
-        const norm = panelNorm.replace(/[*`_#[\]]/g, '').replace(/\s+/g, ' ').trim();
-        if (!norm) return true;
-        return master.some(b => {
-            if (b.role !== 'user') return false;
-            const fullNorm = b.text.split('\n')
-                .map(l => l.replace(/[^\x20-\x7E]/g, '').replace(/[*`_#[\]]/g, '').replace(/\s+/g, ' ').trim())
-                .filter(l => l && !l.startsWith('Upload:'))
-                .join(' ')
-                .toLowerCase();
-            return fullNorm.includes(norm);
-        });
-    }
-
-    /**
      * Recovers a missing panel prompt by clicking its navigation dot,
-     * waiting for ChatGPT to load the content, and merging into master.
+     * waiting for ChatGPT to load the content, and merging into allPrompts.
      */
-    async function recoverGap(missingPanelIdx, container, master, seen, ui) {
-        const dots = getPromptDots();
+    async function recoverGap(missingPanelIdx, container, allPrompts, seen, ui) {
+        const dots = getNavMenuItems();
         const dot = dots[missingPanelIdx];
         if (!dot) {
             ui.log(`GAP: dot at index ${missingPanelIdx} not found — cannot recover`);
@@ -802,10 +789,10 @@
         await sleep(400);
         await waitForApiIdle(30_000);
         await waitForDomSettle(container, 8, 8_000);
-        const newBlocks = getVisibleBlocks();
-        const { added } = mergeBlocks(master, newBlocks, seen);
-        _perf.blocksAdded += added;
-        ui.log(`GAP: navigated to prompt ${missingPanelIdx + 1}, merged ${added} new blocks`);
+        const newBlocks = getDOMPrompts();
+        const { added } = merge(allPrompts, newBlocks, seen);
+        _perf.promptsAdded += added;
+        ui.log(`GAP: navigated to prompt ${missingPanelIdx + 1}, merged ${added} new prompts`);
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -815,18 +802,19 @@
     async function run(ui, stopBtn) {
         _resetPerf();
         _perf.runStartMs = performance.now();
+        ui.total = getNavMenuItems().length;
         const container = findScrollContainer();
         _perf.containerTag     = container.tagName.toLowerCase();
         _perf.containerScrollH = container.scrollHeight;
         _perf.containerClientH = container.clientHeight;
         _perf.containerIsDocEl = container === document.documentElement;
 
-        const master = [];
+        const allPrompts = [];
         const seen = new Set();
 
         if (stopBtn) stopBtn.onclick = () => {
             ui.stopped = true;
-            mergeBlocks(master, getVisibleBlocks(), seen);
+            merge(allPrompts, getDOMPrompts(), seen);
         };
 
         const scrollTo = top => {
@@ -837,75 +825,98 @@
         };
 
         const collectCurrent = () => {
-            const blks = getVisibleBlocks();
-            const { added, skipped } = mergeBlocks(master, blks, seen);
-            _perf.blocksAdded += added; _perf.blocksSkipped += skipped;
+            const visible = getDOMPrompts();
+            const { added, skipped } = merge(allPrompts, visible, seen);
+            _perf.promptsAdded += added; _perf.dupPromptsSkipped += skipped;
         };
 
-        const takeSnap = (ph, p) => {
-            const _uEls = [...document.querySelectorAll('[data-message-author-role="user"]')];
-            const _cRect = container === document.documentElement
-                ? { top: 0, bottom: window.innerHeight }
-                : container.getBoundingClientRect();
+        const takeSnap = (p, currentPrompt) => {
+            const _uEls  = [...document.querySelectorAll('[data-message-author-role="user"]')];
+            if (!currentPrompt) _perf.nullCurrentSnaps++;
+            const _curR  = currentPrompt?.getBoundingClientRect()
+                        ?? (container === document.documentElement
+                                ? { top: 0, bottom: window.innerHeight }
+                                : container.getBoundingClientRect());
             _perf.snapshots.push({
-                ph, p,
+                p,
                 t: Math.round(performance.now() - _perf.runStartMs),
-                q: countPairs(master),
+                q: countSaved(allPrompts),
+                c: _perf.confirmed,
                 d: document.getElementsByTagName('*').length,
-                uBefore: _uEls.filter(el => el.getBoundingClientRect().bottom < _cRect.top).length,
-                uAfter:  _uEls.filter(el => el.getBoundingClientRect().top   > _cRect.bottom).length,
+                uBefore: _uEls.filter(el => el.getBoundingClientRect().bottom < _curR.top).length,
+                uAfter:  _uEls.filter(el => el.getBoundingClientRect().top   > _curR.bottom).length,
             });
         };
 
-        // Save starting position so we can head both ways from here.
-        const startTop = getScrollPosition(container).top;
+        // ── Viewport-to-viewport scroll helpers ──────────────────
+        const viewportBounds = () => container === document.documentElement
+            ? { top: 0, bottom: window.innerHeight }
+            : (() => { const r = container.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; })();
 
-        // ── Phase 1: scroll down to bottom ───────────────────────
-        ui.phase('1/2', 'Scrolling down');
-        let bp1 = 0;
+        // Returns user prompts whose bottom is in the viewport and strictly
+        // below current's bottom (or any with bottom in viewport when current is null).
+        // Sorted ascending by bottom so last element = deepest = new current.
+        const promptsInViewportAheadOf = (current) => {
+            const { top: vt, bottom: vb } = viewportBounds();
+            const curBottom = current?.getBoundingClientRect().bottom ?? vt;
+            return [...document.querySelectorAll('[data-message-author-role="user"]')]
+                .filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.bottom > curBottom && r.bottom <= vb;
+                })
+                .sort((a, b) => a.getBoundingClientRect().bottom - b.getBoundingClientRect().bottom);
+        };
+
+        const confirmPrompt = (el) => { _perf.confirmed++; };
+
+        // ── Navigate to the first user prompt, then scroll down ──
+        const navItems = getNavMenuItems();
+        if (navItems.length > 0) {
+            navItems[0].click();
+            await sleep(400);
+            await waitForApiIdle(30_000);
+            await waitForDomSettle(container, 8, 8_000);
+        }
+        let bp = 0;
+        let current = null;
         while (!ui.stopped) {
+            // Task 1: confirm all user prompts in viewport ahead of current
+            const ahead = promptsInViewportAheadOf(current);
+            ahead.forEach(el => confirmPrompt(el));
+            if (ahead.length > 0) {
+                current = ahead.at(-1);
+            } else {
+                _perf.emptyScans++;
+            }
+
             collectCurrent();
             const { top, bottom, percent } = getScrollPosition(container);
-            ui.status(countPairs(master), percent);
-            while (bp1 <= 100 && percent >= bp1) { takeSnap('▼', bp1); bp1 += 10; }
+            ui.status(_perf.confirmed, countSaved(allPrompts));
+            while (bp <= 100 && percent >= bp) { takeSnap(bp, current); bp += 10; }
             if (bottom <= 0) break;
-            scrollTo(top + container.clientHeight);
-            await sleep(50);
-            await waitForContent(container, 5000);
-        }
 
-        // ── Phase 2: return to start, then scroll up to top ──────
-        ui.phase('2/2', 'Scrolling up');
-        scrollTo(startTop);
-        await sleep(50);
-        await waitForContent(container, 5000);
-        let bp2 = 0;
-        while (!ui.stopped) {
-            collectCurrent();
-            const { top, percent } = getScrollPosition(container);
-            ui.status(countPairs(master), 100 - percent);
-            while (bp2 <= 100 && (100 - percent) >= bp2) { takeSnap('▲', bp2); bp2 += 10; }
-            if (top <= 0) break;
-            scrollTo(Math.max(0, top - container.clientHeight));
+            // Task 2: scroll one viewport down
+            scrollTo(top + container.clientHeight);
             await sleep(50);
             await waitForContent(container, 5000);
         }
 
         ui.phase('Done', 'Ready');
         const _totalMs = performance.now() - _perf.runStartMs;
-        const _procMs  = _perf.htmlToMarkdownMs + _perf.mergeBlocksMs;
+        const _procMs  = _perf.htmlToMarkdownMs + _perf.mergeMs;
         const _sleepMs = _totalMs - _procMs;
         const _dupPct  = _perf.htmlToMarkdownCalls
-            ? Math.round(100 * _perf.blocksSkipped / _perf.htmlToMarkdownCalls) : 0;
-        const _wastMs  = Math.round(_perf.htmlToMarkdownMs * _perf.blocksSkipped
+            ? Math.round(100 * _perf.dupPromptsSkipped / _perf.htmlToMarkdownCalls) : 0;
+        const _wastMs  = Math.round(_perf.htmlToMarkdownMs * _perf.dupPromptsSkipped
             / Math.max(_perf.htmlToMarkdownCalls, 1));
-        ui.log('── perf (v3.46) ──');
-        ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
+        ui.log('── perf (v3.56) ──');
+        ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%) | blank waits ${_perf.blankWaits}`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
-        ui.log(`  dups ${_perf.blocksSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
-        ui.log(`mergeBlocks: ${_perf.mergeBlocksCalls} calls, ${Math.round(_perf.mergeBlocksMs)}ms | new ${_perf.blocksAdded}`);
-        ui.log(`Exported ${countPairs(master)} user prompts (${master.length} prompts).`);
-        _savedState = { master, stopped: ui.stopped };
+        ui.log(`  dups ${_perf.dupPromptsSkipped}/${_perf.htmlToMarkdownCalls} (${_dupPct}%) → ~${_wastMs}ms wasted`);
+        ui.log(`merge: ${_perf.mergeCalls} calls, ${Math.round(_perf.mergeMs)}ms | new ${_perf.promptsAdded}`);
+        ui.log(`empty scans ${_perf.emptyScans} | content timeouts ${_perf.contentTimeouts} | null current at snapshot ${_perf.nullCurrentSnaps}`);
+        ui.log(`Confirmed ${_perf.confirmed} / ${countSaved(allPrompts)} user prompts saved.`);
+        _savedState = { allPrompts, stopped: ui.stopped };
     }
 
 // ════════════════════════════════════════════════════════════════
@@ -945,9 +956,9 @@
         const phaseEl  = Object.assign(document.createElement('div'), { innerText: 'Phase: Idle' });
         const statusEl = document.createElement('div');
         Object.assign(statusEl.style, { color: '#dde1f4', marginTop: '6px' });
-        const promptsEl = Object.assign(document.createElement('div'), { innerText: 'User prompts : —' });
-        const percentEl = Object.assign(document.createElement('div'), { innerText: 'Scrolled : —' });
-        statusEl.append(promptsEl, percentEl);
+        const confirmedEl = Object.assign(document.createElement('div'), { innerText: 'Confirmed prompts : —' });
+        const promptsEl = Object.assign(document.createElement('div'), { innerText: 'All prompts : —' });
+        statusEl.append(confirmedEl, promptsEl);
 
         const logEl = document.createElement('div');
         Object.assign(logEl.style, {
@@ -1047,10 +1058,13 @@
                 phaseEl.innerText = `Phase ${n} — ${label}`;
                 console.log(`[Extractor] PHASE ${n} — ${label}`);
             },
-            status(prompts, percent) {
-                promptsEl.innerText = `User prompts : ${prompts}${this.total ? ' / ' + this.total : ''}`;
-                percentEl.innerText = `Scrolled : ${percent}%`;
-                console.log(`[Extractor] STATUS: ${prompts} user prompts — ${percent}%`);
+            status(confirmedCount, promptsCount) {
+                const fmt = n => this.total
+                    ? `${n} / ${this.total} (${Math.round(100 * n / this.total)}%)`
+                    : `${n}`;
+                confirmedEl.innerText = `Confirmed prompts : ${fmt(confirmedCount)}`;
+                promptsEl.innerText   = `All prompts : ${fmt(promptsCount)}`;
+                console.log(`[Extractor] STATUS: confirmed ${fmt(confirmedCount)} | all ${fmt(promptsCount)}`);
             },
             log(msg) {
                 const line = Object.assign(document.createElement('div'), {
@@ -1102,9 +1116,9 @@
             if (!_savedState) return;
             exportBtn.disabled = true;
             exportBtn.innerText = 'Exporting…';
-            await exportMarkdown(_savedState.master, ui.includeDiag, _savedState.stopped);
-            const count = countPairs(_savedState.master);
-            ui.log(`Exported ${count} user prompts (${_savedState.master.length} blocks).`);
+            await exportMarkdown(_savedState.allPrompts, ui.includeDiag, _savedState.stopped);
+            const count = countSaved(_savedState.allPrompts);
+            ui.log(`Exported ${count} user prompts (${_savedState.allPrompts.length} prompts).`);
             exportBtn.disabled = false;
             exportBtn.innerText = 'Export again';
         };
@@ -1209,12 +1223,17 @@
 
             const strip = [...document.querySelectorAll('div')]
                 .find(d => d.className.includes('w-9') && d.className.includes('max-h-[50lvh]') && d.className.includes('no-scrollbar'));
-            addLine(structLog, !!strip, 'TOC strip (primary selector)',
+            addLine(structLog, !!strip, 'Nav menu container (primary selector)',
                 strip ? 'div.w-9.max-h-[50lvh].no-scrollbar' : 'NOT FOUND — using button-class fallback');
 
-            const dots = getPromptDots();
-            addLine(structLog, dots.length > 0, 'TOC buttons',
-                dots.length > 0 ? `${dots.length} found` : 'NOT FOUND — navigation impossible');
+            const navItems = getNavMenuItems();
+            addLine(structLog, navItems.length > 0, 'Navigation menu items',
+                navItems.length > 0 ? `${navItems.length} found` : 'NOT FOUND — navigation impossible');
+            if (navItems.length > 0) {
+                const label = navItems[0].getAttribute('aria-label');
+                addLine(structLog, !!label, 'First nav item aria-label',
+                    label ? label : 'MISSING — cannot identify first user prompt');
+            }
 
             const msgs = document.querySelectorAll('[data-message-author-role]');
             addLine(structLog, msgs.length > 0, '[data-message-author-role]',
@@ -1336,7 +1355,7 @@
             Object.assign(sep.style, { color: '#585b70', margin: '4px 0' });
             markupLog.appendChild(sep);
 
-            const text = (_savedState?.master ?? []).filter(b => b.role === 'assistant').map(b => b.text).join('\n');
+            const text = (_savedState?.allPrompts ?? []).filter(pr => pr.role === 'assistant').map(pr => pr.text).join('\n');
             if (!text) {
                 addLog('Extraction produced no assistant content.', '#f38ba8');
             } else {

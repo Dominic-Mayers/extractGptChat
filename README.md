@@ -1,12 +1,12 @@
 # ChatGPT Chat Extractor
 
-A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by scrolling through the conversation in both directions from the current position, waiting for lazy-loaded content to appear at each step, and downloading a `.md` file.
+A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by navigating to the first user prompt then scrolling down to the end, waiting for lazy-loaded content to appear at each step, and downloading a `.md` file.
 
 ## Features
 
 * Exports ChatGPT conversations as Markdown
 * Preserves message roles `USER` and `ASSISTANT`
-* Handles long conversations by scrolling automatically — can start from any position in the conversation
+* Handles long conversations by scrolling automatically — navigates to the first prompt using the navigation menu, then scrolls to the end
 * Converts common HTML content to Markdown, including:
   * headings
   * lists
@@ -35,7 +35,7 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
 1. Open the ChatGPT conversation you want to export.
 2. Open the Tampermonkey menu.
 3. Select **Show / Hide Extractor Panel**.
-4. Click **Start Extraction** — the script scrolls down to the end, returns to where you started, then scrolls up to the beginning, collecting content at each step.
+4. Click **Start Extraction** — the script navigates to the first user prompt via the navigation menu, then scrolls down to the end, collecting content at each step.
 5. When done, click **Export** to download the Markdown file.
 
 The exported file name is based on the chat title and a timestamp.
