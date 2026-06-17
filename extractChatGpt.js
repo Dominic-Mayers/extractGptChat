@@ -24,7 +24,14 @@
                 : (args[0] instanceof Request ? args[0].url : '');
             if (!url.includes('/backend-api/')) return origFetch.apply(this, args);
             _pendingApiCalls++;
-            return Promise.resolve(origFetch.apply(this, args)).finally(() => {
+            let p;
+            try {
+                p = origFetch.apply(this, args);
+            } catch (e) {
+                _pendingApiCalls--;
+                throw e;
+            }
+            return Promise.resolve(p).finally(() => {
                 if (--_pendingApiCalls === 0) _apiIdleCallbacks.splice(0).forEach(fn => fn());
             });
         };
@@ -114,44 +121,6 @@
         return [...primary, ...extra];
     }
 
-    /** Flattens prompts into labelled lines for signature comparison. */
-    function normalizePromptsToLines(prompts) {
-        return prompts.flatMap(pr =>
-            pr.text
-                .split('\n')
-                .map(l => l.trim())
-                .filter(Boolean)
-                .map(l => `[${pr.role.toUpperCase()}] ${l}`)
-        );
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    // TASK 1 — Find the last 10 lines (or report fewer)
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Samples the last `n` lines from the currently visible chat content.
-     * Call this while the viewport is at the bottom of the chat.
-     *
-     * @param {number} n
-     * @returns {{ ok: boolean, lines: string[], warning?: string, error?: string }}
-     */
-    function sampleEndSignature(n = 10) {
-        const allLines = normalizePromptsToLines(getDOMPrompts());
-
-        if (allLines.length === 0)
-            return { ok: false, error: 'No chat content found — is a conversation open?' };
-
-        if (allLines.length < n)
-            return {
-                ok: true,
-                lines: allLines,
-                warning: `Chat has only ${allLines.length} lines (fewer than ${n} requested).`,
-            };
-
-        return { ok: true, lines: allLines.slice(-n) };
-    }
-
     // ════════════════════════════════════════════════════════════════
     // TASK 2 — Find position relative to the chat / current content
     // ════════════════════════════════════════════════════════════════
@@ -233,27 +202,6 @@
     }
 
     // ════════════════════════════════════════════════════════════════
-    // TASK 5 — Move to the top of the chat
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Scrolls the container to the very top and waits for the DOM to stabilize.
-     * Longer wait compensates for lazy-loaded early messages.
-     */
-    async function scrollToTop(container, ui) {
-        if (container === document.documentElement) window.scrollTo({ top: 0, behavior: 'instant' });
-        else container.scrollTo({ top: 0, behavior: 'instant' });
-        // Give ChatGPT a moment to initiate the fetch before we check for idle —
-        // the API call fires slightly after the scroll, so polling immediately
-        // would see zero pending calls and resolve before content starts loading.
-        await sleep(400);
-        await waitForApiIdle(30_000);
-        // Increase timeout for very long chats where loading the top takes >2 s.
-        await waitForDomSettle(container, 8, 8_000);
-        return getScrollPosition(container);
-    }
-
-    // ════════════════════════════════════════════════════════════════
     // HELPERS — Container detection, dedup, end-of-chat check, export
     // ════════════════════════════════════════════════════════════════
 
@@ -328,44 +276,6 @@
         _perf.mergeMs += performance.now() - _t0;
         _perf.mergeCalls++;
         return { added, skipped };
-    }
-
-    /** Returns true when the end signature appears at the tail of current visible content. */
-    function endSignaturePresent(endSig, currentBlocks) {
-        const lines = normalizePromptsToLines(currentBlocks);
-        if (lines.length < endSig.length) return false;
-        const tail = lines.slice(-endSig.length);
-        return tail.every((line, i) => line === endSig[i]);
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    // MESSAGE-ID TERMINATION (primary, more reliable than text sig)
-    // ════════════════════════════════════════════════════════════════
-
-    /**
-     * Returns the data-message-id of the last message currently in the DOM,
-     * or null if the attribute is absent on this version of ChatGPT.
-     */
-    function getLastVisibleMessageId() {
-        const msgs = [...document.querySelectorAll('[data-message-id]')];
-        return msgs.length > 0 ? msgs[msgs.length - 1].getAttribute('data-message-id') : null;
-    }
-
-    /**
-     * Returns true when the element with `id` is physically visible inside
-     * the container's viewport — not merely present in the DOM.
-     * This is the correct end-of-chat check: it can only be true when the
-     * user has scrolled far enough to actually see the last message on screen.
-     */
-    function isLastMessageInViewport(id, container) {
-        if (!id) return false;
-        const el = document.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
-        if (!el) return false;
-        const cRect = container === document.documentElement
-            ? { top: 0, bottom: window.innerHeight }
-            : container.getBoundingClientRect();
-        const r = el.getBoundingClientRect();
-        return r.bottom > cRect.top && r.top < cRect.bottom;
     }
 
     function countSaved(prompts) {
@@ -774,32 +684,11 @@
                          b.className.includes('rounded-full'));
     }
 
-    /**
-     * Recovers a missing panel prompt by clicking its navigation dot,
-     * waiting for ChatGPT to load the content, and merging into allPrompts.
-     */
-    async function recoverGap(missingPanelIdx, container, allPrompts, seen, ui) {
-        const dots = getNavMenuItems();
-        const dot = dots[missingPanelIdx];
-        if (!dot) {
-            ui.log(`GAP: dot at index ${missingPanelIdx} not found — cannot recover`);
-            return;
-        }
-        dot.click();
-        await sleep(400);
-        await waitForApiIdle(30_000);
-        await waitForDomSettle(container, 8, 8_000);
-        const newBlocks = getDOMPrompts();
-        const { added } = merge(allPrompts, newBlocks, seen);
-        _perf.promptsAdded += added;
-        ui.log(`GAP: navigated to prompt ${missingPanelIdx + 1}, merged ${added} new prompts`);
-    }
-
     // ════════════════════════════════════════════════════════════════
     // ORCHESTRATION
     // ════════════════════════════════════════════════════════════════
 
-    async function run(ui, stopBtn) {
+    async function run(ui, stopBtn, resume = null) {
         _resetPerf();
         _perf.runStartMs = performance.now();
         ui.total = getNavMenuItems().length;
@@ -809,8 +698,8 @@
         _perf.containerClientH = container.clientHeight;
         _perf.containerIsDocEl = container === document.documentElement;
 
-        const allPrompts = [];
-        const seen = new Set();
+        const allPrompts = resume ? resume.allPrompts : [];
+        const seen = new Set(allPrompts.map(pr => `${pr.role}\x00${pr.text}`));
 
         if (stopBtn) stopBtn.onclick = () => {
             ui.stopped = true;
@@ -870,12 +759,15 @@
         const confirmPrompt = (el) => { _perf.confirmed++; };
 
         // ── Navigate to the first user prompt, then scroll down ──
-        const navItems = getNavMenuItems();
-        if (navItems.length > 0) {
-            navItems[0].click();
-            await sleep(400);
-            await waitForApiIdle(30_000);
-            await waitForDomSettle(container, 8, 8_000);
+        // Skipped when resuming: stay at the scroll position where Stop left off.
+        if (!resume) {
+            const navItems = getNavMenuItems();
+            if (navItems.length > 0) {
+                navItems[0].click();
+                await sleep(400);
+                await waitForApiIdle(30_000);
+                await waitForDomSettle(container, 8, 8_000);
+            }
         }
         let bp = 0;
         let current = null;
@@ -940,7 +832,7 @@
         });
 
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v3.16',
+            innerText: 'ChatGPT Extractor v3.56',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
 
@@ -1096,10 +988,10 @@
             if (stopped) note.style.display = '';
         };
 
-        btn.onclick = async () => {
+        const runAndUpdateUI = async (resume) => {
             showRunningState();
             try {
-                await run(ui, stopBtn);
+                await run(ui, stopBtn, resume);
                 showIdleState('Restart', ui.stopped);
                 ui.phase(ui.stopped ? 'Stopped' : 'Done',
                     ui.stopped ? 'Paused — Export or Continue' : 'Scan complete — Export or Continue');
@@ -1112,6 +1004,8 @@
             }
         };
 
+        btn.onclick = () => runAndUpdateUI(null);
+
         exportBtn.onclick = async () => {
             if (!_savedState) return;
             exportBtn.disabled = true;
@@ -1123,7 +1017,8 @@
             exportBtn.innerText = 'Export again';
         };
 
-        continueBtn.onclick = async () => {
+        continueBtn.onclick = () => {
+            if (_savedState) runAndUpdateUI(_savedState);
         };
 
     }
