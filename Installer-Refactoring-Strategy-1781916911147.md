@@ -1807,7 +1807,7 @@ Can you generate an image that illustrates the conversation.
 
 ### ASSISTANT
 
-![Test image: Universal application pattern infographic](https://chatgpt.com/backend-api/estuary/content?id=file_000000009a5071f6a17ec5807f49428a&ts=494976&p=fs&cid=1&sig=6d411bd86f3449fda7702f8cdc2853cb3b9410bb328a7c4063d4d600d5b9e6eb&v=0)
+![Test image: Universal application pattern infographic](https://chatgpt.com/backend-api/estuary/content?id=file_00000000dfe471f6b2f8d631a23d9a89&ts=494976&p=fs&cid=1&sig=4be51cd2b80bf8c263538d2fc6e92a9f40a8a28c6c9e68850a026cca57cc7ead&v=0)
 
 ---
 
@@ -1831,7 +1831,7 @@ The introductory text should not be a part of the image, but in the message.
 
 ![Generated image: Application lifecycle diagram and flow](https://loc.vedicpandits.ca/images/photo_pandit_new.jpg)
 
-![Test image: Universal application pattern infographic](https://chatgpt.com/backend-api/estuary/content?id=file_000000009a5071f6a17ec5807f49428a&ts=494976&p=fs&cid=1&sig=6d411bd86f3449fda7702f8cdc2853cb3b9410bb328a7c4063d4d600d5b9e6eb&v=0)
+![Test image: Universal application pattern infographic](https://chatgpt.com/backend-api/estuary/content?id=file_00000000dfe471f6b2f8d631a23d9a89&ts=494976&p=fs&cid=1&sig=4be51cd2b80bf8c263538d2fc6e92a9f40a8a28c6c9e68850a026cca57cc7ead&v=0)
 
 ---
 
