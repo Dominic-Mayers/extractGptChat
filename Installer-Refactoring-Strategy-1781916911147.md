@@ -1807,7 +1807,7 @@ Can you generate an image that illustrates the conversation.
 
 ### ASSISTANT
 
-![Test image](https://vedicpandits.ca/images/photo_pandit_new.jpg)
+![Generated image: Universal application pattern infographic](https://chatgpt.com/backend-api/estuary/content?id=file_000000009a5071f6a17ec5807f49428a&ts=494976&p=fs&cid=1&sig=6d411bd86f3449fda7702f8cdc2853cb3b9410bb328a7c4063d4d600d5b9e6eb&v=0)
 
 ---
 
