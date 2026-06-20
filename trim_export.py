@@ -18,23 +18,52 @@ from datetime import datetime
 
 MAX_CHARS = 120
 
+# Trimmed output is meant to be uploaded back into a chat — a trim that
+# silently fails to shrink the file (e.g. the rfind/find bug above) still
+# writes a file and prints "Saved", and an oversized upload either gets
+# rejected or burns the conversation's context, discovered only after the
+# original (untrimmed) source is already gone. Catch that here instead.
+MAX_OUTPUT_BYTES = 200 * 1024
+
+
+# Anchor and header are captured together: the anchor line for block N+1 sits
+# at the tail of block N's raw text (right before "### USER"/"### ASSISTANT"),
+# so splitting on the header alone left it stranded in the previous block's
+# body — a separate hack was needed to fish it back out. Capturing both as one
+# match keeps each anchor permanently attached to its own block.
+_BLOCK_RE = re.compile(r'(?m)^(<a id="[^"]*"></a>\n\n)?(### (?:USER|ASSISTANT|UNKNOWN))$')
+
 
 def trim(text, user_lines=2, assistant_lines=1):
-    parts = re.split(r'(?m)^(### (?:USER|ASSISTANT|UNKNOWN))$', text)
+    parts = _BLOCK_RE.split(text)
     out = [parts[0]]
 
     i = 1
-    while i + 1 < len(parts):
-        header = parts[i]
-        body   = parts[i + 1]
-        role   = 'USER' if header == '### USER' else 'ASSISTANT'
-        n      = user_lines if role == 'USER' else assistant_lines
+    while i + 2 < len(parts):
+        anchor = parts[i] or ''
+        header = parts[i + 1]
+        body   = parts[i + 2]
+        role   = 'USER' if header == '### USER' else 'ASSISTANT' if header == '### ASSISTANT' else None
+        n      = user_lines if role == 'USER' else assistant_lines if role == 'ASSISTANT' else None
 
+        if n is None:
+            # Unknown role — not part of the USER/ASSISTANT trim spec, leave verbatim.
+            out.append(anchor + header + body)
+            i += 3
+            continue
+
+        # A message can itself contain a standalone "---" line (an <hr>, or the
+        # model using it as a section divider) — find() would stop at that one
+        # instead of the real block terminator that exportMarkdown appends after
+        # every message, silently dumping the rest of the message into "tail"
+        # untrimmed. The appended terminator is always the *last* such sequence
+        # in body (anything after it is the next block's own anchor/header, now
+        # split off separately, or the trailing diag block) — so rfind is exact.
         sep = '\n\n---\n\n'
-        idx = body.find(sep)
+        idx = body.rfind(sep)
         if idx >= 0:
-            msg_text = body[2:idx]
-            tail     = sep + body[idx + len(sep):]
+            msg_text = body[2:idx]   # body always starts with the leading '\n\n'
+            tail     = body[idx:]    # sep + anything after it (e.g. diag block)
         else:
             msg_text = body.strip()
             tail     = '\n'
@@ -44,11 +73,11 @@ def trim(text, user_lines=2, assistant_lines=1):
             kept   = [l[:MAX_CHARS] + ('…' if len(l) > MAX_CHARS else '')
                       for l in lines[:n]]
             suffix = f'\n[… {len(lines) - n} more lines]' if len(lines) > n else ''
-            out.append(header + '\n\n' + '\n'.join(kept) + suffix + tail)
+            out.append(anchor + header + '\n\n' + '\n'.join(kept) + suffix + tail)
         else:
-            out.append(header + tail)
+            out.append(anchor + header + tail)
 
-        i += 2
+        i += 3
 
     return ''.join(out)
 
@@ -142,7 +171,19 @@ def main():
     out = output_path(path)
     with open(out, 'w', encoding='utf-8') as f:
         f.write(result)
-    print(f'\nSaved: {out}')
+
+    size = os.path.getsize(out)
+    if size > MAX_OUTPUT_BYTES:
+        print(
+            f'\n!!! NOT SAFE TO UPLOAD !!!\n'
+            f'{out} is {size/1024:.0f}KB — over the {MAX_OUTPUT_BYTES // 1024}KB limit.\n'
+            f'The trim did not actually shrink this file enough; saved anyway for inspection, '
+            f'but do not upload it as-is.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f'\nSaved: {out} ({size/1024:.0f}KB)')
 
 
 if __name__ == '__main__':
