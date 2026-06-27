@@ -104,33 +104,37 @@ Common causes of issues include:
 
 ## Design Model: The Walkway Analogy
 
-The extractor can be understood as a worker building a walkway from individual slabs.
+For the more precise DOM/deck/slab architecture, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+The extractor can be understood as a **foreman** building a walkway from individual slabs while consulting a **supplier**.
 
 * **Slabs** are ChatGPT messages (user and assistant prompts). They are the pieces that are extracted and assembled into the final transcript.
-* **Anchors** are the survey markers driven into the ground at the start of each slab. An anchor is a *point*, not the slab itself — it tells the worker where a slab begins, but has no width or area of its own.
+* **Anchors** are the survey markers driven into the ground at the start of each slab. An anchor is a *point*, not the slab itself — it tells the foreman where a slab begins, but has no width or area of its own.
 * **Deck sections** are ChatGPT's internal lazy-loaded containers. They are not part of the transcript; they are structural units used by ChatGPT to manage the DOM.
-* **Light** is the viewport. ChatGPT's internal loading mechanisms only reliably work on deck sections that are under light.
-* **External workers** are ChatGPT's own lazy-loading and rendering systems. The extractor does not control them.
+* **The work zone** is the viewport area where ChatGPT's loading and rendering systems can prepare deck sections.
+* **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. It answers operational questions about currently available measurements, deck readiness, slab candidates, and slab readiness.
 
-The worker's job is simple: walk from anchor to anchor, and record the slab that starts at each one.
+The foreman's job is simple: build the walkway by repeatedly asking the supplier for the next slab, then recording that slab in the transcript.
+
+The supplier only exposes a changing, partial supply surface. The foreman cannot rely on a complete stable plan of the conversation; it only keeps the current working state, the current slab cursor, and the walkway already built.
 
 Because anchors are identifiers rather than regions, reasoning about their position is usually more reliable than reasoning about their extent. Questions about whether an anchor "covers" or "spans" part of the DOM are usually better reformulated in terms of the slab that begins at that anchor.
 
-The difficulty is that some slabs are located on deck sections that have not yet been prepared by the external workers. The extractor cannot force a section to become ready. It can only:
+The difficulty is that some slabs are located on deck sections that have not yet been prepared by ChatGPT's rendering systems. The extractor cannot force a section to become ready. It can only:
 
-1. Move the light (scroll the viewport).
-2. Detect which deck section should become ready next.
+1. Move the work zone (scroll the viewport).
+2. Ask the supplier which deck section should become ready next.
 3. Wait for ChatGPT to prepare it.
 4. Continue walking once the section is ready.
 
-A crucial consequence is that the extractor never attempts to understand the contents of an unprepared section. It only relies on a small set of observable readiness indicators exposed by ChatGPT's DOM.
+A crucial consequence is that the extractor never attempts to understand the contents of an unprepared section. It only relies on a small set of observable readiness indicators exposed through the supplier.
 
 Most failure modes therefore fall into one of two categories:
 
-* **Preparation failure**: a section never becomes ready despite remaining under light.
+* **Preparation failure**: a section never becomes ready despite remaining in the work zone.
 * **Detection failure**: the extractor incorrectly determines whether a section is ready.
 
-This model intentionally separates transcript extraction (slabs) from DOM management (deck sections). Messages are the source of truth; containers exist only to make the messages accessible.
+This model intentionally separates transcript extraction (slabs) from DOM management (deck sections). The exported walkway is the transcript; the hidden conversation and its DOM realization remain behind the supplier abstraction.
 
 ## Permissions
 
