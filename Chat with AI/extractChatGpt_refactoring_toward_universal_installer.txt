@@ -1,0 +1,520 @@
+USER:
+I ask again which other functions cross the boundary ? This time, I mean the functions that belong in a large but reasonable view of the  core that uses functions that aren't. I do not mean all functions that uses the environment (DOM primitives). 
+
+
+========================================
+
+ASSISTANT:
+I’ll trace the orchestration from `run` and identify only the meaningful core-to-supplier calls—not every DOM-touching helper.
+
+========================================
+
+ASSISTANT:
+I have the architectural map. Now I’m checking the actual call sites so the boundary list reflects today’s loop rather than an idealized future API.
+
+========================================
+
+ASSISTANT:
+Yes. Under a **large but reasonable core**, I see these meaningful boundary-crossing functions:
+
+- `run` — the principal core orchestrator; it directly invokes supplier, work-zone, readiness, serialization, and export operations. `extractChatGpt.js:2800`
+- `findBootstrapContainer` — core bootstrap policy using supplied deck enumeration and geometry. `extractChatGpt.js:1096`
+- `findNextDeck` — core successor policy using supplied mounted decks and measurements. `extractChatGpt.js:1185`
+- `findNextSlabsIn` — core slab-selection policy using supplier queries, geometry, and content selectors. `extractChatGpt.js:2532`
+- `waitForTurnReady` — core readiness policy coordinating observation and work-zone actuation. `extractChatGpt.js:1961`
+- `waitForSlabFinished` — core readiness policy repeatedly evaluating a supplier-provided slab fingerprint. `extractChatGpt.js:1399`
+- `extractMessage` — core consumption step calling DOM-specific serialization and media registration. `extractChatGpt.js:2652`
+- `exportMarkdown` — crosses the opposite boundary: from the assembled core result to filesystem/browser download capabilities. `extractChatGpt.js:497`
+
+Functions such as these are **below** that boundary rather than crossing it:
+
+- `queryDeckSequenceContainers`
+- `readinessElementForDeck`
+- `bringIntoView`
+- `slabFinishFingerprint`
+- `htmlToMarkdown`
+- `imageSrcsFor`
+
+They are supplier/adapter capabilities or helpers implementing those capabilities.
+
+There is also one architectural blemish: `run` directly calls low-level functions such as `findScrollContainer`, `getNavMenuItems`, and `forceScrollToEdge`. Conceptually these should probably become one boundary operation such as:
+
+```text
+supplier.positionWorkZoneAtStartingEdge(direction)
+```
+
+My preferred next function to analyze is **`findNextSlabsIn`**. It clearly contains core judgments—candidate ordering, selector policy, current-slab progression—mixed with raw supplier knowledge. It is likely the richest place to discover the intended boundary.
+
+========================================
+
+USER:
+The selectors and fingerprints are a mystery in the current design in the following sense that they cannot come from the supplier nor from the foreman, both are not knowledgeable enough to figure out these values. They come from "us". Ah, but that answers a question that was raised before : where is the need for interaction with the user ? They are configuration values to be supplied by the user.  That just brainstorming. Do you think that viewpoint is sensical ? 
+
+
+========================================
+
+ASSISTANT:
+Yes, that viewpoint is sensible and resolves a real gap in the analogy.
+
+Neither participant invents the rules:
+
+- The **Supplier** exposes observations and actions.
+- The **Foreman** applies a strategy.
+- The **Configuration** tells the foreman how supplier observations should be interpreted.
+
+Selectors and fingerprints are therefore **domain knowledge supplied to the extractor**, conceptually by “us”—the maintainer/operator—even if currently hard-coded.
+
+I would distinguish:
+
+- **Mechanism:** Supplier capability such as query attributes, read geometry, observe mutations.
+- **Configured rule:** selectors, thresholds, fingerprint predicates, time budgets.
+- **Policy:** foreman decisions about when and how to apply those rules.
+
+One qualification: this does not mean ordinary users should manually enter CSS selectors. “User-supplied” is architectural rather than necessarily interactive. Rules may come from:
+
+- built-in ChatGPT profiles;
+- versioned configuration files;
+- installer-time compatibility detection;
+- advanced user overrides.
+
+Thus the missing actor may be better named **maintainer**, **operator**, or **domain configuration**, rather than simply “user.”
+
+This also connects well to the universal installer: selectors and fingerprints resemble Last of Readme’s configuration requirements. The installer can establish a validated **ChatGPT adapter profile**, which the runtime foreman consumes. The need for user interaction appears when automatic profile selection is ambiguous or compatibility checks fail.
+
+========================================
+
+USER:
+In the case of Last of Readme, the user was allowed to choose the contract (even at runtime). The user did not define the contract. He picked the contract among predefined ones and a default was offered at installation. Something similar could make sense for the fingerprints and selectors. It forces the foreman to be generic in its way to manage fingerprints and selectors, without putting too much burden on the end user. 
+
+
+========================================
+
+ASSISTANT:
+Yes—this is a strong design direction.
+
+The user selects a predefined **extraction contract/profile**, rather than defining selectors and fingerprints directly. For example:
+
+```text
+ChatGPT profile
+- deck selector
+- slab selectors
+- deck-readiness fingerprint
+- slab-readiness fingerprints
+- geometry tolerances
+- time budgets
+```
+
+A default profile is chosen during installation, while runtime selection or override remains possible—matching Last of Readme.
+
+This gives several benefits:
+
+- The foreman becomes generic: it executes contract rules rather than knowing ChatGPT-specific predicates.
+- DOM knowledge moves into versioned profiles.
+- Users choose compatibility/risk policy without editing CSS or JavaScript.
+- New ChatGPT DOM variants can receive new profiles without redesigning traversal.
+- Diagnostics can report precisely which contract and rule failed.
+
+The important separation is:
+
+- **Profile authors** define contracts.
+- **Installer** chooses and validates a default.
+- **User** may select another contract.
+- **Foreman** interprets the selected contract.
+- **Supplier adapter** performs the requested observations and actions.
+
+I would avoid making every implementation detail configurable. A contract should expose stable semantic operations—`selectDecks`, `deckReady`, `selectSlabs`, `slabReady`—and hide raw selectors behind the profile implementation. Otherwise the foreman becomes a generic CSS interpreter rather than a generic extractor.
+
+========================================
+
+USER:
+The contract (if we decide to call it that way) must contain every thing that we expect can change from a version to another and that goes quite low at the level of css, markdown discovery, etc. Perhaps, you mean that (1)  the identification of contracts should allow end user to pick them easily and (2) the definition of the contracts should allow the foreman  to apply fixed strategies: we cannot expect the foreman to be a designer of strategies. 
+
+
+========================================
+
+ASSISTANT:
+Yes—that is exactly the distinction I meant.
+
+The contract can go very low-level and contain everything expected to vary with ChatGPT versions:
+
+- CSS selectors and attributes
+- DOM scope rules
+- geometry/probe rules
+- Markdown discovery rules
+- readiness fingerprints
+- media/canvas detection
+- thresholds and timeout budgets
+
+But it must still implement a **fixed vocabulary of decisions** understood by the foreman:
+
+```text
+enumerateDecks()
+identifyDeckReadinessTarget(deck)
+isDeckReady(deck)
+enumerateSlabCandidates(deck)
+selectSlabs(candidates)
+isSlabReady(slab)
+serializeSlab(slab)
+```
+
+So:
+
+1. **User-facing identification** makes contracts easy to choose: names, supported UI version, default/recommended status, compatibility notes.
+2. **Contract definition** contains detailed version-sensitive knowledge.
+3. **Foreman strategy** remains fixed: bootstrap, select, wait, extract, advance, diagnose or stop.
+
+The foreman should interpret outcomes, not invent predicates or strategies. Likewise, the contract should not control traversal policy; otherwise each contract becomes a separate extractor implementation.
+
+A useful formulation is:
+
+> The contract supplies version-specific knowledge; the foreman supplies version-independent procedure.
+
+Some contract rules may be executable functions rather than declarative values. That still preserves the boundary, provided they answer the foreman’s fixed questions rather than taking over orchestration.
+
+========================================
+
+USER:
+You say the foreman has a fixed strategy and it's a valid point of view, but a stratgegy can include chosing a strategy (in a different space of strategies) given the contract parameters. I prefer to say that the strategy used by the foreman is not fixed. 
+
+
+========================================
+
+ASSISTANT:
+I agree. “Fixed strategy” was too restrictive.
+
+A better separation is:
+
+- **Contract:** supplies version-specific facts, predicates, capabilities, parameters, and supported alternatives.
+- **Foreman:** chooses and executes a strategy compatible with that contract.
+- **Metastrategy:** governs that choice—for example, selecting geometric versus structural deck traversal based on capabilities declared by the contract.
+
+The foreman is generic because its **strategy space and selection rules** are version-independent—not because every run follows one fixed procedure.
+
+The boundary should instead be:
+
+> The contract describes what can be observed, recognized, and done in this environment; the foreman decides how to accomplish extraction using those provisions.
+
+The contract may say:
+
+```text
+deck adjacency supports: geometry
+slab ordering supports: DOM order, geometry
+readiness signals: intersection attribute, content completion
+actuation: incremental scrolling, direct reveal
+```
+
+The foreman may then choose among known strategies based on reliability, cost, diagnostics, or user preference.
+
+What the foreman should not do is invent new DOM-specific knowledge. It may compose and select strategies, but it cannot manufacture a selector or infer the undocumented meaning of a CSS class without evidence supplied through the contract or compatibility discovery.
+
+========================================
+
+USER:
+This suggests to me that the foreman needs to know about fingerprints and selectors, because the strategy that it applies use these notions. Is that makes sense ? 
+
+
+========================================
+
+ASSISTANT:
+Yes. The foreman should know the **concepts and semantics** of selectors and fingerprints, but not their ChatGPT-version-specific definitions.
+
+It understands:
+
+- A **selector** classifies candidates.
+- A **fingerprint** supplies readiness evidence.
+- Selection precedes readiness evaluation.
+- A negative selector result is not automatically retried.
+- A negative fingerprint may justify waiting or actuation.
+- Different strategies may choose different configured selectors or fingerprints.
+
+The contract supplies:
+
+- the concrete CSS/DOM predicates;
+- applicability and scope;
+- confidence or reliability characteristics;
+- costs and timeout recommendations;
+- compatible combinations.
+
+So the foreman can reason generically:
+
+```text
+candidates = contract.deckSelector.select(snapshot)
+deck = strategy.choose(candidates)
+
+while not contract.deckFingerprint.matches(deck):
+    strategy.actuateOrWait(deck)
+
+slabs = contract.slabSelector.select(deck)
+```
+
+The distinction is:
+
+> The foreman knows what selectors and fingerprints mean and how to use them; the contract knows what they are in this particular environment.
+
+That makes them part of the core’s domain language, not hidden adapter implementation details.
+
+========================================
+
+USER:
+The same does not have to be the case for geometries, unless we decide that the foreman is responsible to check geometrical adjacency and order.  Can we separate geometry from fingerprints and selectors in this way ? 
+
+
+========================================
+
+ASSISTANT:
+Yes. They belong to different architectural dimensions.
+
+- **Selectors and fingerprints** are semantic concepts in the extraction process. The foreman must understand their different meanings because they affect control flow.
+- **Geometry** is evidence supplied by the environment. Whether the foreman understands coordinates depends on the selected boundary.
+
+Two valid designs follow.
+
+### Geometry-hidden design
+
+The contract or adapter exposes semantic operations:
+
+```text
+nextDeck(current, direction)
+slabsWithin(deck)
+isAdjacent(first, second)
+```
+
+The foreman never sees rectangles. Geometry is an implementation technique behind those operations.
+
+### Geometry-aware design
+
+The supplier exposes measurements:
+
+```text
+measure(element) → rectangle
+enumerateDecks()
+enumerateSlabs()
+```
+
+The foreman or a core strategy computes ordering, containment, adjacency, and gaps.
+
+Selectors and fingerprints remain core concepts in either design. Geometry does not have to.
+
+My preference here is a middle boundary:
+
+- supplier provides raw measurements;
+- contract supplies version-specific geometric rules and tolerances;
+- a reusable **spatial strategy component** computes ordering and adjacency;
+- the main foreman consumes semantic results such as `nextDeck`.
+
+Thus the foreman broadly understood includes geometry-aware strategy machinery, while its top-level traversal loop does not manipulate `top`, `bottom`, and probe offsets directly.
+
+The key asymmetry is:
+
+> Selectors and fingerprints determine what observations mean for extraction control. Geometry is one possible representation used to derive those observations.
+
+========================================
+
+USER:
+The difference is that geometry is used to verify the model. The model imposes that there is no gap and no overlaps, etc. The model does not impose readiness nor any specific rules for the type of a slab. 
+
+
+========================================
+
+ASSISTANT:
+Yes—that is the more important distinction.
+
+Geometry is not merely environmental evidence or an implementation technique. It expresses and verifies **structural invariants of the core model**:
+
+- decks form an ordered sequence;
+- adjacent decks have no unexplained gaps or overlaps;
+- slabs form an ordered sequence within a deck;
+- slabs account for the deck’s relevant extent.
+
+Therefore, the geometry-aware validation belongs naturally to the foreman/core. The contract supplies version-specific details such as:
+
+- which elements provide deck or slab geometry;
+- acceptable margins and tolerances;
+- which regions are irrelevant layout space.
+
+Selectors and fingerprints differ:
+
+- **Selectors** provide version-specific recognition rules for slabs and decks.
+- **Fingerprints** provide version-specific readiness evidence.
+- The model requires selection and readiness decisions, but does not prescribe their concrete rules.
+- **Geometry** tests whether the resulting objects respect the model itself.
+
+So the division becomes:
+
+> The contract identifies and measures supplies; the foreman verifies that the supplied decks and slabs satisfy the geometric model.
+
+This also explains why geometry should not merely be hidden behind `nextDeck()`: doing so would prevent the foreman from independently checking the supplier’s interpretation against its own structural invariants.
+
+========================================
+
+USER:
+Unless it's logically impossible to separate geometry from selection and readiness, which you said it isn't, it's a design decision. But, yes, if we view the foreman as responsible for checking the geomerrical invariant, then   geometry should not be hidden behind. 
+
+
+========================================
+
+ASSISTANT:
+Agreed. It is a boundary choice, not a logical necessity.
+
+Under the chosen design:
+
+- The **contract** defines concrete selectors and readiness fingerprints.
+- The **supplier** performs observations and returns candidates, readiness evidence, and measurements.
+- The **foreman** understands selector/fingerprint semantics and owns geometric ordering and invariant verification.
+- Geometry remains exposed because the foreman must independently validate contiguity, containment, gaps, and overlaps.
+
+The contract may still provide tolerances or identify which element represents a slab’s geometry. It should not precompute “everything is valid,” because that would hide the evidence needed for the core’s model checks.
+
+========================================
+
+USER:
+I propose to try to have the foreman not responsible for geometrical invariants, but responsible for selection and checking readiness using selectors and fingerprints. This will force us to implement that separation of concern. It will not prevent us to expand the core in a subsequent version. 
+
+
+========================================
+
+ASSISTANT:
+I agree. It is a useful deliberately narrow first boundary.
+
+For this version:
+
+- **Foreman:** applies selectors, checks fingerprints, waits/acts according to strategy, and extracts selected slabs.
+- **Contract:** defines selectors, fingerprints, and their parameters.
+- **Supplier/adapter:** handles DOM queries, geometry, ordering, containment, adjacency, and work-zone movement.
+- **Diagnostics:** verify geometric invariants outside the foreman’s core flow.
+
+The foreman can request semantic operations such as:
+
+```text
+bootstrapDeck()
+nextDeck(currentDeck, direction)
+selectSlabs(deck, selector)
+readFingerprint(target, fingerprint)
+moveWorkZoneTo(deck)
+```
+
+Geometry may still implement `nextDeck` or `selectSlabs`, but remains hidden behind those operations. Geometric diagnostics can receive richer measurements independently without affecting traversal policy.
+
+This gives us a concrete test: if foreman logic reads `top`, `bottom`, rectangles, probes, or DOM ancestry, that concern has probably not yet crossed the boundary.
+
+It is reversible: later, geometry and invariant checking can move into an expanded core without changing the selector/fingerprint distinction.
+
+========================================
+
+USER:
+It might be possible to structure the adapters in such a way that not a single line of code needs to be modified to expand the core : it would only be a question of where we define the boundary and thus what we decide to call the core. 
+
+
+========================================
+
+ASSISTANT:
+Yes—if the code is decomposed by responsibility before it is classified by layer.
+
+For example:
+
+```text
+DOM primitives
+    ↓
+deck/slab discovery
+    ↓
+geometry and ordering
+    ↓
+selection/readiness
+    ↓
+traversal orchestration
+```
+
+Each function receives explicit inputs and returns explicit results, without relying unnecessarily on shared DOM state.
+
+Initially, define the boundary above geometry:
+
+```text
+Core = selection/readiness + traversal
+Adapter = DOM + geometry/discovery
+```
+
+Later, redraw it below geometry:
+
+```text
+Core = geometry/ordering + selection/readiness + traversal
+Adapter = DOM primitives
+```
+
+No implementation must move or change; only dependency wiring, module ownership, and architectural labels change.
+
+The crucial requirement is that geometry functions not secretly perform selection/readiness policy, and selector/fingerprint functions not secretly perform traversal or scrolling. Then “expanding the core” is genuinely reclassification rather than refactoring.
+
+========================================
+
+USER:
+It means that the phases in the dependency graph, which are like the objects in a compiler library, are creared from nested code structures, which is very ordinary.  
+
+
+========================================
+
+ASSISTANT:
+Yes. That is a good way to view it.
+
+The nested code structures provide progressively higher-level operations:
+
+```text
+DOM primitives
+→ geometric/discovery operations
+→ selector/fingerprint operations
+→ traversal operations
+```
+
+The installer’s dependency graph does not need to mirror source-file or architectural boundaries directly. Its phases can be constructed from functions at whichever level is appropriate, much as compiler objects are assembled from library abstractions.
+
+So:
+
+- **Code nesting/composition** expresses implementation dependencies.
+- **Core/adapter boundary** expresses an architectural interpretation.
+- **Installer phases and dependency graph** express construction and execution dependencies.
+
+These structures are related, but they need not coincide. A later expansion of the core may simply reclassify an existing composed operation while the underlying code and phase graph remain unchanged.
+
+========================================
+
+USER:
+This relationship between a compiler and a framework is not special. Most frameworks have a similar relationship, even when they are fundamentally different. This is puzzling me. 
+
+
+========================================
+
+ASSISTANT:
+I think the puzzlement comes from recognizing a very general pattern, not a special compiler–framework relationship.
+
+Both commonly:
+
+- accept declarations or components;
+- validate compatibility and dependencies;
+- construct an internal graph or plan;
+- order operations;
+- bind abstract requirements to concrete implementations;
+- execute—or emit something that executes—the result.
+
+The difference is mostly **when and what they produce**:
+
+- A compiler transforms a description into another executable representation.
+- A framework supplies an execution structure into which application behavior is inserted.
+- An installer framework can do both: compile configuration into a phase graph, then execute that graph.
+
+So “compiler” describes one operation performed by the universal installer; “framework” describes the larger relationship it establishes with applications.
+
+The deeper shared abstraction may be **staged composition**:
+
+```text
+definitions → validation → dependency resolution → composed plan → execution
+```
+
+This appears in compilers, dependency-injection frameworks, build systems, workflow engines, installers, routers, and plugin systems. It is ubiquitous because any system assembling independently defined parts must solve roughly these problems.
+
+The important caution is not to infer too much from the resemblance. Calling phases “compiler objects” is useful if the installer truly constructs and validates an executable representation. But phases can simultaneously be framework extension points. The same object can participate in both views:
+
+- as **input to compilation**, it is a declarative component;
+- as **part of the resulting application**, it is a framework-managed runtime unit.
+
+So the relationship is ordinary because compiler-like construction and framework-like execution are two perspectives on the same compositional pipeline.
+
+========================================

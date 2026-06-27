@@ -1,0 +1,583 @@
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Each cycle of the loop starts with what ?
+
+
+========================================
+
+ASSISTANT:
+Each normal cycle starts with a **ready deck**.
+
+More precisely, at the top of the main loop the code already has:
+
+- `readyContainer`: the current deck;
+- `current`: the last slab consumed;
+- `seenIds`: slab/message identities already consumed;
+- `containerInsertAt`: where additional slabs from this deck should be inserted.
+
+Then the cycle does:
+
+1. **Check/model the current ready deck**
+   ```js
+   checkReadyContainerModel(readyContainer, checkedModelContainers)
+   ```
+
+2. **Ask for the next unconsumed slab inside that ready deck**
+   ```js
+   const slabs = findNextPromptIn(readyContainer, current, seenIds)
+   ```
+
+So the cycle begins not by choosing a deck, but by assuming:
+
+> “I have a ready deck; can I drain another slab from it?”
+
+If yes: extract that slab and keep the same deck.
+
+If no: the deck is drained, so the loop then advances to the adjacent deck and waits for it to become ready. That newly ready deck becomes the starting point of the next cycle.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+What is Check/model ?
+
+
+========================================
+
+ASSISTANT:
+`checkReadyContainerModel(...)` is diagnostic, not core traversal.
+
+It does not decide what to extract. It observes whether the current ready deck still matches our mental model.
+
+It checks things like:
+
+- Are anchored messages geometrically contained in the ready deck?
+- Are there message anchors that overlap the deck but failed the probe-membership test?
+- Are adjacent message anchors separated by suspicious gaps?
+- Is the first message anchor far below the deck top?
+- Is the last message anchor far above the deck bottom?
+- What direct slab-like children exist in the deck’s content stack?
+- Are there unknown slab-like children?
+- Are slab-like children contiguous, or are there slab gaps?
+
+So “check/model” means:
+
+> run model-validation diagnostics on the ready deck before extracting from it.
+
+It is not part of the minimal algorithm. The minimal loop could start directly with:
+
+```js
+const slabs = findNextPromptIn(readyContainer, current, seenIds)
+```
+
+The model check is there to catch violations of our assumptions while the extractor still continues when possible.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+checkReadyContainerModel seems to assume some previous work that creates a ready container. 
+
+
+========================================
+
+ASSISTANT:
+Yes. Exactly.
+
+`checkReadyContainerModel(readyContainer, ...)` assumes the deck has already gone through the earlier core steps:
+
+1. a deck was selected;
+2. it was brought under the viewport/light;
+3. `waitForTurnReady(...)` accepted its deck-level readiness fingerprint;
+4. it is now the current `readyContainer`.
+
+Only then does `checkReadyContainerModel` inspect it.
+
+So it should not be understood as “make or find a ready container.” It is:
+
+> given an already-ready deck, verify/diagnose whether its internal geometry matches our model.
+
+In architecture terms:
+
+```text
+Deck selection + deck readiness → ready deck
+ready deck → optional model diagnostics
+ready deck → slab enumeration
+```
+
+The name is slightly misleading because “check ready container model” sounds like it might participate in readiness. It doesn’t. A clearer name would be something like:
+
+```js
+diagnoseReadyDeckModel(...)
+```
+
+or
+
+```js
+inspectReadyDeckGeometry(...)
+```
+
+That would make the dependency clearer: it consumes a ready deck; it does not produce one.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Perhaps, we should accept that in the definition of the main loop and make explicit the bootstrap. 
+
+
+========================================
+
+ASSISTANT:
+Yes. That is the right structure.
+
+We should define the algorithm as two phases:
+
+1. **Bootstrap**
+   - establish the first ready deck;
+   - extract the first slab from it;
+   - initialize `current`, `readyContainer`, `seenIds`, insertion state.
+
+2. **Main loop**
+   - invariant at loop start: **there is a current ready deck**;
+   - drain the next slab from that deck if one exists;
+   - otherwise choose the adjacent deck, wait for readiness, and continue.
+
+So the main loop should not pretend to include “how do we get the first ready deck?” That belongs to bootstrap.
+
+A clean architecture statement would be:
+
+```text
+Bootstrap:
+  choose edge-visible deck
+  wait for deck readiness
+  choose first slab in deck
+  wait for slab readiness
+  extract first slab
+  initialize loop state
+
+Main loop invariant:
+  readyDeck is selected and deck-ready
+  current is the last consumed slab
+  seenIds records consumed slab identities
+
+Main loop:
+  ask readyDeck for next unconsumed selected slab
+  if found:
+    wait slab readiness
+    extract
+    update current and seenIds
+  else:
+    choose adjacent deck
+    wait deck readiness
+    set readyDeck = adjacent deck
+```
+
+That also makes `checkReadyContainerModel` easy to place:
+
+```text
+Optional diagnostic at main-loop start:
+  inspect readyDeck model
+```
+
+not part of the invariant and not part of readiness itself.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Does the start of a cycle in the main loop assume a current slab ?
+
+
+========================================
+
+ASSISTANT:
+Yes — in the current implementation, the main loop starts with both:
+
+- a current ready deck: `readyContainer`
+- a current slab/cursor: `current`
+
+`current` means:
+
+> the last slab candidate that the walk consumed or advanced past.
+
+At loop start, `findNextPromptIn(...)` receives it:
+
+```js
+const slabs = findNextPromptIn(readyContainer, current, seenIds);
+```
+
+Inside `findNextPromptIn`, `current` is used to avoid selecting the same DOM element again:
+
+```js
+if (el === current) continue;
+```
+
+So the loop invariant is really:
+
+```text
+readyContainer is a ready deck
+current is the last consumed slab/candidate
+seenIds records consumed identities
+```
+
+However, after the deck-first bootstrap refactor, there is one conceptual nuance:
+
+- Bootstrap uses `current = null` when asking for the first slab inside the first ready deck.
+- Once the first slab is extracted, `current` is set to that slab.
+- Then the main loop begins.
+
+So yes: **the main loop assumes a current slab exists**, because bootstrap establishes it first.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+So we accept that and define the bootstrap accordingly. 
+
+
+========================================
+
+ASSISTANT:
+Yes. That gives the cleanest model:
+
+```text
+Bootstrap establishes the main-loop invariant.
+Main loop preserves and advances that invariant.
+```
+
+So bootstrap should be defined as:
+
+```text
+Bootstrap input:
+  DOM root
+  viewport/light
+  walk direction
+
+Bootstrap steps:
+  1. move viewport to starting edge
+  2. choose the edge-visible deck
+  3. wait for deck readiness
+  4. select the first extractable slab inside that deck
+  5. wait for slab readiness
+  6. extract that slab
+  7. initialize:
+     - readyDeck = chosen deck
+     - currentSlab = extracted slab
+     - seenIds = identity of extracted slab
+     - insertion state
+```
+
+Then the main loop invariant is explicit:
+
+```text
+At the start of each main-loop cycle:
+  readyDeck is selected and deck-ready
+  currentSlab is the last consumed slab/candidate
+  seenIds contains consumed identities
+```
+
+And each main-loop cycle is:
+
+```text
+1. Ask readyDeck for the next unconsumed selected slab after currentSlab.
+2. If such a slab exists:
+     wait for slab readiness
+     extract it
+     update currentSlab and seenIds
+     continue with same readyDeck.
+3. If no slab exists:
+     choose adjacent deck
+     wait for deck readiness
+     set readyDeck = adjacent deck
+     keep currentSlab as the cursor from the previous deck
+     continue.
+```
+
+Tiny nuance: after moving to a new deck, `currentSlab` is not inside the new deck, but that is okay because `seenIds` is the real cross-deck guard and `currentSlab` only prevents immediate reselection of the exact same DOM node.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Yes this perhaps a subtle point in the bootstrap. How is it managed concretely (remaining as conceptual as possible in the explanation) ?
+
+
+========================================
+
+ASSISTANT:
+Concretely, bootstrap creates the first cursor by doing one full normal extraction before the main loop starts.
+
+Conceptually:
+
+1. **Pick first deck**
+   - At the starting viewport edge, choose the edge-visible deck.
+
+2. **Make it ready**
+   - Wait until that deck’s readiness fingerprint holds.
+
+3. **Ask that deck for slabs with no cursor yet**
+   - Bootstrap calls the same slab-discovery logic, but with:
+     ```text
+     currentSlab = null
+     ```
+   - Meaning: “there is no previous slab to skip; give me the first selected slab in this ready deck.”
+
+4. **Extract first slab**
+   - Wait for that slab’s readiness.
+   - Extract it.
+   - Record its identity in `seenIds`.
+
+5. **Create the cursor**
+   - Set:
+     ```text
+     currentSlab = first extracted slab
+     readyDeck = first deck
+     ```
+
+Only after this does the main loop begin.
+
+So the subtle point is:
+
+> Bootstrap is allowed to query a ready deck without a current slab, but only once, to manufacture the first current slab.
+
+After that, every main-loop cycle has a `currentSlab`.
+
+When the loop later moves to a new deck, `currentSlab` still refers to the last slab in the previous deck. That sounds odd, but it is harmless because:
+
+- the new deck is selected independently by deck geometry;
+- slab discovery is constrained to the new ready deck;
+- `currentSlab` only excludes exact same DOM element;
+- `seenIds` handles real deduplication.
+
+So `currentSlab` is partly a cursor, partly a “do not immediately repeat this exact element” guard. The durable transcript cursor is really the pair:
+
+```text
+readyDeck + seenIds
+```
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Does the main loop has to be over deck. Could it be that once we have the first slab, we run over slabs and move viewport and move to the next deck as needed.  
+
+
+========================================
+
+ASSISTANT:
+Yes, conceptually the main loop can be “over slabs.”
+
+That may actually be the cleaner abstraction:
+
+```text
+Bootstrap:
+  produce first slab and its deck.
+
+Main loop:
+  repeatedly produce the next slab.
+```
+
+Then “move to next deck if needed” becomes an implementation detail of `nextSlab()`.
+
+The loop would be:
+
+```text
+currentSlab = bootstrapFirstSlab()
+
+while currentSlab exists:
+  extract currentSlab
+  currentSlab = nextSlab(currentSlab)
+```
+
+And `nextSlab(currentSlab)` would internally do:
+
+```text
+1. Look for another unconsumed slab in current deck.
+2. If found, return it.
+3. If not found:
+   a. choose adjacent deck;
+   b. wait for deck readiness;
+   c. look for first unconsumed slab in that deck;
+   d. return it.
+```
+
+This fits the user-level goal better: export a sequence of slabs/messages.
+
+The deck is then not the loop’s subject; it is the traversal medium. That is probably more natural architecturally:
+
+- **Slab loop**: transcript sequence.
+- **Deck machinery**: how the next slab is made available.
+- **Viewport/light**: how decks become ready.
+- **DOM root**: where candidates are queried.
+
+Current code is deck-shaped because it physically drains a `readyContainer` and only then advances. But abstractly, it is a slab iterator with internal deck state.
+
+A good architecture statement would be:
+
+> The extractor’s public/core abstraction is an iterator over slabs. Internally, the iterator maintains a current ready deck; when no further slab is available in that deck, it advances the deck and resumes slab selection.
+
+That may be the best way to resolve the “does the loop start with deck or slab?” ambiguity:
+
+- bootstrap establishes first slab;
+- main loop is over slabs;
+- next-slab resolution may reuse current deck or move to adjacent deck.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Yes, and the move of the viewport is also triggered and computed at the slab level, I think. 
+
+
+========================================
+
+ASSISTANT:
+Yes — that is the better conceptual view.
+
+The **reason** to move the viewport is slab-level:
+
+> “I need the next slab, and the current ready deck has no more selected slabs.”
+
+So the demand originates from the slab iterator.
+
+But the **mechanism** is deck-level:
+
+1. current slab asks for `nextSlab`;
+2. current deck has no next slab;
+3. find adjacent deck;
+4. move viewport/light to that deck;
+5. wait for deck readiness;
+6. ask that deck for its first slab.
+
+So viewport movement is not an independent “scroll loop.” It is triggered by failure to find the next slab in the current deck.
+
+A clean statement:
+
+```text
+The extractor iterates slabs.
+Viewport movement is a side effect of resolving the next slab when the next slab is not available in the current ready deck.
+```
+
+And:
+
+```text
+Slab-level need: produce the next transcript unit.
+Deck-level mechanism: locate and ready the adjacent deck.
+Viewport-level mechanism: move light so external workers prepare that deck.
+```
+
+So yes: even though the code calls `bringIntoView` on decks, the computation belongs inside `nextSlab()` — because its purpose is to satisfy the next-slab request.
+
+========================================
+
+USER:
+# Context from my IDE setup:
+
+## Open tabs:
+- pasted-text.txt: /home/dominic/.codex/attachments/d3f14694-25a6-4422-8aea-01b5aca34692/pasted-text.txt
+
+## My request for Codex:
+Can you adapt ARCHITECTURE.md in accord with that discussion. But before, let's check that the code itself respects it. 
+
+
+========================================
+
+ASSISTANT:
+Yes — I’ll check whether the current implementation is already a slab iterator with deck machinery inside, or whether the structure still contradicts that model.
+
+========================================
+
+ASSISTANT:
+The loop is mostly slab-driven, but deck advancement is still inline rather than packaged as `nextSlab()`. I’ll check bootstrap/state setup too before updating the doc.
+
+========================================
+
+ASSISTANT:
+The code matches the slab-iterator idea conceptually, but it hasn’t been factored into a `nextSlab()` helper. I’ll update `ARCHITECTURE.md` to state both the conceptual model and the current implementation shape.
+
+========================================
+
+ASSISTANT:
+I’ll patch the architecture doc now so bootstrap establishes the first slab, and the main abstraction is an iterator over slabs.
+
+========================================
+
+ASSISTANT:
+I’m replacing the deck-shaped core description with a slab-iterator description, while keeping decks as the mechanism.
+
+========================================
+
+ASSISTANT:
+The doc now says the core is a slab iterator. I’ll add the explicit bootstrap/main-loop invariant to remove the remaining ambiguity.
+
+========================================
+
+ASSISTANT:
+Now I’ll read the updated architecture section to ensure the model is coherent and not contradictory.
+
+========================================
+
+ASSISTANT:
+The architecture text is coherent with the current code shape. I’ll mark the doc update complete.
+
+========================================
+
+ASSISTANT:
+Checked the code and updated `ARCHITECTURE.md`.
+
+- The code does respect the slab-iterator model conceptually.
+- It is not factored as a literal `nextSlab()` helper yet; deck advancement is inline in the main loop.
+- Bootstrap now establishes the invariant: ready deck + current slab + seen ids.
+- Main loop starts by trying to resolve the next slab from the current ready deck.
+- If none is found, it advances the deck/viewport as part of resolving that next-slab request.
+
+Updated doc: `ARCHITECTURE.md:10` and `ARCHITECTURE.md:69`.
+
+========================================
+
