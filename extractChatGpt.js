@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      4.65
+// @version      4.133
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -32,7 +32,6 @@
     function _resetPerf() {
         _perf = {
             htmlToMarkdownCalls: 0, htmlToMarkdownMs: 0,
-            blankWaits: 0,
             snapshots: [],
             runStartMs: 0,
             containerTag: '', containerScrollH: 0, containerClientH: 0, containerIsDocEl: false,
@@ -42,6 +41,33 @@
             bootstrapRole: '', bootstrapWasIntersectingFalse: false,
             maxAdvancesWithoutProgress: 0, turnIdDedupSkips: 0, turnIdDedupMaxRun: 0,
             multiCandidatesInReadyContainer: 0, multiCandidatesMax: 0,
+            readyContainerProbeMisses: { count: 0, above: 0, below: 0, overlapping: 0, nearOnly: 0, examples: [] },
+            readyContainerModel: {
+                checked: 0,
+                containmentViolations: 0,
+                overlappingNonMembers: 0,
+                messageGapViolations: 0,
+                maxMessageGap: 0,
+                topEdgeViolations: 0,
+                bottomEdgeViolations: 0,
+                maxTopEdgeGap: 0,
+                maxBottomEdgeGap: 0,
+                maxTopEdgeWinner: null,
+                maxBottomEdgeWinner: null,
+                domOnlyMembers: 0,
+                probeOnlyMembers: 0,
+                slabStacksChecked: 0,
+                slabItemsChecked: 0,
+                unknownSlabItems: 0,
+                slabGapViolations: 0,
+                maxSlabGap: 0,
+                delayedRechecksScheduled: 0,
+                delayedRechecksResolved: 0,
+                delayedRechecksChanged: 0,
+                delayedRecheckExamples: [],
+                examples: [],
+                exampleMsgIds: [],
+            },
             readyMargin: { count: 0, sum: 0, max: 0, maxWinner: null },
             containerReach: { count: 0, sum: 0, max: 0, maxWinner: null },
             sleepSlip: { count: 0, sum: 0, max: 0 },
@@ -74,18 +100,40 @@
                 examples: [],
             },
             maxContainerGap: 0, containerGapViolations: 0, containerGapSkippedDetached: 0,
-            viewportMovesBringIntoView: 0, viewportMovesStimulate: 0, viewportMovesForceEdge: 0,
-            // Diagnoses whether the image-only-turn fallback (no
-            // [data-message-author-role] anywhere in the container) ever
-            // actually engages: anchorlessContainers counts how many times
-            // findNextPromptIn/findBootstrapMessage saw a container with no
-            // anchor at all; turnElementMissing counts how many of those had
-            // no [data-turn] element either (self or descendant) to use as a
-            // fallback candidate; candidatesFound/extracted track whether a
-            // found candidate actually made it into allPrompts.
-            imageOnlyTurns: { anchorlessContainers: 0, turnElementMissing: 0, candidatesFound: 0, extracted: 0 },
-            // A candidate that findNextPromptIn geometrically confirmed but
-            // extractMessage(el) returned null for (htmlToMarkdown produced
+            slabAdjacency: { checked: 0, maxGap: 0, maxOverlap: 0, violations: 0 },
+            viewportMovesWorkZone: 0, viewportMovesForceEdge: 0,
+            // Direct image-slab selector diagnostics. candidatesFound counts
+            // discovery events because every successor query re-scans the
+            // mounted DOM; byTurnId is the deduplicated view.
+            imageOnlyTurns: { candidatesFound: 0, extracted: 0, byTurnId: {} },
+            // Diagnostic for the canvas/textdoc-block extraction path
+            // specifically — distinguishes "the element was never in the
+            // DOM at all when checked" from "found but not geometrically
+            // inside readyContainer yet" from "selected but htmlToMarkdown
+            // returned empty", three very different failure modes that
+            // would otherwise all look identical (no file saved).
+            canvasBlocks: { seenGlobally: 0, candidatesFound: 0, extracted: 0, markdownEmpty: 0 },
+            slabFiltering: {
+                allowlisted: 0,
+                unlisted: 0,
+                byRule: {},
+                examples: [],
+            },
+            intermediateDeckAdvances: 0,
+            // Informational only — see maintainWorkZone: the room outcome
+            // of the one move issued is no longer a gate, just observed.
+            workZoneRoomShortfall: { count: 0, examples: [] },
+            // The blank fingerprint: a live capture of the not-yet-rendered
+            // state itself, taken the moment a candidate is first found not
+            // ready (before any waiting). Distinct from the readiness
+            // fingerprint (whose presence means ready) — this captures what
+            // "not ready yet" actually looks like structurally, so it can
+            // be compared against the outerHTML captured from cases that
+            // never become ready at all (e.g. febac401) to see whether
+            // those start out the same way or are a different state.
+            blankFingerprint: { count: 0, examples: [] },
+            // A candidate that findNextSlabInReadyDeck geometrically confirmed but
+            // extractSlab() returned null for (htmlToMarkdown produced
             // no text — e.g. an image-generation turn whose container passed
             // the virtualization-readiness gate before the actual <img> ever
             // landed in the DOM). Before this counter existed, that case was
@@ -93,6 +141,10 @@
             // still advanced past the element either way, silently dropping
             // it from the export forever with no error and no diagnostic.
             extractionFailures: { count: 0, examples: [] },
+            // Tracks the slab-content fingerprint wait only — existence
+            // (does a candidate exist at all) is a single synchronous
+            // selector check with no wait, never counted here.
+            slabDiscoveryWait: { waited: 0, alreadyReady: 0, resolvedAfterWait: 0, timedOut: 0, maxWaitMs: 0 },
             // Dedicated, independently-lived observers (see
             // watchForToComeFingerprint) attached the instant a turn is
             // found anchorless-and-imageless at the moment it's declared
@@ -102,7 +154,27 @@
             // of the main walk, specifically to find what — if anything —
             // shows up between "ready" and the <img> actually landing.
             toComeFingerprint: { watches: [] },
+            // Diagnostic only, not a gating fingerprint: logs the full
+            // ordered sequence of distinct values primaryImageForSlab's
+            // <img src> takes from the moment an image-type slab candidate
+            // is first discovered, so a candidate readiness check (e.g.
+            // "src is non-empty") can be tested after the fact against
+            // whatever value actually preceded the final one — see
+            // watchImageSrcHistory.
+            imageSrcHistory: { watches: [] },
+            // Same purpose as imageSrcHistory, but for a deck's own
+            // data-is-intersecting attribute: lets an "Empty container"
+            // placeholder show whether that flag ever flickered back to
+            // false between deck entry and the moment the deck was found
+            // empty, instead of only showing its value at the one instant
+            // the placeholder was written.
+            intersectingHistory: { watches: [] },
             scrollHeightGrowthCheck: { before: null, after: null, grewBy: null },
+            // checks: how many containers got a coverage check at all (only
+            // meaningful once we've actually drained every slab from one).
+            // gaps: how many of those had at least one real, unaccounted-for
+            // gap — direct evidence of missed content, independent of type.
+            containerCoverage: { checks: 0, gaps: 0, examples: [], zeroSlabDecks: 0, zeroSlabDeckExamples: [] },
         };
     }
     _resetPerf();
@@ -157,9 +229,28 @@
     // with the actual saved filename right before writing the .md file.
     let _pendingImageDownloads = [];
     let _imageCounter = 0;
-
+    // Same deferred-token pattern as images, minus the network fetch: a
+    // canvas/textdoc block's content is already local DOM, so the markdown
+    // text is captured immediately at extraction time, not fetched later.
+    // Deferred anyway, to the same export-time batch as images, purely for
+    // filename consistency (slug+timestamp are only assembled there) and to
+    // avoid mixing live-walk-time blob downloads with the already-throttled
+    // image download spacing.
+    let _pendingCanvasDownloads = [];
+    let _canvasCounter = 0;
+    let _reportedAllowlistedSlabItems = new WeakSet();
+    let _reportedUnlistedSlabItems = new WeakSet();
+    // Diagnostic only — tracks which image-type slab candidates already
+    // have a watchImageSrcHistory() observer attached, so the repeated
+    // querySelectedSlabCandidates() calls (one per main-loop iteration)
+    // don't attach a second observer to the same element.
+    let _watchedImageSrcHistory = new WeakSet();
+    // Same de-duplication purpose, for watchIntersectingHistory() — a deck
+    // can be re-entered as targetDeck more than once across retries, and
+    // each entry shouldn't attach a second observer to the same element.
+    let _watchedIntersectingHistory = new WeakSet();
     function totalViewportMoves() {
-        return _perf.viewportMovesBringIntoView + _perf.viewportMovesStimulate + _perf.viewportMovesForceEdge;
+        return _perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge;
     }
 
     const escLabel = s => s.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
@@ -196,8 +287,30 @@
             // itself, not inside [data-message-author-role] — invisible to
             // every extraction that targeted the narrower anchor, but a real
             // leak now that image-only turns are extracted from their
-            // section as a whole (see findNextPromptIn/findBootstrapMessage).
+            // section as a whole.
             if (/\bsr-only\b/.test(node.getAttribute('class') || '')) return '';
+            // CodeMirror 6 code-block view, used inside canvas/textdoc
+            // blocks — renders each line as its own <div class="cm-line">
+            // sibling, not <pre><code>. Without this, the default case's
+            // generic walkChildren would concatenate every line with no
+            // separator at all, garbling the code (confirmed against a real
+            // canvas sample: "resolveLineageContract(remoteRepository,
+            // version, {" and "  hasWarning," etc. would run together with
+            // zero whitespace between them). No language class is exposed
+            // here the way <pre><code class="language-X"> provides one
+            // elsewhere, so the fence carries no language tag.
+            if (node.getAttribute('data-is-code-block-view') === 'true') {
+                const extractLine = n => {
+                    if (n.nodeType === Node.TEXT_NODE) return n.textContent;
+                    if (n.tagName?.toLowerCase() === 'br') return '';
+                    return [...n.childNodes].map(extractLine).join('');
+                };
+                const lines = [...node.querySelectorAll('.cm-line')].map(extractLine);
+                const text = lines.join('\n').trimEnd();
+                const maxRun = Math.max(2, ...([...text.matchAll(/`+/g)].map(m => m[0].length)));
+                const fence = '`'.repeat(maxRun + 1);
+                return `\n${fence}\n${text}\n${fence}\n\n`;
+            }
             const tag = node.tagName.toLowerCase();
             switch (tag) {
                 case 'script': case 'style': case 'noscript': return '';
@@ -369,6 +482,25 @@
         return _result;
     }
 
+    function dryMarkdownFor(el) {
+        const imageCounterBefore = _imageCounter;
+        const pendingLengthBefore = _pendingImageDownloads.length;
+        const callsBefore = _perf.htmlToMarkdownCalls;
+        const msBefore = _perf.htmlToMarkdownMs;
+        try {
+            return htmlToMarkdown(el);
+        } finally {
+            _imageCounter = imageCounterBefore;
+            _pendingImageDownloads.length = pendingLengthBefore;
+            _perf.htmlToMarkdownCalls = callsBefore;
+            _perf.htmlToMarkdownMs = msBefore;
+        }
+    }
+
+    function hasExtractableMarkdown(el) {
+        return dryMarkdownFor(el).trim().length > 0;
+    }
+
     /** Returns the chat title from the page, falling back to 'chat'. */
     function getChatTitle() {
         return document.title.replace(/\s*[|–—-]\s*ChatGPT\s*$/i, '').trim() || 'chat';
@@ -438,151 +570,44 @@
         if (includeDiag && _perf.runStartMs > 0) {
             const _ms    = performance.now() - _perf.runStartMs;
             const _sleep = _ms - _perf.htmlToMarkdownMs;
+            const promptDots = getNavMenuItems();
+            const expected = promptDots.length;
+            const exported = countPrompts(prompts);
+            const tocStatus = expected === 0 ? 'not visible' : expected === exported ? 'OK' : 'MISMATCH';
+            const issueLines = [];
+            if (_perf.extractionFailures.count > 0) issueLines.push(`extraction-empty=${_perf.extractionFailures.count}`);
+            if (_perf.containerCoverage.gaps > 0) issueLines.push(`coverage-gaps=${_perf.containerCoverage.gaps}`);
+            if (_perf.containerCoverage.zeroSlabDecks > 0) issueLines.push(`zero-slab-decks=${_perf.containerCoverage.zeroSlabDecks}`);
+            if (_perf.slabFiltering.unlisted > 0) issueLines.push(`unlisted-stack-items=${_perf.slabFiltering.unlisted}`);
+            if (_perf.readyContainerModel.unknownSlabItems > 0) issueLines.push(`unknown-slab-items=${_perf.readyContainerModel.unknownSlabItems}`);
 
-            md += `    ── perf (v4.65) ──\n`
-                + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%) | blank waits ${_perf.blankWaits}\n`
+            md += `    ── perf (v4.133) ──\n`
+                + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
-                + `    Exported ${countPrompts(prompts)} prompts (${prompts.length} msgs).\n`
+                + `    Exported ${exported}${expected ? `/${expected}` : ''} user prompts (${prompts.length} slabs/notes). TOC=${tocStatus}.\n`
                 + `\n`
-                + `    ── diag (v4.65) ──\n`
-                + `    Timer slip (actual setTimeout delay minus requested — large values mean the event loop ` +
-                  `was starved, by CPU contention or a backgrounded tab; everything else in this diag block ` +
-                  `should be read with that in mind if slip is high): ${_perf.sleepSlip.count} sample(s), ` +
-                  `avg ${_perf.sleepSlip.count ? Math.round(_perf.sleepSlip.sum / _perf.sleepSlip.count) : 0}ms, ` +
-                  `max ${Math.round(_perf.sleepSlip.max)}ms\n`
-                + `    Tab visibility: went to background ${_perf.tabHidden.hideCount} time(s) during this run` +
-                  (_perf.tabHidden.wasHidden ? ' — readiness-timing conclusions below are confounded by this\n' : ' (stayed visible throughout)\n')
-                + `    Content changed after extraction (tests whether a message's own text was still populating when ` +
-                  `the container-ready flag said it was safe to extract — a few checks scheduled near the very end of ` +
-                  `the run may not have resolved yet): ${_perf.contentChangedAfterExtraction.count} occurrence(s)\n` +
-                  _perf.contentChangedAfterExtraction.examples.slice(0, 5).map(e => `      ${e}\n`).join('')
-                + `    Discovery snapshot vs ready snapshot (catches a fingerprint that's already in its final state ` +
-                  `the moment a container is first discovered — never mutates at all during the wait, so the mutation ` +
-                  `log below is structurally blind to it): of ${_perf.discoverySnapshot.totalContainers} container(s), ` +
-                  `${_perf.discoverySnapshot.alreadyHadMessageAtDiscovery} already had a [data-message-author-role] ` +
-                  `element at discovery and ${_perf.discoverySnapshot.alreadyHadNonEmptyTextAtDiscovery} of those ` +
-                  `already had non-empty text — ${_perf.discoverySnapshot.textAtDiscoveryWhileNotIntersecting} of those ` +
-                  `specifically while data-is-intersecting was still 'false' (not inferred, directly measured). Same check ` +
-                  `for images: ${_perf.discoverySnapshot.alreadyHadImageAtDiscovery} container(s) already had an <img> at ` +
-                  `discovery, ${_perf.discoverySnapshot.imageAtDiscoveryWhileNotIntersecting} of those specifically while ` +
-                  `data-is-intersecting was still 'false' — this is the direct answer to whether the img tag can precede ` +
-                  `the container's own readiness flag, the same way text already does\n` +
-                  _perf.discoverySnapshot.diffExamples.map(e => `      ${e}\n`).join('')
-                + `    Composite fingerprint test (message exists + non-empty text + no skeleton class, checked at ` +
-                  `discovery — does the full structural signature at that early moment, including code blocks/` +
-                  `images/tables/placeholders, match what's actually extracted after the full wait?): ` +
-                  `${_perf.compositeFingerprint.candidates} candidate(s), ` +
-                  `${_perf.compositeFingerprint.matchedFinalText} matched, ` +
-                  `${_perf.compositeFingerprint.mismatchedFinalText} mismatched` +
-                  (_perf.compositeFingerprint.mismatchedFinalText > 0 ? ', examples below:\n' : '\n') +
-                  `      breakdown — first-in-container: ${_perf.compositeFingerprint.matchedFirst} matched, ` +
-                  `${_perf.compositeFingerprint.mismatchedFirst} mismatched | later sibling in a multi-candidate ` +
-                  `container: ${_perf.compositeFingerprint.matchedLater} matched, ` +
-                  `${_perf.compositeFingerprint.mismatchedLater} mismatched\n` +
-                  `      breakdown — while the CONTAINER's own data-is-intersecting was still 'false' at this exact ` +
-                  `candidate's discovery (the direct test of "content existing despite the flag still saying ` +
-                  `not-ready is safely sufficient for readiness", not inferred from separate aggregates): ` +
-                  `${_perf.compositeFingerprint.matchedWhileNotIntersecting} matched, ` +
-                  `${_perf.compositeFingerprint.mismatchedWhileNotIntersecting} mismatched\n` +
-                  `      field exercise (how many comparisons actually had a non-zero value for this field — a clean ` +
-                  `result on a field that was never exercised proves nothing about that field): ` +
-                  Object.entries(_perf.compositeFingerprint.fieldExercised).map(([k, v]) => `${k}=${v}`).join(', ') + '\n' +
-                  (_perf.compositeFingerprint.imageCandidateDetails.length > 0
-                    ? `      image candidates (near-zero delay means already-rendered at discovery — not a real test of ` +
-                      `the not-ready→ready cycle for that message; a substantial delay means it actually was):\n` +
-                      _perf.compositeFingerprint.imageCandidateDetails.map(e => `        ${e}\n`).join('')
-                    : '') +
-                  _perf.compositeFingerprint.examples.map(e => `      ${e}\n`).join('')
-                + `    Mutations BEFORE container declared ready (the not-ready→ready transition itself — this, not ` +
-                  `the post-ready section below, is where an undiscovered message-level readiness fingerprint would ` +
-                  `actually live): ${_perf.preReadyMutations.count} occurrence(s) across ` +
-                  `${_perf.preReadyMutations.containersWithAny} container(s); discovery-to-ready delay avg ` +
-                  `${_perf.preReadyMutations.readyDelayMs.count ? Math.round(_perf.preReadyMutations.readyDelayMs.sum / _perf.preReadyMutations.readyDelayMs.count) : 0}ms, ` +
-                  `max ${_perf.preReadyMutations.readyDelayMs.max}ms` +
-                  (_perf.preReadyMutations.count > 0 ? ', first examples below:\n' : ' — no mutations seen before readiness on any container this run\n') +
-                  _perf.preReadyMutations.examples.map(e => `      ${e}\n`).join('')
-                + `    Mutations after container declared ready (discovery instrumentation — any DOM change in a ` +
-                  `container's subtree after we already trusted it; useful for spotting deferred UI work like editors, ` +
-                  `not for finding a readiness fingerprint, since by definition this is all post-readiness): ` +
-                  `${_perf.postReadyMutations.count} occurrence(s)` +
-                  (_perf.postReadyMutations.count > 0 ? ', first examples below:\n' : ' — none observed this run\n') +
-                  _perf.postReadyMutations.examples.map(e => `      ${e}\n`).join('')
-                + (() => {
-                    const n = promptDots.length;
-                    const exported = countPrompts(prompts);
-                    if (n === 0) return `    TOC count: not visible at export time | exported: ${exported}\n`;
-                    const status = n === exported ? 'OK' : stopped ? 'STOPPED' : 'MISMATCH';
-                    return `    TOC count: ${n} prompts | exported: ${exported} → ${status}\n`;
-                })()
-                + `    Scroll container: <${_perf.containerTag}> scrollH=${_perf.containerScrollH} clientH=${_perf.containerClientH}` +
-                  (_perf.containerIsDocEl ? ' — FALLBACK (no scrollable ancestor found; using <html>)\n' : '\n')
-                + `    Nav click: ${_perf.navItemCount} item(s), clicked index ${_perf.navClickedIndex} → ` +
-                  `landed at scrollTop=${_perf.navClickScrollTop} (${_perf.navClickScrollPct}% through document)\n`
-                + `    Scroll-height growth check (forceScrollToEdge's own stability check only confirms the position held for ` +
-                  `450ms against whatever scrollHeight was at that instant — it never confirms scrollHeight itself stopped ` +
-                  `growing; re-measured 5s later with no further scrolling to check directly): before=${_perf.scrollHeightGrowthCheck.before}, ` +
-                  `after=${_perf.scrollHeightGrowthCheck.after}, grew by ${_perf.scrollHeightGrowthCheck.grewBy}px` +
-                  (_perf.scrollHeightGrowthCheck.grewBy > 0
-                    ? ' — IT WAS STILL GROWING, the locked-in edge was likely premature\n'
-                    : ' — stable, no further growth detected\n')
-                + `    Nav labels: first="${_perf.navFirstLabel}" last="${_perf.navLastLabel}"\n`
-                + (_perf.navDiversionAttempted
-                    ? `    Nav diversion: visited the opposite edge before bootstrap and dwelled 2s — settled=${_perf.navDiversionSettled} ` +
-                      `(intended to force the target edge's containers through a real unmount before the walk starts)\n`
-                    : `    Nav diversion: skipped${ui.isAutoStart ? ' — auto-start run, freshness already guaranteed by the reload itself' : ''}\n`)
-                + `    Bootstrap: role=${_perf.bootstrapRole}, container was data-is-intersecting="false"=${_perf.bootstrapWasIntersectingFalse}\n`
-                + `    Turn-id dedup: ${_perf.turnIdDedupSkips} candidate(s) skipped, longest same-turn-id run ${_perf.turnIdDedupMaxRun}, ` +
-                  `max consecutive advances-without-progress ${_perf.maxAdvancesWithoutProgress}\n`
-                + `    Image-only turns (no [data-message-author-role] in container): anchorless containers seen ` +
-                  `${_perf.imageOnlyTurns.anchorlessContainers}, missing [data-turn] element ${_perf.imageOnlyTurns.turnElementMissing}, ` +
-                  `candidates found ${_perf.imageOnlyTurns.candidatesFound}, extracted ${_perf.imageOnlyTurns.extracted}\n`
-                + `    Extraction failures (candidate confirmed geometrically but extractMessage returned empty even ` +
-                  `after retrying — permanent content loss, not just a slow render): ${_perf.extractionFailures.count} ` +
-                  `occurrence(s)${_perf.extractionFailures.count > 0 ? ', examples below:\n' : '\n'}` +
-                  _perf.extractionFailures.examples.map(e => `      ${e}\n`).join('')
-                + `    To-come fingerprint watches (anchorless + imageless turns at the exact moment they were declared ` +
-                  `ready — independent of the retry loop above, watched for up to ${Math.round(TO_COME_TIMEOUT_MS / 1000)}s to see what, ` +
-                  `if anything, shows up before the <img> does): ${_perf.toComeFingerprint.watches.length} watch(es)\n` +
-                  _perf.toComeFingerprint.watches.map(w => {
-                    const elapsedMs = Math.round(performance.now() - w.startedAt);
-                    const status = w.resolvedMs !== null ? `<img> arrived at +${w.resolvedMs}ms`
-                      : w.detachedAtMs !== null ? `node detached/remounted at +${w.detachedAtMs}ms — likely virtualization, not "nothing happened"`
-                      : w.timedOut ? `never arrived within ${Math.round(TO_COME_TIMEOUT_MS / 1000)}s (node stayed connected throughout)`
-                      : `STILL PENDING at export time (+${elapsedMs}ms of ${TO_COME_TIMEOUT_MS}ms budget elapsed) — re-check this export later, or wait longer before exporting, for a conclusive result`;
-                    return `      turnId=${w.turnId}: ${status}, ` +
-                      `${w.events.length} event(s) observed${w.events.length > 0 ? ':\n' : '\n'}` +
-                      `        rect at watch start: ${w.rectAtStart}\n` +
-                      `        scope check: ${w.scopeCheck}\n` +
-                      w.events.map(e => `        ${e}\n`).join('') +
-                      (w.domDumpAtTimeout
-                        ? `        DOM dump at timeout (every descendant — only an <img> tag is currently extracted, so anything ` +
-                          `else here, e.g. a non-none background-image, is exactly what's currently invisible to extraction):\n` +
-                          w.domDumpAtTimeout.split('\n').map(l => `          ${l}\n`).join('')
-                        : '');
-                  }).join('')
-                + `    Adjacency (container): max gap ${Math.round(_perf.maxContainerGap)}px, ${_perf.containerGapViolations} violation(s) over ` +
-                  `${ADJACENCY_MARGIN}px, ${_perf.containerGapSkippedDetached} skipped (readyContainer was detached)\n`
-                + `    Viewport moves: ${_perf.viewportMovesBringIntoView} (bringIntoView) + ${_perf.viewportMovesStimulate} (stimulate) + ` +
-                  `${_perf.viewportMovesForceEdge} (forceScrollToEdge) = ${totalViewportMoves()} total\n`
-                + `    Ready-container multi-candidate: ${_perf.multiCandidatesInReadyContainer} occurrence(s), max ${_perf.multiCandidatesMax} candidate(s) at once ` +
-                  `— ${_perf.multiCandidatesInReadyContainer > 0 ? 'DOM-order draining invariant was exercised; verify export order around these points' : 'invariant never exercised (always ≤1 candidate) on this run'}\n`
-                + `    Ready margin (how far past the viewport edge content is already lit when a turn resolves): ` +
-                  `${_perf.readyMargin.count} sample(s), avg ${_perf.readyMargin.count ? Math.round(_perf.readyMargin.sum / _perf.readyMargin.count) : 0}px, ` +
-                  `max ${Math.round(_perf.readyMargin.max)}px (clientHeight=${_perf.containerClientH}px)\n`
-                + (_perf.readyMargin.maxWinner
-                    ? `      max-margin winner: data-turn-id=${_perf.readyMargin.maxWinner.turnId}, ` +
-                      `had data-is-intersecting attr=${_perf.readyMargin.maxWinner.hadAttr} (value="${_perf.readyMargin.maxWinner.attrValue}"), ` +
-                      `absolute position ${Math.round(_perf.readyMargin.maxWinner.absTop)}px of ${_perf.readyMargin.maxWinner.scrollH}px document ` +
-                      `(${Math.round(100 * _perf.readyMargin.maxWinner.absTop / _perf.readyMargin.maxWinner.scrollH)}%)\n`
-                    : '')
-                + `    Container reach (how far past a container's own entry edge extraction found a slab — ` +
-                  `direct evidence for/against whole-container readiness, not just near-edge readiness): ` +
-                  `${_perf.containerReach.count} sample(s), avg ${_perf.containerReach.count ? Math.round(_perf.containerReach.sum / _perf.containerReach.count) : 0}px, ` +
-                  `max ${Math.round(_perf.containerReach.max)}px\n`
-                + (_perf.containerReach.maxWinner
-                    ? `      max-reach winner: data-turn-id=${_perf.containerReach.maxWinner.turnId}, container height=${_perf.containerReach.maxWinner.containerHeight}px ` +
-                      `(reach = ${_perf.containerReach.maxWinner.pct}% of that one container's own height)\n`
-                    : '');
+                + `    ── diag (v4.133) ──\n`
+                + `    Missing-slab signals: ${issueLines.length ? issueLines.join(', ') : 'none'}\n`
+                + `    Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, already=${_perf.slabDiscoveryWait.alreadyReady}, `
+                  + `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, timed-out=${_perf.slabDiscoveryWait.timedOut}, `
+                  + `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms\n`
+                + `    Non-message slabs: images extracted=${_perf.imageOnlyTurns.extracted}, ` +
+                  `canvas extracted=${_perf.canvasBlocks.extracted}, canvas markdown-empty=${_perf.canvasBlocks.markdownEmpty}\n`
+                + `    Geometry/model: deck-gap-violations=${_perf.containerGapViolations}, `
+                  + `container-coverage-gaps=${_perf.containerCoverage.gaps}, slab-adjacency-violations=${_perf.slabAdjacency.violations}, `
+                  + `model anchor-gaps=${_perf.readyContainerModel.messageGapViolations}, unknown slab items=${_perf.readyContainerModel.unknownSlabItems}\n`
+                + `    Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}` +
+                  (_perf.workZoneRoomShortfall.examples.length
+                      ? `\n      ${_perf.workZoneRoomShortfall.examples.join('\n      ')}`
+                      : '') + `\n`
+                + `    Blank fingerprint (not-yet-ready state captured at first sight, before any wait): ${_perf.blankFingerprint.count}` +
+                  (_perf.blankFingerprint.examples.length
+                      ? `\n      ${_perf.blankFingerprint.examples.join('\n      ---\n      ')}`
+                      : '') + `\n`
+                + `    Timer slip: samples=${_perf.sleepSlip.count}, avg=${_perf.sleepSlip.count ? Math.round(_perf.sleepSlip.sum / _perf.sleepSlip.count) : 0}ms, `
+                  + `max=${Math.round(_perf.sleepSlip.max)}ms; tab hidden ${_perf.tabHidden.hideCount} time(s)\n`
+                + `    Note: detailed missing slabs are inserted inline in the transcript near where they were detected.\n`;
+
             if (_perf.snapshots.length > 0) {
                 const snaps = _perf.snapshots;
 
@@ -759,6 +784,37 @@
                 ui.log(`  ${downloaded}/${toFetch.length} image(s) saved alongside the .md file — same folder, same name prefix.`);
             }
         }
+        if (_pendingCanvasDownloads.length > 0) {
+            // Same memoize-by-filename discipline as images, for the same
+            // reason: "export again" must not re-trigger a fresh download
+            // of every canvas block on each click.
+            const slug = titleToSlug(title);
+            const toSave = _pendingCanvasDownloads.filter(e => !e.filename);
+            if (toSave.length > 0) {
+                ui.log(`Saving ${toSave.length} canvas/textdoc block(s) as separate .md file(s)...`);
+            }
+            for (let i = 0; i < _pendingCanvasDownloads.length; i++) {
+                const entry = _pendingCanvasDownloads[i];
+                if (!entry.filename) {
+                    entry.filename = `${slug}-${exportTimestamp}-canvas-${String(i + 1).padStart(3, '0')}.md`;
+                    const canvasHref = URL.createObjectURL(new Blob(['﻿' + entry.text], { type: 'text/markdown;charset=utf-8' }));
+                    const canvasA = document.createElement('a');
+                    canvasA.href = canvasHref;
+                    canvasA.download = entry.filename;
+                    document.body.appendChild(canvasA);
+                    canvasA.click();
+                    canvasA.remove();
+                    setTimeout(() => URL.revokeObjectURL(canvasHref), 100);
+                    // Same browser multi-download throttling as images —
+                    // see the comment at that loop.
+                    await sleep(300);
+                }
+                md = md.split(entry.token).join(entry.filename);
+            }
+            if (toSave.length > 0) {
+                ui.log(`  ${toSave.length} canvas/textdoc block(s) saved alongside the .md file — same folder, same name prefix.`);
+            }
+        }
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob(['﻿' + md], { type: 'text/markdown;charset=utf-8' }));
         a.download = `${titleToSlug(title)}-${exportTimestamp}.md`;
@@ -804,8 +860,8 @@
     // +1 = walk downward from the top toward the end. Flipping this constant
     //      switches which boundary we bootstrap from and which side the
     //      adjacent-turn search looks at; everything else in the chain walk
-    //      (bringIntoView, isInViewport, waitForTurnReady, findNextPromptIn's
-    //      containment test) already works unmodified in either direction.
+    //      (isInViewport, waitForTurnReady, and the deck-scoped successor
+    //      search) already works unmodified in either direction.
     const WALK_DIRECTION = -1;
 
     // 30s, not longer: the user pointed out directly that the image in
@@ -821,69 +877,284 @@
     // script's edge-pinning scroll logic could satisfy the outer flag
     // while leaving the element just outside the real visible rect —
     // never tripping the inner trigger, no matter how long we wait.
-    const TO_COME_TIMEOUT_MS = 30_000;
+    const TO_COME_TIMEOUT_MS = 5_000;
 
-    // One-time bootstrap only: find the deepest (bottom-most, direction=-1)
-    // or shallowest (topmost, direction=+1) message currently visible in the
-    // viewport, to seed the sequential chain walk. This is the only place
-    // that scans the viewport for a message directly — every subsequent
-    // prompt is found by geometric containment against a confirmed-ready
-    // turn-container (see findNextPromptIn), never by scanning the viewport
-    // again. A prompt only ever enters allPrompts as the verified
-    // predecessor/successor of one already confirmed.
-    function findBootstrapMessage(container, direction) {
+    // Deck identity is data-turn-id-container, full stop — data-turn/
+    // data-turn-id on inner elements are only ever used to read attributes
+    // not present on the container itself, never to identify a deck.
+    function deckSequenceId(el) {
+        return el?.getAttribute?.('data-turn-id-container') || null;
+    }
+
+    function queryDeckSequenceContainers() {
+        const byId = new Map();
+        for (const el of document.querySelectorAll('[data-turn-id-container]')) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) continue;
+            const id = el.getAttribute('data-turn-id-container');
+            const existing = byId.get(id);
+            if (!existing || el.contains(existing)) byId.set(id, el);
+        }
+        return [...byId.values()];
+    }
+
+    function readinessElementForDeck(deckEl) {
+        const id = deckSequenceId(deckEl);
+        let el = deckEl;
+        while (el && el !== document.body) {
+            if (el.matches?.('[data-turn-id-container]') &&
+                el.hasAttribute('data-is-intersecting') &&
+                (!id || deckSequenceId(el) === id)) {
+                return el;
+            }
+            el = el.parentElement;
+        }
+        return deckEl;
+    }
+
+    // One-time bootstrap only: find the deck/container whose entry edge is
+    // visible at the viewport boundary. After this, the regular chain walk
+    // finds adjacent containers by geometry against the current container.
+    function findBootstrapContainer(container, direction) {
         const vb = container === document.documentElement
             ? { top: 0, bottom: window.innerHeight }
             : container.getBoundingClientRect();
-        // Filtering on "any overlap with the viewport" let a message whose
-        // far edge bleeds well past it (e.g. a tall reply that starts above
-        // the viewport and merely pokes into the bottom of it) win the
-        // reduce below — its top could be far more negative than the true
-        // topmost on-screen message's, even though that top edge was never
-        // actually in view. The edge that matters is the one nearer the
-        // walk's starting boundary — bottom for upward (direction=-1), top
-        // for downward (+1) — so only elements where THAT edge is genuinely
-        // inside the viewport are eligible, matching the stricter test
-        // isInViewport already uses elsewhere in this file.
         const inRange = r => direction === -1
             ? (r.bottom > vb.top && r.bottom <= vb.bottom)
             : (r.top    < vb.bottom && r.top    >= vb.top);
-        const candidates = [...document.querySelectorAll('[data-message-author-role]')]
+        const candidates = queryDeckSequenceContainers()
             .filter(el => inRange(el.getBoundingClientRect()));
-        // Image-generation turns carry no [data-message-author-role] at all
-        // (confirmed via direct DOM inspection — only data-turn-id-container/
-        // data-turn-id/data-turn live on the turn's own section). Only
-        // relevant if the conversation's very first/last on-screen turn is a
-        // standalone generated image with no anchor-based candidate at all.
-        if (candidates.length === 0) {
-            for (const turnContainer of document.querySelectorAll('[data-turn-id-container]')) {
-                if (turnContainer.querySelectorAll('[data-message-author-role]').length > 0) continue;
-                const turnSection = turnContainer.matches('[data-turn]') ? turnContainer : turnContainer.querySelector('[data-turn]');
-                if (turnSection && inRange(turnSection.getBoundingClientRect())) candidates.push(turnSection);
-            }
-        }
         if (candidates.length === 0) return null;
-        return direction === -1
-            ? candidates.reduce((a, b) => a.getBoundingClientRect().bottom > b.getBoundingClientRect().bottom ? a : b)
-            : candidates.reduce((a, b) => a.getBoundingClientRect().top    < b.getBoundingClientRect().top    ? a : b);
+        const edgeValue = el => {
+            const r = el.getBoundingClientRect();
+            return direction === -1 ? r.bottom : r.top;
+        };
+        const better = (a, b) => {
+            const ae = edgeValue(a), be = edgeValue(b);
+            if (ae !== be) return direction === -1 ? ae > be : ae < be;
+            return a.getBoundingClientRect().height > b.getBoundingClientRect().height;
+        };
+        return candidates.reduce((a, b) => better(b, a) ? b : a);
     }
 
-    // How far apart two supposedly-adjacent elements' facing edges are
-    // allowed to sit (ordinary CSS margin/padding between messages, not a
-    // sign anything is wrong) before it's worth recording as notable.
-    // Verifies the core stability assumption the whole walk depends on: once
-    // an element is confirmed/ready, its position relative to its immediate
-    // neighbor doesn't drift. direction=-1: newer element is earlier
-    // (above), so its bottom should sit near the older element's top.
-    // direction=+1: newer element is later (below), so its top should sit
-    // near the older element's bottom. Returns the signed gap (positive =
-    // ordinary spacing, negative = overlap) so callers can log the actual
-    // distance, not just whether it passed.
-    const ADJACENCY_MARGIN = 150;
+    // Outer deck rectangles are the partition of the walkway. Their facing
+    // edges should coincide; this small allowance exists only for fractional
+    // layout coordinates and rounding, not for visible spacing.
+    const DECK_ADJACENCY_TOLERANCE = 2;
+
+    // Selected slabs need a looser rule. Tool/control elements are
+    // intentionally not extracted, so the facing edges of two extracted
+    // slabs may have a real positive gap. They should not overlap beyond
+    // ordinary subpixel geometry, however.
+    const SLAB_ADJACENCY_MAX_GAP = 150;
+    const SLAB_ADJACENCY_OVERLAP_TOLERANCE = 2;
+
+    // Returns the signed facing-edge difference: positive means a gap;
+    // negative means overlap.
     function adjacencyGap(direction, olderRect, newerRect) {
         return direction === -1
             ? olderRect.top - newerRect.bottom
             : newerRect.top - olderRect.bottom;
+    }
+
+    function requireDeckAdjacency(olderDeck, newerDeck) {
+        const gap = adjacencyGap(
+            WALK_DIRECTION,
+            olderDeck.getBoundingClientRect(),
+            newerDeck.getBoundingClientRect()
+        );
+        _perf.maxContainerGap = Math.max(_perf.maxContainerGap, Math.abs(gap));
+        if (Math.abs(gap) <= DECK_ADJACENCY_TOLERANCE) return gap;
+        _perf.containerGapViolations++;
+        throw new Error(
+            `Deck adjacency invariant failed: facing edges differ by ${Math.round(gap)}px ` +
+            `(allowed ±${DECK_ADJACENCY_TOLERANCE}px). ` +
+            `Current deck=${deckSequenceId(olderDeck) || '(none)'}, ` +
+            `next deck=${deckSequenceId(newerDeck) || '(none)'}.`
+        );
+    }
+
+    function checkSlabAdjacency(currentSlab, nextSlab) {
+        const gap = adjacencyGap(
+            WALK_DIRECTION,
+            currentSlab.geometryElement.getBoundingClientRect(),
+            nextSlab.geometryElement.getBoundingClientRect()
+        );
+        _perf.slabAdjacency.checked++;
+        if (gap >= 0) {
+            _perf.slabAdjacency.maxGap = Math.max(_perf.slabAdjacency.maxGap, gap);
+        } else {
+            _perf.slabAdjacency.maxOverlap = Math.max(_perf.slabAdjacency.maxOverlap, -gap);
+        }
+        if (gap <= SLAB_ADJACENCY_MAX_GAP && gap >= -SLAB_ADJACENCY_OVERLAP_TOLERANCE) return gap;
+        _perf.slabAdjacency.violations++;
+        console.warn(
+            `[Extractor] Slab adjacency diagnostic between ${currentSlab.type} and ${nextSlab.type}: ` +
+            `${gap >= 0 ? `${Math.round(gap)}px gap` : `${Math.round(-gap)}px overlap`} ` +
+            `(allowed gap ≤${SLAB_ADJACENCY_MAX_GAP}px, overlap ≤${SLAB_ADJACENCY_OVERLAP_TOLERANCE}px). ` +
+            `Current turn=${slabTurnId(currentSlab) || '(none)'} msg=${slabMessageId(currentSlab) || '(none)'}; ` +
+            `next turn=${slabTurnId(nextSlab) || '(none)'} msg=${slabMessageId(nextSlab) || '(none)'}.`
+        );
+        return gap;
+    }
+
+    // Generic, content-type-agnostic completeness check: instead of asking
+    // "does this look like an image/canvas/whatever we know how to detect,"
+    // ask "did the slabs we actually extracted from this container account
+    // for all of its vertical space." Anything occupying real space inside
+    // a container that no extracted slab's rect touches is direct, structural
+    // proof something was missed — regardless of what it turns out to be.
+    // Catches the canvas-block case (a mixed container with one anchored
+    // slab and one anchorless block we never registered as a candidate at
+    // all) the same way it would catch any future content type we haven't
+    // even seen yet, without needing to special-case any of them.
+    //
+    // Coordinates are relative to the container's own top, not absolute
+    // viewport position — recordSlabRange captures both rects together, in
+    // the same synchronous snapshot, at the moment each slab is extracted,
+    // so the relative offsets stay valid even though the page scrolls (and
+    // the container's absolute viewport position changes) between one
+    // slab's extraction and the next.
+    const CONTAINER_COVERAGE_GAP_THRESHOLD = 80; // tolerate ordinary inter-message padding/margin; the canvas-block gap was ~370px
+    function recordSlabRange(containerEl, slabEl, ranges) {
+        const cRect = containerEl.getBoundingClientRect();
+        const sRect = slabEl.getBoundingClientRect();
+        ranges.push({ top: sRect.top - cRect.top, bottom: sRect.bottom - cRect.top });
+    }
+    function findContainerCoverageGaps(ranges, containerHeight) {
+        if (ranges.length === 0) {
+            return containerHeight > CONTAINER_COVERAGE_GAP_THRESHOLD ? [{ from: 0, to: containerHeight }] : [];
+        }
+        const sorted = [...ranges].sort((a, b) => a.top - b.top);
+        const gaps = [];
+        let coveredTo = 0;
+        for (const r of sorted) {
+            if (r.top - coveredTo > CONTAINER_COVERAGE_GAP_THRESHOLD) gaps.push({ from: coveredTo, to: r.top });
+            coveredTo = Math.max(coveredTo, r.bottom);
+        }
+        if (containerHeight - coveredTo > CONTAINER_COVERAGE_GAP_THRESHOLD) gaps.push({ from: coveredTo, to: containerHeight });
+        return gaps;
+    }
+
+    // Returns null when the deck's coverage is unremarkable, or a diagnostic
+    // note to insert into the walkway when extracted slabs leave a real
+    // coverage gap or when the deck yielded zero slabs. We deliberately do
+    // not throw on a zero-slab deck: "no
+    // slab detected" is a statement about our own extraction, not about the
+    // conversation — the conversation itself is always correct, a turn
+    // happened, a response was expected — but we have no way to distinguish,
+    // from inside the script, a deck that ChatGPT genuinely never rendered
+    // anything into (confirmed possible: directly observed once via live
+    // manual inspection, and again automatically via the zero-overlapping-
+    // candidates check below) from a deck where our own selection logic has
+    // a real bug. Aborting the whole run on every occurrence would lose
+    // every other, recoverable turn in the conversation over one we already
+    // cannot fix either way. So instead: log it, and leave a visible note in
+    // the actual exported transcript rather than silently skipping past it —
+    // the gap stays honest and visible without sacrificing everything else.
+    // Renders the gap between when a deck's readiness gate resolved and
+    // the moment it was found empty — see deckEntryDiag in run() for why
+    // this matters: a nonzero move count here means the work zone scrolled
+    // again after the deck was confirmed ready but before it was searched,
+    // which could itself be what re-unmounted the deck's content.
+    function describeMovesSinceEntry(entryDiag) {
+        if (!entryDiag) return 'deck-entry-diag=(unavailable)';
+        const movesSince = totalViewportMoves() - entryDiag.movesAtEntry;
+        const displacement = entryDiag.scrollPosNow != null && entryDiag.scrollPosAtEntry != null
+            ? Math.round(entryDiag.scrollPosNow - entryDiag.scrollPosAtEntry)
+            : '(unavailable)';
+        return `viewport-moves-since-deck-entry=${movesSince}, scroll-displacement-since-deck-entry=${displacement}px, ` +
+            `was-intersecting-at-entry="${entryDiag.isIntersectingAtEntry}"`;
+    }
+
+    // Looks up the matching watchIntersectingHistory() entry by turnId — by
+    // the time a deck is found empty, the watch was attached one or more
+    // loop iterations earlier, so this is found by id, not by reference.
+    // Direct evidence for whether data-is-intersecting ever held a stable
+    // true, or only ever touched it briefly before reverting.
+    function describeIntersectingHistory(deckEl) {
+        const turnId = deckSequenceId(deckEl) || '(none)';
+        const watch = _perf.intersectingHistory.watches.find(w => w.turnId === turnId);
+        if (!watch) return 'data-is-intersecting-history=(not watched)';
+        const sequence = watch.values.map(v => `${v.value}@${v.atMs}ms`).join(' -> ');
+        return `data-is-intersecting-history=[${sequence}]` +
+            (watch.detachedAtMs !== null ? ` (detached at ${watch.detachedAtMs}ms)` : '') +
+            (watch.timedOut ? ' (watch timed out)' : '');
+    }
+
+    function finishDeckCoverage(deckEl, ranges, current, entryDiag = null) {
+        const deckRect = deckEl.getBoundingClientRect();
+        _perf.containerCoverage.checks++;
+        const gaps = findContainerCoverageGaps(ranges, deckRect.height);
+        if (gaps.length > 0) {
+            _perf.containerCoverage.gaps++;
+            const gapText = gaps.map(g => `[${Math.round(g.from)}px–${Math.round(g.to)}px]`).join(', ');
+            if (_perf.containerCoverage.examples.length < 10) {
+                _perf.containerCoverage.examples.push(
+                    `turnId=${deckSequenceId(deckEl) || '(none)'}: ${gaps.length} gap(s) — ` +
+                    gapText +
+                    ` not covered by any of the ${ranges.length} extracted slab(s)`
+                );
+            }
+            if (ranges.length > 0) {
+                return {
+                    role: 'unknown',
+                    text: `*[Possible missing slab — deck coverage had ${gaps.length} uncovered gap(s): ` +
+                        `${gapText}. turnId=${deckSequenceId(deckEl) || 'unknown'}.]*\n\n`,
+                    plainText: '[Possible missing slab]',
+                    msgId: null,
+                    turnId: deckSequenceId(deckEl) || null,
+                };
+            }
+        }
+        if (ranges.length > 0) return null;
+        // Same evidence as a thrown error would have carried, kept for
+        // diagnosability even though this is no longer fatal: which selected
+        // candidates' rects actually overlap this deck's rect right
+        // now (distinguishes "a real candidate is in here and our geometry
+        // missed it" from "no candidate exists here at all"), a live
+        // structural dump of the deck, and whether each overlapping candidate
+        // is ahead of current at all.
+        const currentRect = current ? current.geometryElement.getBoundingClientRect() : null;
+        const overlapping = querySelectedSlabCandidates().filter(candidate => {
+            const er = candidate.geometryElement.getBoundingClientRect();
+            return Math.min(er.bottom, deckRect.bottom) - Math.max(er.top, deckRect.top) > SMALL_EXTRA;
+        }).map(candidate => {
+            const er = candidate.geometryElement.getBoundingClientRect();
+            const distance = currentRect ? slabDistanceAhead(currentRect, er) : undefined;
+            const distanceNote = !currentRect ? 'current unknown'
+                : distance === null ? 'behind current, not ahead'
+                : `${Math.round(distance)}px ahead of current — should already have been found`;
+            return `${candidate.type}/${slabRole(candidate)} rect=[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] (${distanceNote})`;
+        });
+        _perf.containerCoverage.zeroSlabDecks++;
+        if (_perf.containerCoverage.zeroSlabDeckExamples.length < 10) {
+            _perf.containerCoverage.zeroSlabDeckExamples.push(
+                `turnId=${deckSequenceId(deckEl) || '(none)'}, ` +
+                `rect=[top=${Math.round(deckRect.top)},bottom=${Math.round(deckRect.bottom)},height=${Math.round(deckRect.height)}], ` +
+                `current=${currentRect ? `${current.type}/${slabRole(current)} rect=[top=${Math.round(currentRect.top)},bottom=${Math.round(currentRect.bottom)}]` : '(unknown)'}, ` +
+                `overlapping candidates: ${overlapping.length === 0 ? '(none)' : overlapping.join('; ')}, ` +
+                `live structure:\n${dumpElementStructure(deckEl)}`
+            );
+        }
+        return {
+            // Unlike canvas/image extraction below, there's no type-based
+            // certainty here — the missing content could have been either
+            // role. Defaulting to 'assistant' when the attribute itself is
+            // unreadable would silently misattribute a user turn (observed
+            // live: turnId=febac401, a known user turn, rendered as an
+            // assistant note and so never counted toward the user-prompt
+            // total) — 'unknown' keeps that honest instead.
+            role: deckEl.getAttribute('data-turn') || 'unknown',
+            text: `*[Empty container — no slab could be detected for this turn (turnId=` +
+                `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure or an ` +
+                `extractor bug; see the exported diagnostics. ${describeMovesSinceEntry(entryDiag)}, ` +
+                `${describeIntersectingHistory(deckEl)}]*\n\n` +
+                `${deckEl.outerHTML}\n\n`,
+            plainText: '[Empty container]',
+            msgId: null,
+            turnId: deckSequenceId(deckEl) || null,
+        };
     }
 
     // Empirically measured floors (Compatibility Check panel, "Shortest
@@ -892,57 +1163,35 @@
     // could be either role) so the probe point can never overshoot past the
     // immediately-adjacent message into the one before it.
     const SMALL_EXTRA = 28;
+    const MIN_ONE_LINE_MESSAGE_HEIGHT = 90;
+    // Strictly below the smaller of the two measured one-line floors above
+    // (32px) — a real message with at least one line of text always
+    // measures above that; only a bubble with zero lines (padding alone)
+    // can fall under it. Used to tell "permanently empty by design" apart
+    // from "not yet rendered" without waiting: a deck's own
+    // --last-known-height is a real measurement from the last time it was
+    // actually, fully rendered, not a guess about its current state.
+    const EMPTY_BUBBLE_HEIGHT_CEILING = 24;
 
-    // Finds the turn-container immediately adjacent to turnEl by geometry,
-    // not DOM-sibling assumption (confirmed broken: previousElementSibling
-    // returned null on the very first hop in a live test, even though 13
-    // more messages existed). Queries all currently-existing
-    // [data-turn-id-container] elements directly (cheap, attribute-scoped)
-    // and keeps any whose rect overlaps a strip just past turnEl's edge —
-    // above its top edge when walking upward (direction=-1, "previous" turn,
-    // closer to the start), below its bottom edge when walking downward
-    // (direction=+1, "next" turn, closer to the end). The strip height
-    // escalates (8px → ... → 400px) only if nothing is found yet — handles
-    // both a normal adjacent turn (found immediately) and a near-zero-height
-    // unresolved placeholder (needs a larger strip to bridge to it) without
-    // needing to guess which case we're in. If more than one candidate
-    // overlaps, "nearest" (largest bottom edge upward / smallest top edge
-    // downward) disambiguates rather than relying on the strip being
-    // precisely sized. For direction=-1 this matched the original
-    // upward-only findPrevTurn exactly until the turn-id dedup filter below
-    // was added — a genuine behavior change for both directions, not a
-    // direction-specific patch, since duplicate sibling wrappers for the
-    // same turn are not a property of which way the walk is going.
-    function findPrevTurn(turnEl, direction) {
+    function lastKnownHeightPx(deckEl) {
+        const raw = deckEl?.style?.getPropertyValue('--last-known-height');
+        if (!raw) return null;
+        const value = parseFloat(raw);
+        return Number.isFinite(value) ? value : null;
+    }
+
+    // Finds the adjacent deck by geometry, not DOM-sibling structure. Deck
+    // sequencing uses the outer data-turn-id-container rectangles; slab
+    // discovery inside the selected deck is a later, separate request.
+    function findNextDeck(turnEl, direction) {
         const r = turnEl.getBoundingClientRect();
         const edge = direction === -1 ? r.top : r.bottom;
-        const turnId = turnEl.getAttribute('data-turn-id');
+        const currentDeckId = deckSequenceId(turnEl);
+        const allCandidates = queryDeckSequenceContainers().filter(el => el !== turnEl);
+        const deckCandidates = allCandidates.filter(el => !currentDeckId || deckSequenceId(el) !== currentDeckId);
+        _perf.turnIdDedupSkips += allCandidates.length - deckCandidates.length;
         for (let h = 8; h <= 400; h *= 2) {
-            const afterContainment = [...document.querySelectorAll('[data-turn-id-container]')]
-                // [data-turn-id-container] nests at more than one level for
-                // the same logical turn (confirmed live: ~2 containers per
-                // message). An ancestor/descendant of turnEl is still the
-                // *same* turn wrapped differently, not an earlier/later one —
-                // only a structurally unrelated container is a genuine
-                // predecessor/successor.
-                .filter(el => el !== turnEl && !el.contains(turnEl) && !turnEl.contains(el));
-                // The above only catches duplicates that are literally
-                // nested inside one another. Observed live: a single turn
-                // can also have many *sibling* wrapper elements sharing the
-                // identical data-turn-id (26 of them for one turn, 25 for
-                // the next, in one failure) — not ancestor/descendant of
-                // each other, so the filter above doesn't exclude them, and
-                // each one gets "discovered" as if it were a new turn one at
-                // a time, burning the entire advance budget on ~2 real
-                // turns. A candidate sharing turnEl's own turn-id is never a
-                // real predecessor/successor regardless of DOM position.
-                // Counted (afterContainment.length minus this filter's
-                // output) so even successful runs reveal how often this
-                // matters, not just the runs that hit the advance cap.
-            const dedupedByTurnId = afterContainment
-                .filter(el => !turnId || el.getAttribute('data-turn-id') !== turnId);
-            _perf.turnIdDedupSkips += afterContainment.length - dedupedByTurnId.length;
-            const candidates = dedupedByTurnId.filter(el => {
+            const candidates = deckCandidates.filter(el => {
                 const er = el.getBoundingClientRect();
                 return direction === -1
                     ? (er.bottom >= edge - h && er.top <= edge)
@@ -954,7 +1203,16 @@
                     : candidates.reduce((a, b) => a.getBoundingClientRect().top    < b.getBoundingClientRect().top    ? a : b);
             }
         }
-        return null; // nothing within range — genuine start/end of conversation
+        const candidatesOnSide = deckCandidates.filter(el => {
+            const er = el.getBoundingClientRect();
+            return direction === -1 ? er.bottom <= edge : er.top >= edge;
+        });
+        if (candidatesOnSide.length > 0) {
+            return direction === -1
+                ? candidatesOnSide.reduce((a, b) => a.getBoundingClientRect().bottom > b.getBoundingClientRect().bottom ? a : b)
+                : candidatesOnSide.reduce((a, b) => a.getBoundingClientRect().top    < b.getBoundingClientRect().top    ? a : b);
+        }
+        return null; // no deck on that side — genuine start/end of conversation
     }
 
     // Which edge counts as "strictly inside the viewport" (touching the
@@ -967,9 +1225,8 @@
     // first and bottom last, so checking top there (the original,
     // upward-only formula, reused unconditionally) was satisfied the moment
     // a sliver of target peeked in, long before enough of it was exposed to
-    // reliably trigger ChatGPT's real IntersectionObserver. Shared by
-    // bringIntoView's stopping condition and by waitForTurnReady's re-check
-    // while polling for resolution.
+    // reliably trigger ChatGPT's real IntersectionObserver. Used by
+    // waitForTurnReady's diagnostic when a deck isn't intersecting.
     function isInViewport(container, target) {
         const vTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
         const vBottom = container === document.documentElement ? window.innerHeight : container.getBoundingClientRect().bottom;
@@ -992,16 +1249,7 @@
         const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
         let margin = 0;
         let winner = null;
-        for (const el of document.querySelectorAll('[data-turn-id-container]')) {
-            // Confirmed live: a sentinel-like element with no data-turn-id
-            // at all, permanently pinned near document position 0 with
-            // data-is-intersecting="true", was winning this measurement —
-            // some virtualization libraries plant a boundary marker that
-            // matches the same selector but isn't a real turn. Excluding
-            // anything without an actual turn-id is what separates "ready
-            // because it's a genuinely pre-rendered upcoming turn" from
-            // "matched the selector but was never a turn to begin with."
-            if (!el.hasAttribute('data-turn-id')) continue;
+        for (const el of queryDeckSequenceContainers()) {
             // Confirmed live (identically, twice, on the same conversation):
             // the very first message's container has no data-is-intersecting
             // attribute at all — it's mounted eagerly before lazy-loading
@@ -1016,23 +1264,20 @@
             const m = direction === -1 ? vTop - r.top : r.bottom - vBottom;
             if (m > margin) { margin = m; winner = el; }
         }
-        // Identify *what* is contributing the margin, not just its size —
-        // a measurement that turned out to imply ~99% of the document is
-        // "ready" needs to show its work: is the winner something never
-        // marked at all (hasAttribute false — never touched by the
-        // observer, a different thing entirely from "resolved ready"), and
-        // how far through the document does it actually sit (absolute
-        // position, not viewport-relative) — that's what tells apart
-        // "genuine render-ahead buffer" from "stale/already-passed/never-
-        // placeholdered content being miscounted as lit."
+        // Identify *what* is contributing the margin, not just its size, using
+        // only the same-frame viewport-relative rectangles that produced the
+        // margin.
         let winnerInfo = null;
         if (winner) {
+            const r = winner.getBoundingClientRect();
             winnerInfo = {
                 hadAttr: winner.hasAttribute('data-is-intersecting'),
                 attrValue: winner.getAttribute('data-is-intersecting'),
-                turnId: winner.getAttribute('data-turn-id') || '(none)',
-                absTop: absoluteY(container, winner),
-                scrollH,
+                turnId: deckSequenceId(winner) || '(none)',
+                rectTop: r.top,
+                rectBottom: r.bottom,
+                viewportTop: vTop,
+                viewportBottom: vBottom,
             };
         }
         return { margin, winnerInfo };
@@ -1098,8 +1343,8 @@
         // the anchor. The container is the actual content area. Only trusted
         // when the container holds exactly one message, though: attributing
         // an image to the right one of several messages in a shared
-        // container would need the same geometric reasoning
-        // findNextPromptIn already applies to anchors — deferred rather
+        // container would need the same geometric reasoning used by the
+        // successor search — deferred rather
         // than guessed at here, so the multi-message case falls back to the
         // anchor-scoped search (undercounts there, but doesn't miscount).
         const imageScope = imageScopeFor(el, container);
@@ -1128,6 +1373,78 @@
     function imageSrcsFor(el, container) {
         return [...imageScopeFor(el, container).querySelectorAll('img')].map(img => img.getAttribute('src') || '');
     }
+
+    function canvasContentRoot(el) {
+        if (!isCanvasBlock(el)) return null;
+        return el.querySelector('#prosemirror-editor-container .ProseMirror');
+    }
+
+    const SLAB_FINISH_TIMEOUT_MS = 30_000;
+    const SLAB_FINISH_POLL_MS = 100;
+
+    function primaryImageForSlab(el) {
+        return el.querySelector('img:not([aria-hidden="true"])');
+    }
+
+    function slabFinishFingerprint(slab, container) {
+        const el = slab.element;
+        if (slab.type === 'canvas') {
+            const contentRoot = canvasContentRoot(el);
+            if (!contentRoot) {
+                return {
+                    ready: false,
+                    reason: 'canvas content surface missing',
+                    summary: summarizeMessageStructure(el, container),
+                    imageSrcs: [],
+                };
+            }
+            const markdown = dryMarkdownFor(contentRoot).trim();
+            return {
+                ready: markdown.length > 0,
+                reason: markdown.length > 0 ? 'ready' : 'canvas content surface empty',
+                summary: {
+                    ...summarizeMessageStructure(el, container),
+                    canvasMarkdownLength: markdown.length,
+                },
+                imageSrcs: [],
+            };
+        }
+        if (slab.type === 'image') {
+            const image = primaryImageForSlab(el);
+            const src = image?.getAttribute('src') || '';
+            return {
+                ready: Boolean(image && src),
+                reason: !image ? 'primary generated image missing' : (src ? 'ready' : 'primary generated image without src'),
+                summary: summarizeMessageStructure(el, container),
+                imageSrcs: src ? [src] : [],
+            };
+        }
+        const summary = summarizeMessageStructure(el, container);
+        const imageSrcs = imageSrcsFor(el, container);
+        const hasContent = summary.textLen > 0 || imageSrcs.length > 0;
+        const imagesHaveSrc = imageSrcs.every(Boolean);
+        // A message with no text and no image is ambiguous on its own —
+        // mid-render with nothing painted yet, or genuinely, permanently
+        // empty by design (an interrupted response, an attachment chip
+        // with no <img> tag). The deck's own remembered height resolves
+        // it without waiting: it's a real measurement from the last time
+        // this exact turn was fully rendered, not a guess about now.
+        const permanentlyEmpty = !hasContent &&
+            (() => { const h = lastKnownHeightPx(container); return h !== null && h <= EMPTY_BUBBLE_HEIGHT_CEILING; })();
+        const ready = (hasContent || permanentlyEmpty) && summary.placeholders === 0 && imagesHaveSrc;
+        const reason = permanentlyEmpty
+            ? 'ready (permanently empty by design)'
+            : !hasContent
+                ? 'no text or image'
+                : summary.placeholders > 0
+                    ? `${summary.placeholders} placeholder(s)`
+                    : !imagesHaveSrc
+                        ? 'image without src'
+                        : 'ready';
+        return { ready, reason, summary, imageSrcs };
+    }
+
+
     function summarizeContainerCandidate(turnEl) {
         const msgEls = turnEl.querySelectorAll('[data-message-author-role]');
         const firstMsg = msgEls[0] || null;
@@ -1151,8 +1468,20 @@
     let _activeLifecycleHadPreMutation = false;
     let _activeLifecycleTurnEl = null;
     let _activeLifecycleDiscoverySnapshot = null;
+
+    function stopActiveLifecycleObserver() {
+        if (_activeLifecycleObserver) {
+            _activeLifecycleObserver.disconnect();
+            _activeLifecycleObserver = null;
+        }
+        _activeLifecycleReadyDeclared = false;
+        _activeLifecycleHadPreMutation = false;
+        _activeLifecycleTurnEl = null;
+        _activeLifecycleDiscoverySnapshot = null;
+    }
+
     function watchContainerLifecycle(turnEl) {
-        if (_activeLifecycleObserver) _activeLifecycleObserver.disconnect();
+        stopActiveLifecycleObserver();
         _activeLifecycleReadyDeclared = false;
         _activeLifecycleHadPreMutation = false;
         _activeLifecycleTurnEl = turnEl;
@@ -1162,7 +1491,7 @@
         // "While not intersecting" is tracked as its own explicit count,
         // not inferred from "this is the discovery moment so it's probably
         // still false" — that assumption isn't always true (e.g. a
-        // re-derived candidate from the findPrevTurn retry loop could already
+        // re-derived candidate from the findNextDeck retry loop could already
         // be intersecting by the time it's re-registered here), so the claim
         // that content precedes the container's own readiness flag needs its
         // own direct measurement, not a coincidence of when this runs.
@@ -1177,7 +1506,7 @@
         // Tests the proposed composite fingerprint (message exists + non-empty
         // text + no known skeleton class) directly, rather than by intuition:
         // if it holds at discovery, record the exact text right now, then
-        // compare against whatever extractMessage() ultimately captures for
+        // compare against whatever extractSlab() ultimately captures for
         // this same element after the FULL wait resolves. That natural
         // discovery-to-extraction interval (hundreds of ms to tens of
         // seconds) is a stronger stability test than a deliberate 2-3-poll
@@ -1237,18 +1566,10 @@
                 }
             }
         }
-        // Image-generation turns carry no [data-message-author-role] at all
-        // — registered separately, keyed by the turn section itself (the
-        // same element findNextPromptIn/findBootstrapMessage hand to
-        // extractMessage), since the loop above never iterates for them.
-        // A single container can hold more than one [data-turn] section (the
-        // "Ready-container multi-candidate" diag stat confirms this happens
-        // live) — querySelectorAll, not querySelector, the same fix already
-        // applied to findNextPromptIn's anchorless branch below. Using
-        // querySelector here (singular) would silently register only the
-        // first such section per container, leaving any sibling permanently
-        // unregistered — not a hypothetical, this was actually catching the
-        // wrong (or no) turn for the original investigated failure.
+        // Diagnostic only: image-generation turns carry no ordinary message
+        // anchor, so snapshot the containing turn section separately. Runtime
+        // selection no longer uses this broad scope; it directly selects
+        // `.group/imagegen-image` slabs.
         if (turnEl.querySelectorAll('[data-message-author-role]').length === 0) {
             const turnSections = turnEl.matches('[data-turn]')
                 ? [turnEl, ...turnEl.querySelectorAll('[data-turn]')]
@@ -1401,6 +1722,99 @@
             finish();
         }, TO_COME_TIMEOUT_MS);
     }
+
+    // Diagnostic only — not a gating fingerprint, and does not change
+    // extraction behavior. Logs the full ordered sequence of distinct
+    // values primaryImageForSlab(slabEl)'s <img src> takes, from the
+    // moment this candidate is first discovered. The point is to find out,
+    // after the fact, whether a candidate readiness check (e.g. "src is
+    // non-empty") would have been fooled by a value that existed before
+    // the real final one — by testing that check against the actual
+    // previous value in this log, not by guessing what the previous value
+    // might look like.
+    //
+    // Observes slabEl itself, not just the <img> descendant, with
+    // subtree+childList in addition to attributes: the failure mode this
+    // guards against is the same scoping bug already found once for
+    // watchForToComeFingerprint — if the real image lands via a *replaced*
+    // node (old element removed, new one added) rather than a mutated
+    // attribute on the same node, an observer bound only to one node's
+    // attributes would see nothing. Re-resolving primaryImageForSlab(slabEl)
+    // fresh on every mutation, instead of trusting one node reference,
+    // means a node replacement is captured the same way an attribute change
+    // would be.
+    function watchImageSrcHistory(slabEl) {
+        if (_watchedImageSrcHistory.has(slabEl)) return;
+        _watchedImageSrcHistory.add(slabEl);
+        const t0 = performance.now();
+        const entry = {
+            turnId: slabEl.closest('[data-turn]')?.getAttribute('data-turn-id') || '(none)',
+            values: [],
+            timedOut: false,
+            detachedAtMs: null,
+        };
+        _perf.imageSrcHistory.watches.push(entry);
+        const recordCurrent = () => {
+            const image = primaryImageForSlab(slabEl);
+            const src = image?.getAttribute('src') || '';
+            const last = entry.values[entry.values.length - 1];
+            if (last && last.value === src) return; // not a real change — skip
+            entry.values.push({ value: src, atMs: Math.round(performance.now() - t0) });
+        };
+        recordCurrent(); // capture whatever's there (or absent) at watch start too, not just later changes
+        let deadline, detachCheck;
+        const finish = () => { obs.disconnect(); clearTimeout(deadline); clearInterval(detachCheck); };
+        const obs = new MutationObserver(() => recordCurrent());
+        obs.observe(slabEl, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+        detachCheck = setInterval(() => {
+            if (!slabEl.isConnected && entry.detachedAtMs === null) {
+                entry.detachedAtMs = Math.round(performance.now() - t0);
+                finish();
+            }
+        }, 500);
+        deadline = setTimeout(() => { entry.timedOut = true; finish(); }, TO_COME_TIMEOUT_MS);
+    }
+
+    // Records the actual value history of a deck's data-is-intersecting
+    // attribute, from the moment we start waiting on it through to whatever
+    // happens later — direct evidence for whether a deck that later shows
+    // up as an "Empty container" ever held a stable true, or only ever
+    // touched it briefly before reverting. Looked up by turnId from the
+    // placeholder-building code, not passed by reference, since the deck
+    // may be searched and found empty several loop iterations after this
+    // watch was attached.
+    function watchIntersectingHistory(readinessEl) {
+        if (_watchedIntersectingHistory.has(readinessEl)) return;
+        _watchedIntersectingHistory.add(readinessEl);
+        const t0 = performance.now();
+        const entry = {
+            turnId: deckSequenceId(readinessEl) || '(none)',
+            values: [],
+            timedOut: false,
+            detachedAtMs: null,
+        };
+        _perf.intersectingHistory.watches.push(entry);
+        const recordCurrent = () => {
+            const value = readinessEl.getAttribute('data-is-intersecting');
+            const last = entry.values[entry.values.length - 1];
+            if (last && last.value === value) return; // not a real change — skip
+            entry.values.push({ value, atMs: Math.round(performance.now() - t0) });
+        };
+        recordCurrent(); // capture the value at watch start too, not just later changes
+        let deadline, detachCheck;
+        const finish = () => { obs.disconnect(); clearTimeout(deadline); clearInterval(detachCheck); };
+        const obs = new MutationObserver(() => recordCurrent());
+        obs.observe(readinessEl, { attributes: true, attributeFilter: ['data-is-intersecting'] });
+        detachCheck = setInterval(() => {
+            if (!readinessEl.isConnected && entry.detachedAtMs === null) {
+                entry.detachedAtMs = Math.round(performance.now() - t0);
+                finish();
+            }
+        }, 500);
+        deadline = setTimeout(() => { entry.timedOut = true; finish(); }, TO_COME_TIMEOUT_MS);
+        return entry;
+    }
+
     function dumpElementStructure(root) {
         const lines = [];
         const walk = (el, depth) => {
@@ -1449,150 +1863,10 @@
         }
     }
 
-    // target's offset within container's own scrollable content — distinct
-    // from getBoundingClientRect().top, which is always viewport-relative
-    // and therefore not comparable across calls if curTop itself changes.
-    // Needed to answer a question none of the existing diagnostics could:
-    // when bringIntoView times out, was target's true document position
-    // stable the whole time (meaning it was never reachable by scrolling
-    // this direction — a findPrevTurn selection bug) or did it genuinely
-    // drift by a large amount during the attempt (consistent with upstream
-    // content resolving) — those call for different fixes, and guessing
-    // "contention" without this evidence risks papering over the former.
-    function absoluteY(container, el) {
-        const containerTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-        const containerScroll = container === document.documentElement ? window.scrollY : container.scrollTop;
-        return (el.getBoundingClientRect().top - containerTop) + containerScroll;
-    }
-
-    // Moves the viewport exactly one height at a time — never a single big
-    // jump — until target is in the viewport per isInViewport. This is the
-    // only thing scrolling is for: triggering ChatGPT's intersection-driven
-    // loading. A pause after each step keeps us from outrunning React's
-    // virtualization the way an unthrottled scroll loop did on a large
-    // conversation before. Bidirectional: isInViewport's stopping test never
-    // assumed a direction, and neither should the step — the bottom-to-top
-    // walk's steady state is "target is above," but a wrong-side candidate
-    // or a disoriented retry can leave target genuinely below, and always
-    // stepping up in that case just walks confidently away from it for the
-    // whole timeout, not closer.
-    async function bringIntoView(container, target, timeoutMs = 30_000, onTick = null) {
-        const deadline = Date.now() + timeoutMs;
-        const initialAbsY = absoluteY(container, target);
-        // A single no-movement reading isn't proof of being stuck at a
-        // boundary — observed live on a large conversation far from the
-        // top (curTop in the tens of thousands of px): the position reverted
-        // to its exact prior value after being set, consistent with the
-        // browser's scroll anchoring (or ChatGPT's own scroll-restoration)
-        // actively fighting our programmatic scroll while nearby content is
-        // still resizing, not a hard clamp. Retry with a settle pause before
-        // concluding it's genuinely stuck; a real boundary fails the same
-        // way every time, a transient conflict shouldn't.
-        let stuckCount = 0;
-        const MAX_STUCK_RETRIES = 5;
-        // Tracked purely for diagnosis if the 30s deadline fires below —
-        // an intermittent "timed out" with no further detail is a guess
-        // generator, not a diagnosis. These let the error report exactly
-        // how it got there instead.
-        let stepsAttempted = 0;
-        let totalStuckEvents = 0;
-        let maxStuckStreak = 0;
-        let directionFlips = 0;
-        let lastDirection = 0;
-        while (true) {
-            onTick?.(); // a long stall here is otherwise invisible to the run-level snapshot trajectory
-            if (isInViewport(container, target)) return;
-            const vTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-            const vBottom = container === document.documentElement ? window.innerHeight : container.getBoundingClientRect().bottom;
-            if (Date.now() > deadline) {
-                const curTop = container === document.documentElement ? window.scrollY : container.scrollTop;
-                const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-                const finalAbsY = absoluteY(container, target);
-                throw new Error(
-                    `Timed out moving the viewport to reach the previous turn after ${stepsAttempted} step(s), ` +
-                    `${totalStuckEvents} no-movement event(s) (longest streak ${maxStuckStreak}), ${directionFlips} direction flip(s) — ` +
-                    `curTop=${curTop}, scrollHeight=${scrollH}, target.top=${Math.round(target.getBoundingClientRect().top)}, ` +
-                    `viewport=[${Math.round(vTop)},${Math.round(vBottom)}]. target absolute position: ` +
-                    `${Math.round(initialAbsY)} at start, ${Math.round(finalAbsY)} at timeout (moved by ${Math.round(finalAbsY - initialAbsY)}px). ` +
-                    (Math.abs(finalAbsY - initialAbsY) < vBottom - vTop
-                        ? `Target barely moved — it was likely never reachable by scrolling this direction (selection issue), not a loading delay.`
-                        : `Target's position shifted substantially during the attempt — consistent with upstream content still resolving, not a fixed selection error.`)
-                );
-            }
-            const curTop = container === document.documentElement ? window.scrollY : container.scrollTop;
-            const stepHeight = container === document.documentElement ? window.innerHeight : container.clientHeight;
-            // isInViewport asks whether target is currently visible — it
-            // checks WALK_DIRECTION's edge for thoroughness, but doesn't
-            // care which side target is actually on right now. The step
-            // below, by contrast, must care: it used to assume the answer
-            // is always "scroll up" (bottom-to-top walk direction), which
-            // only holds in steady state. If target
-            // is ever actually below the viewport — a wrong-side findPrevTurn
-            // pick, a disoriented retry after a failed chase, or just drift —
-            // always subtracting walks further from it, confidently, for the
-            // full timeout, no matter how patient the retry logic is. Pick
-            // the direction from where target actually is right now instead.
-            const elTop = target.getBoundingClientRect().top;
-            const direction = elTop <= vTop ? -1 : 1; // -1 = target above viewport, scroll up; +1 = target below, scroll down
-            if (direction !== lastDirection && lastDirection !== 0) directionFlips++;
-            lastDirection = direction;
-            const nextTop = curTop + direction * stepHeight;
-            if (container === document.documentElement) window.scrollTo({ top: nextTop, behavior: 'instant' });
-            else container.scrollTop = nextTop;
-            _perf.viewportMovesBringIntoView++;
-            stepsAttempted++;
-            await sleep(30);
-            const achievedTop = container === document.documentElement ? window.scrollY : container.scrollTop;
-            if (achievedTop === curTop) {
-                stuckCount++;
-                totalStuckEvents++;
-                maxStuckStreak = Math.max(maxStuckStreak, stuckCount);
-                if (stuckCount >= MAX_STUCK_RETRIES) {
-                    const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-                    throw new Error(
-                        `Scroll position stuck at ${curTop} for ${stuckCount} consecutive attempts while trying ` +
-                        `to scroll ${direction < 0 ? 'up' : 'down'} (${stepsAttempted} step(s), ${directionFlips} ` +
-                        `direction flip(s) attempted total) — target.top=${Math.round(target.getBoundingClientRect().top)}, ` +
-                        `scrollHeight=${scrollH}, viewport=[${Math.round(vTop)},${Math.round(vBottom)}]. Genuine ` +
-                        `boundary if curTop is near 0 (top) or near scrollHeight (bottom); otherwise likely a ` +
-                        `scroll-anchoring/reflow conflict.`
-                    );
-                }
-                await sleep(100); // let any conflicting scroll-anchoring/reflow settle before retrying
-            } else {
-                stuckCount = 0; // made progress — reset
-            }
-        }
-    }
-
-    // isInViewport is our own geometric proxy (one edge, chosen per
-    // WALK_DIRECTION — see its definition) for "should be near enough to
-    // trigger ChatGPT's own IntersectionObserver". It is not the same
-    // condition as ChatGPT's actual trigger (different root, threshold, or
-    // rootMargin are all possible), so isInViewport()===true is not proof the real observer
-    // ever saw an intersection event. When a placeholder sits unresolved
-    // despite passing our proxy, nudge the scroll position a few times —
-    // small, fast, deliberately not a single big jump — to provoke a fresh
-    // intersection transition in case the original one never fired or was
-    // missed (e.g. the element was already inside our requested position
-    // before the observer attached, so no edge-crossing event occurred).
-    // Only runs after the placeholder has already been stuck for a bit, so
-    // normal runs that resolve immediately never pay for this.
-    async function stimulateIntersection(container, target) {
-        target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-        _perf.viewportMovesStimulate++;
-        await sleep(120);
-        const curTop = container === document.documentElement ? window.scrollY : container.scrollTop;
-        for (const delta of [-80, 160, -80]) {
-            if (container === document.documentElement) window.scrollTo({ top: curTop + delta, behavior: 'instant' });
-            else container.scrollTop = curTop + delta;
-            _perf.viewportMovesStimulate++;
-            await sleep(120);
-        }
-        target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-        _perf.viewportMovesStimulate++;
-        await sleep(250);
-    }
+    // How much light must stay ahead of current, beyond the bare minimum,
+    // expressed as a fraction of the viewport's own height so it scales
+    // with whatever clientHeight actually is.
+    const WORK_ZONE_MARGIN_FRACTION = 0.1;
 
     // Forces the scroll position to a boundary edge (bottom for direction=-1,
     // top for +1) and keeps re-asserting it until it actually holds — a
@@ -1603,9 +1877,7 @@
     // content" behavior) was actively reverting it. A plain "wait until it
     // stops moving" can't distinguish "stopped because it arrived" from
     // "stopped because something pulled it back," so this re-issues the
-    // target on every check instead of trusting one assignment, the same
-    // stuck-retry discipline bringIntoView already relies on against a
-    // single target element, applied here to a raw boundary coordinate.
+    // target on every check instead of trusting one assignment.
     // Requiring several consecutive checks to agree (not just one) also
     // means continuously re-asserting can outlast a reversion that only
     // fires after some idle period — never giving it the chance.
@@ -1645,7 +1917,184 @@
         }
     }
 
-    // Mechanism A — is prevTurn (found by findPrevTurn) actually loaded?
+    // Checked once per slab-selection attempt, before any search runs —
+    // the decision lives at the slab level, not tied to any particular
+    // deck's own readiness fingerprint. current's leading edge (the side
+    // facing unexplored territory) only ever advances, one slab at a time;
+    // the work zone's own leading edge stays exactly where it is until
+    // this moves it. So current's advance is guaranteed to eventually
+    // close the gap down to the margin — that moment is what triggers a
+    // move, never a deck's fingerprint. The move itself goes as far ahead
+    // as is safe in one motion, restoring close to a full work zone's
+    // worth of newly lit territory past current, rather than inching
+    // toward whatever the next slab specifically turns out to be — a
+    // minimum number of maximal jumps, not frequent small ones.
+    async function maintainWorkZone(container, current, minimumRoomAhead = 0) {
+        if (current.type === 'start') return { roomSatisfied: true, boundaryReached: false, room: Infinity, required: 0 }; // no deck/slab reference yet
+        const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
+        const setPos = v => {
+            if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
+            else container.scrollTop = v;
+            _perf.viewportMovesWorkZone++;
+        };
+        const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
+        const containerTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+        const r = current.geometryElement.getBoundingClientRect();
+        const curTop = readPos();
+        // current's own leading edge, in the same absolute,
+        // scroll-independent frame curTop already is.
+        const currentEdge = WALK_DIRECTION === -1
+            ? (r.top - containerTop) + curTop
+            : (r.bottom - containerTop) + curTop;
+        const workZoneEdge = WALK_DIRECTION === -1 ? curTop : curTop + clientH;
+        const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, minimumRoomAhead);
+        const room = WALK_DIRECTION === -1 ? currentEdge - workZoneEdge : workZoneEdge - currentEdge;
+        if (room > extra) return { roomSatisfied: true, boundaryReached: false, room, required: extra }; // still plenty of light ahead of current
+        // The bar for calling the move done is not landing on target
+        // exactly, nor holding stable — just whether the same room check
+        // that triggered this now passes, however the position actually
+        // landed. That check is the fingerprint we wait for below, after
+        // issuing the move exactly once.
+        const idealTarget = WALK_DIRECTION === -1
+            ? currentEdge - clientH + extra
+            : currentEdge - extra;
+        // The ideal target can fall outside what scrollTop can currently
+        // hold (negative, or past scrollHeight - clientHeight). That is not
+        // success by itself: on a virtualized conversation it may only mean
+        // the supplier has not mounted more deck space yet. We still perform
+        // the clamped move once, then report whether the required room ahead
+        // was actually achieved; callers decide whether to wait for more
+        // mounted content or accept a genuine boundary.
+        const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
+        const scrollMax = Math.max(0, scrollH - clientH);
+        const target = Math.max(0, Math.min(scrollMax, idealTarget));
+        if (target !== idealTarget) {
+            setPos(target);
+            await sleep(150);
+            const newWorkZoneEdge = WALK_DIRECTION === -1 ? readPos() : readPos() + clientH;
+            const newRoom = WALK_DIRECTION === -1 ? currentEdge - newWorkZoneEdge : newWorkZoneEdge - currentEdge;
+            return { roomSatisfied: newRoom > extra, boundaryReached: true, room: newRoom, required: extra };
+        }
+        // One move — the activation signal. This is not clamped by the
+        // document boundary (that's the branch above), so the target was a
+        // genuinely reachable scroll position. Two separate conditions must
+        // both hold before the move counts as settled: room (pure layout
+        // geometry — proves the scroll position changed) and no blank deck
+        // currently in the viewport (proves rendering has actually caught
+        // up with what that position now reveals). room alone settles
+        // almost instantly and was never a real signal that ChatGPT's own
+        // mount-on-approach logic had a chance to react — the
+        // blank-in-viewport check is the part that's actually tied to
+        // rendering. Same discipline as the other fingerprint waits — loop,
+        // poll, 30s timeout. A timeout means the viewport moved through
+        // territory ChatGPT's own rendering never caught up with — the
+        // failure mode behind the skipped-small-deck cases (a small deck
+        // sandwiched between two huge ones never gets real dwell time
+        // before the next move jumps past it). Fatal: note it and stop.
+        setPos(target);
+        const startedAt = performance.now();
+        const deadline = Date.now() + SLAB_FINISH_TIMEOUT_MS;
+        const measureRoom = () => {
+            const newWorkZoneEdge = WALK_DIRECTION === -1 ? readPos() : readPos() + clientH;
+            return WALK_DIRECTION === -1 ? currentEdge - newWorkZoneEdge : newWorkZoneEdge - currentEdge;
+        };
+        let newRoom = measureRoom();
+        let blank = findBlankDeckInViewport(container);
+        // The blank fingerprint: captured here, right after the move, by
+        // scanning everything currently intersecting the viewport and
+        // recording the first deck that hasn't become a real slab type yet
+        // — not at slab-search time (too late; the short, ordinary blanks
+        // have usually already resolved by then). This is the one moment
+        // most likely to still catch an ordinary few-frame blank in the
+        // act, for comparison against the outerHTML already captured from
+        // cases that never resolve at all (e.g. febac401).
+        const blankRole = b => b.sectionEl?.getAttribute('data-turn') || b.deckEl.getAttribute('data-turn') || 'unknown';
+        const blankOuterHTML = b => (b.sectionEl || b.deckEl).outerHTML;
+        const blankPlaceholderSource = b => b.sectionEl ? { element: b.sectionEl } : { element: null, deckElement: b.deckEl };
+        if (blank) {
+            _perf.blankFingerprint.count++;
+            if (_perf.blankFingerprint.examples.length < 5) {
+                _perf.blankFingerprint.examples.push(
+                    `role=${blankRole(blank)} turnId=${deckSequenceId(blank.deckEl) || '(none)'}: ` +
+                    `no real slab selector matched yet\n${blankOuterHTML(blank)}`
+                );
+            }
+        }
+        while (newRoom <= extra || blank) {
+            if (Date.now() > deadline) {
+                const waitedMs = Math.round(performance.now() - startedAt);
+                // Re-read live, at the moment of timeout — scrollH/scrollMax
+                // above were captured once, before the move, on a
+                // virtualized page where that value can shift as ChatGPT
+                // revises not-yet-rendered decks' placeholder heights. If
+                // `observed` is actually pinned at the CURRENT real
+                // scrollMax, this was a genuine boundary our earlier,
+                // stale snapshot just failed to recognize as one — not a
+                // case of rendering never catching up.
+                const liveScrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
+                const liveScrollMax = Math.max(0, liveScrollH - clientH);
+                _perf.workZoneRoomShortfall.count++;
+                if (_perf.workZoneRoomShortfall.examples.length < 10) {
+                    _perf.workZoneRoomShortfall.examples.push(
+                        `target=${Math.round(target)}, observed=${Math.round(readPos())}, current's edge=${Math.round(currentEdge)}, ` +
+                        `room=${Math.round(newRoom)}px, required=${Math.round(extra)}px, ` +
+                        `liveScrollMax=${Math.round(liveScrollMax)} (was ${Math.round(scrollMax)} when computed), ` +
+                        `blank=${blank ? `${blankRole(blank)}/turnId=${deckSequenceId(blank.deckEl) || '(none)'}` : '(none)'}, waited=${waitedMs}ms`
+                    );
+                }
+                const message = newRoom <= extra
+                    ? `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s waiting for work-zone room ahead of an unclamped target: ` +
+                      `target=${Math.round(target)}, observed=${Math.round(readPos())}, current's edge=${Math.round(currentEdge)}, ` +
+                      `room=${Math.round(newRoom)}px, required=${Math.round(extra)}px, ` +
+                      `liveScrollMax=${Math.round(liveScrollMax)} (was ${Math.round(scrollMax)} when computed). Not a document-boundary case ` +
+                      `per the original snapshot, but check liveScrollMax against observed before trusting that.`
+                    : `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s waiting for a deck in the viewport to become a real slab ` +
+                      `after a work-zone move: role=${blankRole(blank)} turnId=${deckSequenceId(blank.deckEl) || '(none)'}: ` +
+                      `no real slab selector ever matched. Room itself was satisfied; this deck simply never rendered while in view.`;
+                const err = new Error(message);
+                err.placeholder = blank
+                    ? currentNotePlaceholder(blankPlaceholderSource(blank), message)
+                    : currentNotePlaceholder(current, message);
+                throw err;
+            }
+            await sleep(SLAB_FINISH_POLL_MS);
+            newRoom = measureRoom();
+            blank = findBlankDeckInViewport(container);
+        }
+        return { roomSatisfied: true, boundaryReached: false, room: newRoom, required: extra };
+    }
+
+    // current can be a real slab (element set) or a synthetic deck-entry/
+    // deck-exit marker (element: null, only deckElement set) — this covers
+    // both, the same way describeCurrentForStop already does, so a fatal
+    // note about "current" never crashes on the synthetic case.
+    function currentNotePlaceholder(current, reason) {
+        const el = current?.element || current?.deckElement || null;
+        const role = current?.element
+            ? slabRole(current)
+            : (current?.deckElement?.getAttribute('data-turn') || 'unknown');
+        const turnId = current?.element
+            ? slabTurnId(current)
+            : (deckSequenceId(current?.deckElement) || null);
+        return {
+            role,
+            text: `*[${reason}]*\n\n${el ? el.outerHTML : '(no element reference for current)'}\n\n`,
+            plainText: '[Work-zone move came up short]',
+            msgId: null,
+            turnId,
+        };
+    }
+
+    function describeCurrentForStop(current, readyContainer) {
+        const rect = current?.geometryElement?.getBoundingClientRect?.();
+        return `current=${current?.type || '(none)'}/${current?.element ? slabRole(current) : '(synthetic)'}` +
+            ` turnId=${current?.element ? (slabTurnId(current) || '(none)') : '(none)'}` +
+            ` msgId=${current?.element ? (slabMessageId(current) || '(none)') : '(none)'}` +
+            (rect ? ` rect=[top=${Math.round(rect.top)},bottom=${Math.round(rect.bottom)}]` : '') +
+            ` deckId=${deckSequenceId(readyContainer) || '(none)'}`;
+    }
+
+    // Mechanism A — is the deck found by findNextDeck actually loaded?
     // ChatGPT's own lazy placeholder wrapper, [data-turn-id-container],
     // reports data-is-intersecting="false" while blank — the same
     // fingerprint the Compatibility Check panel inspects. Resolution is
@@ -1653,124 +2102,992 @@
     // (moving it is purely to trigger that), then wait for it to clear.
     // Same 30s-then-fail discipline as everywhere else: trust the source,
     // but don't wait forever.
+    // The work zone is moved exactly once per loop iteration — but that
+    // move is an activation signal to the supplier (ChatGPT's own
+    // virtualization), not a guarantee the deck is mounted the instant it
+    // returns. The supplier's response is asynchronous and takes real
+    // time. Waiting for it here is not a second movement attempt — nothing
+    // in this loop ever scrolls — it's just observing the outcome of the
+    // one request already made. Only genuine non-response within the
+    // timeout is the real algorithm violation worth stopping on; nudging
+    // or re-scrolling to force a response would be compensating for a
+    // violation instead of surfacing it (the same silent leniency this
+    // file has already been corrected away from once — see
+    // finishDeckCoverage's history).
     async function waitForTurnReady(container, turnEl, timeoutMs = 30_000, onTick = null) {
         if (turnEl.getAttribute('data-is-intersecting') !== 'false') {
             recordReadyMargin(container);
             markContainerReady();
             return; // already resolved
         }
-        await bringIntoView(container, turnEl, timeoutMs, onTick);
         const deadline = Date.now() + timeoutMs;
-        let counted = false;
-        let pollCount = 0;
-        let pulledBackCount = 0; // how many times it had drifted out of light and needed re-pulling
-        let stimulusCount = 0;
-        let lastStimulusMs = 0;
         while (turnEl.getAttribute('data-is-intersecting') === 'false') {
-            pollCount++;
-            onTick?.(); // same reason as in bringIntoView — a long resolve-wait stall must stay visible
-            // A detached node will never have its attribute updated by
-            // anything — React replaced it with a different node (the same
-            // remount risk discussed for dedup keys elsewhere). Waiting out
-            // the full timeout here would just be a slower way to fail with
-            // a misleading diagnosis; the right response is to reacquire the
-            // previous turn from the current ready container, not to wait.
+            onTick?.();
             if (!turnEl.isConnected)
-                throw new Error('Previous turn node detached from the document while waiting for it to resolve — reacquire needed, not a timeout.');
+                throw new Error('Target deck node detached from the document while waiting for it to mount — reacquire needed, not a timeout.');
             if (Date.now() > deadline) {
                 const stillInViewport = isInViewport(container, turnEl);
                 const r = turnEl.getBoundingClientRect();
                 throw new Error(
-                    `Timed out waiting for the previous turn to resolve after ${pollCount} poll(s), ` +
-                    `${pulledBackCount} re-pull(s) back into light, ${stimulusCount} intersection-stimulus attempt(s) — ` +
-                    `data-is-intersecting="${turnEl.getAttribute('data-is-intersecting')}", currently in viewport=${stillInViewport}, ` +
-                    `rect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]. ` +
-                    (stillInViewport
-                        ? `Placeholder visible by script geometry (isInViewport) the whole time, but ChatGPT never marked it intersecting — our geometric proxy is not proof of ChatGPT's actual IntersectionObserver condition.`
-                        : `Currently out of light — drifted out and the last re-pull didn't resolve it before timeout.`)
+                    `Unexpected: deck never mounted within ${Math.round(timeoutMs / 1000)}s of the work-zone move's ` +
+                    `activation signal — data-is-intersecting="${turnEl.getAttribute('data-is-intersecting')}", in viewport ` +
+                    `(script geometry)=${stillInViewport}, rect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]. ` +
+                    `This is a deviation from the algorithm's invariant, not something more waiting would fix.`
                 );
             }
-            if (!counted) { _perf.blankWaits++; counted = true; }
-            // Light and ready are independent: being in the viewport is what
-            // triggers resolution, but nothing guarantees it stays there
-            // while we wait. A nearby placeholder resizing could shift it
-            // back out before its own trigger ever fires — then we'd just
-            // burn the rest of the timeout waiting on a trigger that can no
-            // longer happen. Re-check and pull it back if that happens,
-            // rather than trusting the one bringIntoView call to hold.
-            if (!isInViewport(container, turnEl)) {
-                pulledBackCount++;
-                await bringIntoView(container, turnEl, Math.max(0, deadline - Date.now()), onTick);
-            }
-            const now = Date.now();
-            if (now - lastStimulusMs > 1500) {
-                lastStimulusMs = now;
-                stimulusCount++;
-                await stimulateIntersection(container, turnEl);
-            }
-            await sleep(50);
+            await sleep(100);
         }
         recordReadyMargin(container);
         markContainerReady();
     }
 
-    // Mechanism B — given a ready container, find the next prompt by
-    // geometric containment, not DOM nesting: among all currently-existing
-    // [data-message-author-role] elements (the confirmed signal — never
-    // assume a parent/child relationship to the container), find the one
-    // whose own top + SMALL_EXTRA falls inside readyContainer's bounds
-    // (top edge excluded, same boundary-exclusion principle as everywhere
-    // else here). No waiting — readyContainer being ready already
-    // guarantees any message geometrically inside it is fully rendered.
-    // Returns every unextracted message whose probe point falls inside
-    // readyContainer, not just the first — the walk only ever consumes
-    // candidates[0] (DOM order), but that's only correct if DOM order
-    // matches walk order whenever more than one candidate exists here.
-    // That invariant is assumed, never verified, so the caller counts
-    // occurrences where it was actually exercised instead of silently
-    // trusting it.
-    function findNextPromptIn(readyContainer, current, seenIds) {
-        const r = readyContainer.getBoundingClientRect();
-        const candidates = [];
-        for (const el of document.querySelectorAll('[data-message-author-role]')) {
-            if (el === current) continue;
-            const msgId = el.getAttribute('data-message-id');
-            if (msgId && seenIds.has(msgId)) continue;
-            const probe = el.getBoundingClientRect().top + SMALL_EXTRA;
-            if (probe > r.top && probe <= r.bottom) candidates.push(el);
+    // Geometry-model diagnostics below inspect ready decks in detail. The
+    // traversal's real successor operation is separate and appears later:
+    // findNextSlabInReadyDeck(deckEl, currentSlab).
+    function shortestMountedMessageHeight() {
+        const heights = [...document.querySelectorAll('[data-message-author-role]')]
+            .map(el => el.getBoundingClientRect().height)
+            .filter(h => h > 0);
+        return heights.length ? Math.min(...heights) : SLAB_ADJACENCY_MAX_GAP;
+    }
+
+    function slabStackForAnchor(anchor) {
+        const scope = anchor.closest('[data-conversation-screenshot-content]');
+        if (!scope) return null;
+        return [...scope.children].find(child => child.contains(anchor)) || null;
+    }
+
+    function slabItemForAnchor(anchor) {
+        const stack = slabStackForAnchor(anchor);
+        if (!stack) return null;
+        return [...stack.children].find(child => child.contains(anchor)) || null;
+    }
+
+    function slabScopeForMessageAnchor(el) {
+        return slabItemForAnchor(el) || el;
+    }
+
+    function rectSummary(rect) {
+        return `top=${Math.round(rect.top)},bottom=${Math.round(rect.bottom)},height=${Math.round(rect.height)}`;
+    }
+
+    function elementSignature(el) {
+        const dataAttrs = [...el.attributes]
+            .filter(a => a.name.startsWith('data-'))
+            .slice(0, 5)
+            .map(a => a.value ? `${a.name}=${a.value}` : a.name)
+            .join(' ');
+        return `<${el.tagName.toLowerCase()}>` +
+            (el.id ? `#${el.id}` : '') +
+            (dataAttrs ? ` data="${dataAttrs}"` : '') +
+            (el.className ? ` class="${String(el.className).slice(0, 80)}"` : '');
+    }
+
+    function describeSlabScopeCandidatesForAnchor(anchor, stopAt) {
+        const out = [];
+        for (let el = anchor, depth = 0; el && depth < 8; el = el.parentElement, depth++) {
+            const rect = el.getBoundingClientRect();
+            const messageCount = el.matches('[data-message-author-role]')
+                ? 1
+                : el.querySelectorAll('[data-message-author-role]').length;
+            const marker = el === anchor ? 'anchor' : (el === stopAt ? 'readyContainer' : `ancestor+${depth}`);
+            out.push(
+                `${marker}:${elementSignature(el)}, rect=[${rectSummary(rect)}], messages=${messageCount}`
+            );
+            if (el === stopAt) break;
         }
-        // Image-generation turns carry no [data-message-author-role] at all
-        // (confirmed via direct DOM inspection of a real export) — only
-        // checked for a container that has none, since a container with a
-        // real anchor is already fully covered by the loop above, and we
-        // haven't established whether a container can mix an image turn
-        // with other anchored messages.
-        if (readyContainer.querySelectorAll('[data-message-author-role]').length === 0) {
-            _perf.imageOnlyTurns.anchorlessContainers++;
-            // readyContainer can itself BE the [data-turn] element (confirmed
-            // live: the turn's own <section> carries data-turn-id-container
-            // on itself, not just on a separate ancestor wrapper) —
-            // querySelectorAll alone would never match readyContainer itself,
-            // only its descendants, silently missing this case.
-            const turnEls = readyContainer.matches('[data-turn]')
-                ? [readyContainer, ...readyContainer.querySelectorAll('[data-turn]')]
-                : [...readyContainer.querySelectorAll('[data-turn]')];
-            if (turnEls.length === 0) _perf.imageOnlyTurns.turnElementMissing++;
-            for (const el of turnEls) {
-                if (el === current) continue;
-                const turnId = el.getAttribute('data-turn-id');
-                if (turnId && seenIds.has('turn:' + turnId)) continue;
-                const probe = el.getBoundingClientRect().top + SMALL_EXTRA;
-                if (probe > r.top && probe <= r.bottom) {
-                    candidates.push(el);
-                    _perf.imageOnlyTurns.candidatesFound++;
+        return out.join(' | ');
+    }
+
+    function classifySlabItem(el) {
+        if (el.matches('[data-message-author-role]')) return el.getAttribute('data-message-author-role') || 'message-anchor';
+        const anchored = el.querySelector('[data-message-author-role]');
+        if (anchored) return anchored.getAttribute('data-message-author-role') || 'contains-message-anchor';
+        if (el.querySelector('[id^="textdoc-message-"], #prosemirror-editor-container, .ProseMirror')) return 'textdoc/canvas';
+        if (el.querySelector('.group\\/imagegen-image, [data-testid^="image-gen-"], img')) return 'image';
+        if (el.matches('.group\\/tool-message') || el.querySelector('.group\\/tool-message')) return 'tool-message';
+        return 'unknown';
+    }
+
+    function describeSlabItem(el, index = null) {
+        const rect = el.getBoundingClientRect();
+        const role = classifySlabItem(el);
+        const msgId = el.getAttribute('data-message-id') ||
+            el.querySelector('[data-message-id]')?.getAttribute('data-message-id') ||
+            '(none)';
+        const imageCount = el.querySelectorAll('img').length;
+        const textLen = (el.innerText || el.textContent || '').trim().length;
+        const testIds = [...el.querySelectorAll('[data-testid]')]
+            .slice(0, 4)
+            .map(testEl => testEl.getAttribute('data-testid'))
+            .join(',');
+        const childHints = [...el.children]
+            .slice(0, 4)
+            .map(elementSignature)
+            .join(' || ');
+        // Direct test of whether this item (e.g. a tool-message/unknown slab
+        // sitting in a gap) would be picked up as its own separate deck by
+        // queryDeckSequenceContainers — only an issue if it carries its OWN
+        // data-turn-id-container value, distinct from its ancestor's. If it
+        // merely reuses the ancestor's id, the dedup-by-id logic there
+        // already keeps only the outer element, so it's not a separate deck.
+        const ownTurnIdContainer = el.getAttribute('data-turn-id-container');
+        const ancestorTurnIdContainer = el.parentElement?.closest('[data-turn-id-container]')?.getAttribute('data-turn-id-container') || null;
+        const deckIdNote = ownTurnIdContainer
+            ? (ownTurnIdContainer === ancestorTurnIdContainer
+                ? `data-turn-id-container=${ownTurnIdContainer} (reuses ancestor's id — already deduped, not a separate deck)`
+                : `data-turn-id-container=${ownTurnIdContainer} (DIFFERS from ancestor's ${ancestorTurnIdContainer || '(none)'} — WOULD be treated as its own separate deck)`)
+            : 'no own data-turn-id-container';
+        return `${index === null ? '' : `#${index}/`}${role}/msgId=${msgId}/imgs=${imageCount}/` +
+            `textLen=${textLen}` +
+            (testIds ? `/testids=${testIds}` : '') +
+            (childHints ? `/children=${childHints}` : '') +
+            `/${elementSignature(el)}/rect=[${rectSummary(rect)}]/${deckIdNote}`;
+    }
+
+    function describeSiblingSlabItemsInRange(anchor, top, bottom) {
+        const stack = slabStackForAnchor(anchor);
+        const anchorSlab = slabItemForAnchor(anchor);
+        if (!stack) return 'stack=(none)';
+        const items = [...stack.children]
+            .map((el, i) => {
+                const rect = el.getBoundingClientRect();
+                const overlap = Math.min(rect.bottom, bottom) - Math.max(rect.top, top);
+                return { el, i, rect, overlap };
+            })
+            .filter(item => item.el !== anchorSlab && item.overlap > SMALL_EXTRA)
+            .sort((a, b) => b.overlap - a.overlap);
+        const stackRect = stack.getBoundingClientRect();
+        return `stackRect=[${rectSummary(stackRect)}], stackChildren=${stack.children.length}, ` +
+            `overlappingSiblingSlabs=${items.length}` +
+            (items.length ? `, ${items.slice(0, 4).map(item =>
+                `${describeSlabItem(item.el, item.i)}/overlap=${Math.round(item.overlap)}px`
+            ).join(' || ')}` : '');
+    }
+
+    function scheduleReadyContainerGapRecheck(kind, readyContainer, firstEl, secondEl, initialGap, threshold, containerTurnId) {
+        if (_perf.readyContainerModel.delayedRechecksScheduled >= 20) return;
+        _perf.readyContainerModel.delayedRechecksScheduled++;
+        const label = `${kind}: turnId=${containerTurnId}, initial=${Math.round(initialGap)}px, threshold=${Math.round(threshold)}px`;
+        setTimeout(() => {
+            if (!readyContainer.isConnected || !firstEl?.isConnected || (secondEl && !secondEl.isConnected)) {
+                _perf.readyContainerModel.delayedRechecksResolved++;
+                if (_perf.readyContainerModel.delayedRecheckExamples.length < 10) {
+                    _perf.readyContainerModel.delayedRecheckExamples.push(`${label} → node detached before recheck`);
+                }
+                return;
+            }
+            const r = readyContainer.getBoundingClientRect();
+            const firstRect = firstEl.getBoundingClientRect();
+            const firstScopeRect = slabScopeForMessageAnchor(firstEl).getBoundingClientRect();
+            const secondRect = secondEl?.getBoundingClientRect();
+            const secondScopeRect = secondEl ? slabScopeForMessageAnchor(secondEl).getBoundingClientRect() : null;
+            let recheckedGap;
+            if (kind === 'top-anchor-inset') recheckedGap = firstRect.top - r.top;
+            else if (kind === 'bottom-anchor-inset') recheckedGap = r.bottom - firstRect.bottom;
+            else recheckedGap = secondRect.top - firstRect.bottom;
+            const delta = recheckedGap - initialGap;
+            _perf.readyContainerModel.delayedRechecksResolved++;
+            if (Math.abs(delta) >= SMALL_EXTRA) _perf.readyContainerModel.delayedRechecksChanged++;
+            if (_perf.readyContainerModel.delayedRecheckExamples.length < 10) {
+                _perf.readyContainerModel.delayedRecheckExamples.push(
+                    `${label} → after 500ms ${Math.round(recheckedGap)}px (Δ${Math.round(delta)}px), ` +
+                    `containerRect=[${rectSummary(r)}], ` +
+                    `firstAnchorRect=[${rectSummary(firstRect)}], ` +
+                    `firstSlabScopeRect=[${rectSummary(firstScopeRect)}]` +
+                    (secondRect ? `, secondAnchorRect=[${rectSummary(secondRect)}]` : '') +
+                    (secondScopeRect ? `, secondSlabScopeRect=[${rectSummary(secondScopeRect)}]` : '')
+                );
+            }
+        }, 500);
+    }
+
+    function checkReadyContainerModel(readyContainer, checkedModelContainers) {
+        if (!readyContainer || checkedModelContainers.has(readyContainer)) return;
+        checkedModelContainers.add(readyContainer);
+        _perf.readyContainerModel.checked++;
+
+        const r = readyContainer.getBoundingClientRect();
+        const tolerance = 1;
+        const messageGapThreshold = Math.max(shortestMountedMessageHeight(), MIN_ONE_LINE_MESSAGE_HEIGHT);
+        const edgeGapThreshold = SLAB_ADJACENCY_MAX_GAP;
+        const members = [];
+        const containerTurnId = deckSequenceId(readyContainer) || '(none)';
+        const domMembers = new Set(readyContainer.querySelectorAll('[data-message-author-role]'));
+        const probeMembers = new Set();
+        const rememberModelExampleMsgId = (label, msgId) => {
+            if (!msgId || _perf.readyContainerModel.exampleMsgIds.length >= 20) return;
+            _perf.readyContainerModel.exampleMsgIds.push({ label, msgId });
+        };
+
+        for (const el of document.querySelectorAll('[data-message-author-role]')) {
+            const er = el.getBoundingClientRect();
+            const probe = er.top + SMALL_EXTRA;
+            const probeInside = probe > r.top && probe <= r.bottom;
+            const overlapPx = Math.min(er.bottom, r.bottom) - Math.max(er.top, r.top);
+            const overlaps = overlapPx > SMALL_EXTRA;
+            if (probeInside) {
+                probeMembers.add(el);
+                members.push({ el, rect: er });
+                if (er.top < r.top - tolerance || er.bottom > r.bottom + tolerance) {
+                    _perf.readyContainerModel.containmentViolations++;
+                    if (_perf.readyContainerModel.examples.length < 10) {
+                        _perf.readyContainerModel.examples.push(
+                            `containment: anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
+                            `not fully inside container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
+                            `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
+                            `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
+                        );
+                    }
+                }
+            } else if (overlaps) {
+                _perf.readyContainerModel.overlappingNonMembers++;
+                if (_perf.readyContainerModel.examples.length < 10) {
+                    _perf.readyContainerModel.examples.push(
+                        `overlap-nonmember: anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
+                        `overlaps container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}] by ${Math.round(overlapPx)}px ` +
+                        `but probe=${Math.round(probe)} is outside; ` +
+                        `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
+                        `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
+                    );
                 }
             }
+        }
+
+        for (const el of domMembers) {
+            if (probeMembers.has(el)) continue;
+            _perf.readyContainerModel.domOnlyMembers++;
+            if (_perf.readyContainerModel.examples.length < 10) {
+                const er = el.getBoundingClientRect();
+                _perf.readyContainerModel.examples.push(
+                    `dom-only-member: message is a DOM descendant but its probe is outside readyContainer; ` +
+                    `anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
+                    `container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
+                    `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
+                    `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
+                );
+            }
+        }
+        for (const el of probeMembers) {
+            if (domMembers.has(el)) continue;
+            _perf.readyContainerModel.probeOnlyMembers++;
+            if (_perf.readyContainerModel.examples.length < 10) {
+                const er = el.getBoundingClientRect();
+                _perf.readyContainerModel.examples.push(
+                    `probe-only-member: message probe is inside readyContainer but it is not a DOM descendant; ` +
+                    `anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
+                    `container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
+                    `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
+                    `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
+                );
+            }
+        }
+
+        const stacks = [...readyContainer.querySelectorAll('[data-conversation-screenshot-content]')]
+            .map(scope => [...scope.children].find(child => child.matches?.('.flex.max-w-full.flex-col.gap-4.grow')))
+            .filter(Boolean);
+        for (const stack of stacks) {
+            _perf.readyContainerModel.slabStacksChecked++;
+            const slabItems = [...stack.children]
+                .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), kind: classifySlabItem(el) }))
+                .filter(item => item.rect.height > 0);
+            _perf.readyContainerModel.slabItemsChecked += slabItems.length;
+            for (const item of slabItems) {
+                if (item.kind === 'unknown') {
+                    _perf.readyContainerModel.unknownSlabItems++;
+                    if (_perf.readyContainerModel.examples.length < 10) {
+                        _perf.readyContainerModel.examples.push(
+                            `unknown-slab-item: ${describeSlabItem(item.el, item.index)}, ` +
+                            `readyContainerTurnId=${containerTurnId}`
+                        );
+                    }
+                }
+            }
+            slabItems.sort((a, b) => a.rect.top - b.rect.top);
+            for (let i = 1; i < slabItems.length; i++) {
+                const gap = slabItems[i].rect.top - slabItems[i - 1].rect.bottom;
+                if (gap > _perf.readyContainerModel.maxSlabGap) {
+                    _perf.readyContainerModel.maxSlabGap = gap;
+                }
+                if (gap >= edgeGapThreshold) {
+                    _perf.readyContainerModel.slabGapViolations++;
+                    if (_perf.readyContainerModel.examples.length < 10) {
+                        _perf.readyContainerModel.examples.push(
+                            `slab-gap: ${Math.round(gap)}px between direct stack slabs ` +
+                            `(threshold=${Math.round(edgeGapThreshold)}px); ` +
+                            `readyContainerTurnId=${containerTurnId}, ` +
+                            `prev=${describeSlabItem(slabItems[i - 1].el, slabItems[i - 1].index)}, ` +
+                            `next=${describeSlabItem(slabItems[i].el, slabItems[i].index)}`
+                        );
+                    }
+                }
+            }
+        }
+
+        members.sort((a, b) => a.rect.top - b.rect.top);
+        if (members.length > 0) {
+            const topGap = members[0].rect.top - r.top;
+            const bottomGap = r.bottom - members[members.length - 1].rect.bottom;
+            if (topGap > _perf.readyContainerModel.maxTopEdgeGap) {
+                _perf.readyContainerModel.maxTopEdgeGap = topGap;
+                _perf.readyContainerModel.maxTopEdgeWinner = {
+                    msgId: members[0].el.getAttribute('data-message-id') || '(none)',
+                    role: members[0].el.getAttribute('data-message-author-role') || '(none)',
+                    containerTurnId,
+                    gap: Math.round(topGap),
+                    containerRect: rectSummary(r),
+                    anchorRect: rectSummary(members[0].rect),
+                    slabScopeRect: rectSummary(slabScopeForMessageAnchor(members[0].el).getBoundingClientRect()),
+                    memberCount: members.length,
+                };
+            }
+            if (bottomGap > _perf.readyContainerModel.maxBottomEdgeGap) {
+                _perf.readyContainerModel.maxBottomEdgeGap = bottomGap;
+                _perf.readyContainerModel.maxBottomEdgeWinner = {
+                    msgId: members[members.length - 1].el.getAttribute('data-message-id') || '(none)',
+                    role: members[members.length - 1].el.getAttribute('data-message-author-role') || '(none)',
+                    containerTurnId,
+                    gap: Math.round(bottomGap),
+                    containerRect: rectSummary(r),
+                    anchorRect: rectSummary(members[members.length - 1].rect),
+                    slabScopeRect: rectSummary(slabScopeForMessageAnchor(members[members.length - 1].el).getBoundingClientRect()),
+                    memberCount: members.length,
+                };
+            }
+            if (topGap >= edgeGapThreshold) {
+                _perf.readyContainerModel.topEdgeViolations++;
+                scheduleReadyContainerGapRecheck('top-anchor-inset', readyContainer, members[0].el, null, topGap, edgeGapThreshold, containerTurnId);
+                if (_perf.readyContainerModel.examples.length < 10) {
+                    const gapTop = r.top;
+                    const gapBottom = members[0].rect.top;
+                    const gapOccupants = [...document.querySelectorAll('[data-message-author-role]')]
+                        .filter(el => el !== members[0].el)
+                        .map(el => ({ el, rect: el.getBoundingClientRect() }))
+                        .filter(({ rect }) => rect.bottom > gapTop && rect.top < gapBottom)
+                        .sort((a, b) => b.rect.bottom - a.rect.bottom);
+                    const nearestAbove = [...document.querySelectorAll('[data-message-author-role]')]
+                        .filter(el => el !== members[0].el)
+                        .map(el => ({ el, rect: el.getBoundingClientRect() }))
+                        .filter(({ rect }) => rect.bottom <= gapBottom)
+                        .sort((a, b) => b.rect.bottom - a.rect.bottom)[0] || null;
+                    const nonMessageGapOccupants = [...readyContainer.querySelectorAll('*')]
+                        .filter(el => !el.matches('[data-message-author-role]') && !el.closest('[data-message-author-role]'))
+                        .map(el => {
+                            const rect = el.getBoundingClientRect();
+                            const overlap = Math.min(rect.bottom, gapBottom) - Math.max(rect.top, gapTop);
+                            return { el, rect, overlap };
+                        })
+                        .filter(({ overlap }) => overlap > SMALL_EXTRA)
+                        .sort((a, b) => b.overlap - a.overlap);
+                    const nestedGapContainers = [...readyContainer.querySelectorAll('[data-turn-id-container]')]
+                        .map(el => {
+                            const rect = el.getBoundingClientRect();
+                            const overlap = Math.min(rect.bottom, gapBottom) - Math.max(rect.top, gapTop);
+                            return { el, rect, overlap };
+                        })
+                        .filter(({ overlap }) => overlap > SMALL_EXTRA)
+                        .sort((a, b) => b.overlap - a.overlap);
+                    const ancestorContainers = [];
+                    for (let el = readyContainer.parentElement; el; el = el.parentElement) {
+                        if (el.matches?.('[data-turn-id-container]')) {
+                            const rect = el.getBoundingClientRect();
+                            ancestorContainers.push({
+                                id: el.getAttribute('data-turn-id-container') || '(none)',
+                                rect,
+                            });
+                        }
+                    }
+                    const describeGapMessage = item => item
+                        ? `role=${item.el.getAttribute('data-message-author-role') || '(none)'}, ` +
+                          `msgId=${item.el.getAttribute('data-message-id') || '(none)'}, ` +
+                          `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)}], ` +
+                          `containerId=${item.el.closest('[data-turn-id-container]')?.getAttribute('data-turn-id-container') || '(none)'}`
+                        : '(none)';
+                    const describeGapElement = item => item
+                        ? `<${item.el.tagName.toLowerCase()}> overlap=${Math.round(item.overlap)}px, ` +
+                          `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)}], ` +
+                          `class="${(item.el.className || '').slice(0, 80)}", ` +
+                          `data="${[...item.el.attributes].filter(a => a.name.startsWith('data-')).map(a => a.value ? `${a.name}=${a.value}` : a.name).join(' ')}"`
+                        : '(none)';
+                    const describeGapContainer = item => item
+                        ? `id=${item.el.getAttribute('data-turn-id-container') || '(none)'}, ` +
+                          `overlap=${Math.round(item.overlap)}px, ` +
+                          `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)},height=${Math.round(item.rect.height)}]`
+                        : '(none)';
+                    _perf.readyContainerModel.examples.push(
+                        `top-anchor-inset: ${Math.round(topGap)}px before first message anchor in readyContainer ` +
+                        `(threshold=${Math.round(edgeGapThreshold)}px); ` +
+                        `firstMsgId=${members[0].el.getAttribute('data-message-id') || '(none)'}, ` +
+                        `readyContainerTurnId=${containerTurnId}, ` +
+                        `containerRect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}], ` +
+                        `firstAnchorRect=[top=${Math.round(members[0].rect.top)},bottom=${Math.round(members[0].rect.bottom)}], ` +
+                        `firstSlabScopeRect=[${rectSummary(slabScopeForMessageAnchor(members[0].el).getBoundingClientRect())}], ` +
+                        `memberCount=${members.length}, ` +
+                        `gapOccupantCount=${gapOccupants.length}, ` +
+                        `nearestGapOccupant=${describeGapMessage(gapOccupants[0])}, ` +
+                        `nearestMessageAboveFirst=${describeGapMessage(nearestAbove)}, ` +
+                        `nonMessageGapOccupantCount=${nonMessageGapOccupants.length}, ` +
+                        `largestNonMessageGapOccupant=${describeGapElement(nonMessageGapOccupants[0])}, ` +
+                        `nestedGapContainerCount=${nestedGapContainers.length}, ` +
+                        `largestNestedGapContainer=${describeGapContainer(nestedGapContainers[0])}, ` +
+                        `ancestorContainerCount=${ancestorContainers.length}, ` +
+                        `nearestAncestorContainer=${ancestorContainers[0]
+                            ? `id=${ancestorContainers[0].id}, rect=[top=${Math.round(ancestorContainers[0].rect.top)},bottom=${Math.round(ancestorContainers[0].rect.bottom)},height=${Math.round(ancestorContainers[0].rect.height)}]`
+                            : '(none)'}, ` +
+                        `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[0].el, gapTop, gapBottom)}, ` +
+                        `slabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[0].el, readyContainer)}`
+                    );
+                    rememberModelExampleMsgId('top-anchor-inset first', members[0].el.getAttribute('data-message-id'));
+                }
+            }
+            if (bottomGap >= edgeGapThreshold) {
+                _perf.readyContainerModel.bottomEdgeViolations++;
+                scheduleReadyContainerGapRecheck('bottom-anchor-inset', readyContainer, members[members.length - 1].el, null, bottomGap, edgeGapThreshold, containerTurnId);
+                if (_perf.readyContainerModel.examples.length < 10) {
+                    _perf.readyContainerModel.examples.push(
+                        `bottom-anchor-inset: ${Math.round(bottomGap)}px after last message anchor in readyContainer ` +
+                        `(threshold=${Math.round(edgeGapThreshold)}px); ` +
+                        `lastMsgId=${members[members.length - 1].el.getAttribute('data-message-id') || '(none)'}, ` +
+                        `readyContainerTurnId=${containerTurnId}, ` +
+                        `containerRect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}], ` +
+                        `lastAnchorRect=[top=${Math.round(members[members.length - 1].rect.top)},bottom=${Math.round(members[members.length - 1].rect.bottom)}], ` +
+                        `lastSlabScopeRect=[${rectSummary(slabScopeForMessageAnchor(members[members.length - 1].el).getBoundingClientRect())}], ` +
+                        `memberCount=${members.length}, ` +
+                        `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[members.length - 1].el, members[members.length - 1].rect.bottom, r.bottom)}, ` +
+                        `slabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[members.length - 1].el, readyContainer)}`
+                    );
+                    rememberModelExampleMsgId('bottom-anchor-inset last', members[members.length - 1].el.getAttribute('data-message-id'));
+                }
+            }
+        }
+        for (let i = 1; i < members.length; i++) {
+            const gap = members[i].rect.top - members[i - 1].rect.bottom;
+            if (gap > _perf.readyContainerModel.maxMessageGap) _perf.readyContainerModel.maxMessageGap = gap;
+            if (gap >= messageGapThreshold) {
+                _perf.readyContainerModel.messageGapViolations++;
+                scheduleReadyContainerGapRecheck('anchor-gap', readyContainer, members[i - 1].el, members[i].el, gap, messageGapThreshold, containerTurnId);
+                if (_perf.readyContainerModel.examples.length < 10) {
+                    _perf.readyContainerModel.examples.push(
+                        `anchor-gap: ${Math.round(gap)}px between adjacent message anchors in readyContainer ` +
+                        `(threshold=${Math.round(messageGapThreshold)}px); ` +
+                        `prevMsgId=${members[i - 1].el.getAttribute('data-message-id') || '(none)'}, ` +
+                        `nextMsgId=${members[i].el.getAttribute('data-message-id') || '(none)'}, ` +
+                        `readyContainerTurnId=${containerTurnId}, ` +
+                        `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[i].el, members[i - 1].rect.bottom, members[i].rect.top)}, ` +
+                        `prevSlabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[i - 1].el, readyContainer)}, ` +
+                        `nextSlabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[i].el, readyContainer)}`
+                    );
+                    rememberModelExampleMsgId('anchor-gap prev', members[i - 1].el.getAttribute('data-message-id'));
+                    rememberModelExampleMsgId('anchor-gap next', members[i].el.getAttribute('data-message-id'));
+                }
+            }
+        }
+    }
+
+    function isCanvasBlock(el) {
+        return Boolean(el?.id && el.id.startsWith('textdoc-message-'));
+    }
+
+    function recordNearbySlabCandidates(count) {
+        if (count <= 1) return;
+        _perf.multiCandidatesInReadyContainer++;
+        _perf.multiCandidatesMax = Math.max(_perf.multiCandidatesMax, count);
+    }
+
+    const FILTERED_SLAB_RULES = [
+        {
+            name: 'tool-message',
+            matches: el => el.matches('.group\\/tool-message') || Boolean(el.querySelector('.group\\/tool-message')),
+        },
+    ];
+
+    function filteredSlabRuleFor(el) {
+        return FILTERED_SLAB_RULES.find(rule => rule.matches(el)) || null;
+    }
+
+    function directStackItems(root = document) {
+        const items = [];
+        for (const scope of root.querySelectorAll('[data-conversation-screenshot-content]')) {
+            const stack = [...scope.children].find(child => child.matches?.('.flex.max-w-full.flex-col.gap-4.grow'));
+            if (stack) items.push(...stack.children);
+        }
+        return items;
+    }
+
+    function recordFilteredSlabItem(el, rule = null) {
+        if (rule) {
+            if (_reportedAllowlistedSlabItems.has(el)) return;
+            _reportedAllowlistedSlabItems.add(el);
+            _perf.slabFiltering.allowlisted++;
+            _perf.slabFiltering.byRule[rule.name] = (_perf.slabFiltering.byRule[rule.name] || 0) + 1;
+            return;
+        }
+        if (_reportedUnlistedSlabItems.has(el)) return;
+        _reportedUnlistedSlabItems.add(el);
+        _perf.slabFiltering.unlisted++;
+        const description = `UNLISTED filtered direct-stack item: ${describeSlabItem(el)}`;
+        if (_perf.slabFiltering.examples.length < 20) {
+            _perf.slabFiltering.examples.push(description);
+        }
+        console.warn(`[Extractor] ${description}`, el);
+    }
+
+    function inspectUnselectedStackItems(selectedCandidates, acceptsRect) {
+        const selectedGeometry = new Set(selectedCandidates.map(candidate => candidate.geometryElement));
+        const unlisted = [];
+        for (const el of directStackItems()) {
+            if (selectedGeometry.has(el) || selectedCandidates.some(candidate => el.contains(candidate.element))) continue;
+            const rect = el.getBoundingClientRect();
+            if (!acceptsRect(rect)) continue;
+            const rule = filteredSlabRuleFor(el);
+            recordFilteredSlabItem(el, rule);
+            if (!rule) unlisted.push({ el, rect });
+        }
+        return unlisted;
+    }
+
+    function slabItemForElement(el) {
+        const scope = el.closest('[data-conversation-screenshot-content]');
+        const stack = scope
+            ? [...scope.children].find(child => child.matches?.('.flex.max-w-full.flex-col.gap-4.grow'))
+            : null;
+        return stack ? ([...stack.children].find(child => child.contains(el)) || el) : el;
+    }
+
+    function makeSlabCandidate(type, element) {
+        const geometryElement = type === 'message' ? slabItemForElement(element) : element;
+        return { type, element, geometryElement };
+    }
+
+    // Stands in for "current" before the very first real slab has been
+    // found, so the walk never needs a separate bootstrap case: every real
+    // candidate is, by construction, ahead of this sentinel (it has no
+    // element of its own to be ahead of), and whichever real candidate is
+    // nearest the start of the conversation is found the same way any other
+    // "next" slab is. Its geometryElement is not a DOM node — it's a fixed
+    // value standing for "before the conversation begins" — so it never
+    // needs to be (and never is) read again once a real current exists.
+    const SLAB_WALK_START = {
+        type: 'start',
+        element: null,
+        geometryElement: {
+            getBoundingClientRect: () => (
+                WALK_DIRECTION === -1
+                    ? { top: Infinity, bottom: Infinity, left: 0, right: 0, width: 0, height: 0 }
+                    : { top: -Infinity, bottom: -Infinity, left: 0, right: 0, width: 0, height: 0 }
+            ),
+        },
+    };
+
+    function makeDeckEntryCurrent(deckEl) {
+        return {
+            type: 'deck-entry',
+            element: null,
+            deckElement: deckEl,
+            geometryElement: {
+                getBoundingClientRect: () => {
+                    const r = deckEl.getBoundingClientRect();
+                    const edge = WALK_DIRECTION === -1 ? r.bottom : r.top;
+                    return { top: edge, bottom: edge, left: r.left, right: r.right, width: r.width, height: 0 };
+                },
+            },
+        };
+    }
+
+    function makeDeckExitCurrent(deckEl) {
+        return {
+            type: 'deck-exit',
+            element: null,
+            deckElement: deckEl,
+            geometryElement: {
+                getBoundingClientRect: () => {
+                    const r = deckEl.getBoundingClientRect();
+                    const edge = WALK_DIRECTION === -1 ? r.top : r.bottom;
+                    return { top: edge, bottom: edge, left: r.left, right: r.right, width: r.width, height: 0 };
+                },
+            },
+        };
+    }
+
+    function slabRole(slab) {
+        return slab.element.getAttribute('data-message-author-role') ||
+            slab.element.closest('[data-turn]')?.getAttribute('data-turn') ||
+            slab.type;
+    }
+
+    function slabTurnId(slab) {
+        return slab.element.closest('[data-turn]')?.getAttribute('data-turn-id') ||
+            slab.element.getAttribute('data-turn-id') ||
+            null;
+    }
+
+    function slabMessageId(slab) {
+        return slab.element.getAttribute('data-message-id') || null;
+    }
+
+    function querySelectedSlabCandidates(root = document) {
+        const candidates = [];
+        const messageEls = root.querySelectorAll('[data-message-author-role]');
+        const canvasEls = root.querySelectorAll('[id^="textdoc-message-"]');
+        const imageEls = root.querySelectorAll('.group\\/imagegen-image');
+        for (const el of messageEls) candidates.push(makeSlabCandidate('message', el));
+        for (const el of canvasEls) {
+            _perf.canvasBlocks.seenGlobally++;
+            _perf.canvasBlocks.candidatesFound++;
+            candidates.push(makeSlabCandidate('canvas', el));
+        }
+        for (const el of imageEls) {
+            _perf.imageOnlyTurns.candidatesFound++;
+            const turnId = el.closest('[data-turn]')?.getAttribute('data-turn-id') || null;
+            if (turnId && !_perf.imageOnlyTurns.byTurnId[turnId]) {
+                _perf.imageOnlyTurns.byTurnId[turnId] = {
+                    verdict: 'direct-image-candidate',
+                    dryTextLen: 0,
+                    nearestUserMsgId: '(not applicable)',
+                    nearestUserContainerId: '(not applicable)',
+                    extracted: false,
+                };
+            }
+            candidates.push(makeSlabCandidate('image', el));
+            watchImageSrcHistory(el);
+        }
+        // The turn's own section wrapper (data-turn) exists as soon as the
+        // deck mounts, before any of the three precise selectors above have
+        // rendered anything — using it as a 'message' candidate here means
+        // the existing, justified content-readiness wait
+        // (slabFinishFingerprint) applies to "not rendered yet" the same
+        // way it already applies to "found but incomplete", instead of
+        // treating "nothing found at all" as a final answer with no
+        // fingerprint to wait on. Only tried when genuinely nothing of any
+        // type was found (a real canvas/image candidate, once it exists,
+        // always takes precedence over this guess) and when root is a
+        // specific deck, not the whole document (the diagnostic call site
+        // below still wants a real "nothing anywhere" answer).
+        if (candidates.length === 0 && root !== document) {
+            const turnSection = root.matches?.('[data-turn]') ? root : root.querySelector('[data-turn]');
+            if (turnSection) candidates.push(makeSlabCandidate('message', turnSection));
         }
         return candidates;
     }
 
-    function extractMessage(el) {
+    // room (pure layout geometry) settles essentially instantly after a
+    // move — it proves the scroll position changed, not that ChatGPT's own
+    // mount-on-approach logic has had any chance to react to what's now in
+    // view. This checks the one thing that's actually tied to rendering:
+    // whether any deck currently visible has not yet become one of the
+    // three real slab types. A blank deck is not a guessed-type candidate
+    // that merely lacks content yet — going through
+    // querySelectedSlabCandidates's section fallback and then checking its
+    // content fingerprint asks the wrong question (does this thing we
+    // already decided to call 'message' have message content), when the
+    // real question is simpler: has any real selector matched at all yet.
+    // While blank, a deck is not a message, canvas, or image in waiting —
+    // it's none of those; it gets REPLACED by one once rendering catches
+    // up, not gradually filled in as one. So this checks the three precise
+    // selectors directly, with no fallback and no fingerprint call.
+    function findBlankDeckInViewport(container) {
+        const viewTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+        const viewBottom = viewTop + (container === document.documentElement ? window.innerHeight : container.clientHeight);
+        for (const deckEl of queryDeckSequenceContainers()) {
+            const r = deckEl.getBoundingClientRect();
+            if (r.bottom <= viewTop || r.top >= viewBottom) continue; // not actually in the viewport
+            const hasRealSlab = deckEl.querySelector(
+                '[data-message-author-role], [id^="textdoc-message-"], .group\\/imagegen-image'
+            );
+            if (!hasRealSlab) {
+                const sectionEl = deckEl.matches('[data-turn]') ? deckEl : deckEl.querySelector('[data-turn]');
+                return { deckEl, sectionEl };
+            }
+        }
+        return null;
+    }
+
+    const SLAB_LOOKAHEAD_PX = Math.max(
+        SLAB_ADJACENCY_MAX_GAP + MIN_ONE_LINE_MESSAGE_HEIGHT,
+        MIN_ONE_LINE_MESSAGE_HEIGHT * 2
+    );
+
+    // Distance helper retained for diagnostics and coverage checks. The real
+    // successor operation below is now bounded by SLAB_LOOKAHEAD_PX and scoped
+    // to the current ready deck.
+    function slabDistanceAhead(currentRect, candidateRect) {
+        if (WALK_DIRECTION === -1) {
+            if (candidateRect.top >= currentRect.top) return null;
+            return Math.max(0, currentRect.top - candidateRect.bottom);
+        }
+        if (candidateRect.bottom <= currentRect.bottom) return null;
+        return Math.max(0, candidateRect.top - currentRect.bottom);
+    }
+
+    function closestCandidateAhead(currentSlab, candidates) {
+        const currentRect = currentSlab.geometryElement.getBoundingClientRect();
+        const ranked = candidates
+            .map(candidate => ({
+                candidate,
+                rect: candidate.geometryElement.getBoundingClientRect(),
+            }))
+            .map(item => ({
+                ...item,
+                distance: slabDistanceAhead(currentRect, item.rect),
+            }))
+            .filter(item => item.distance !== null)
+            .sort((a, b) => {
+                if (a.distance !== b.distance) return a.distance - b.distance;
+                return WALK_DIRECTION === -1
+                    ? b.rect.bottom - a.rect.bottom
+                    : a.rect.top - b.rect.top;
+            });
+        recordNearbySlabCandidates(ranked.length);
+        return ranked[0]?.candidate || null;
+    }
+
+    function slabBelongsToDeck(slab, deckEl) {
+        if (!slab || !deckEl) return false;
+        if (slab.deckElement === deckEl) return true;
+        if (!slab.element) return false;
+        if (slab.element === deckEl || deckEl.contains(slab.element)) return true;
+        const slabDeckId = slab.element.closest?.('[data-turn-id-container]')?.getAttribute('data-turn-id-container') || null;
+        return Boolean(slabDeckId && slabDeckId === deckSequenceId(deckEl));
+    }
+
+    function roomAheadInDeck(deckRect, currentRect) {
+        if (!currentRect) return deckRect.height;
+        return WALK_DIRECTION === -1
+            ? currentRect.top - deckRect.top
+            : deckRect.bottom - currentRect.bottom;
+    }
+
+    // Direct geometric answer to "can the current ready deck still contain
+    // the next slab" — used to decide *before* searching whether deck
+    // administration (closing this one, opening the next) is needed,
+    // rather than discovering it indirectly via findNextSlabInReadyDeck's
+    // own 'end-of-deck' result. Same primitive (roomAheadInDeck) that
+    // function uses internally, so the two checks can't disagree.
+    function deckHasRoomAhead(deckEl, currentSlab) {
+        const deckRect = deckEl.getBoundingClientRect();
+        const currentRect = slabBelongsToDeck(currentSlab, deckEl)
+            ? currentSlab.geometryElement.getBoundingClientRect()
+            : null;
+        return roomAheadInDeck(deckRect, currentRect) > SMALL_EXTRA;
+    }
+
+    function distanceAheadFromReference(currentRect, candidateRect) {
+        if (!currentRect) return 0;
+        return slabDistanceAhead(currentRect, candidateRect);
+    }
+
+    function candidateDistanceFacts(deckRect, currentRect, rect) {
+        const insideDeckDistance = Math.max(0, deckRect.top - rect.bottom, rect.top - deckRect.bottom);
+        if (insideDeckDistance > SMALL_EXTRA) return null;
+        const aheadDistance = distanceAheadFromReference(currentRect, rect);
+        if (aheadDistance === null || aheadDistance > SLAB_LOOKAHEAD_PX) return null;
+        return { aheadDistance, insideDeckDistance };
+    }
+
+    function measureSlabSearchFrame(deckEl, currentSlab, selectedCandidates, stackItems) {
+        const deckRect = deckEl.getBoundingClientRect();
+        const currentRect = slabBelongsToDeck(currentSlab, deckEl)
+            ? currentSlab.geometryElement.getBoundingClientRect()
+            : null;
+        return {
+            roomAhead: roomAheadInDeck(deckRect, currentRect),
+            candidates: selectedCandidates.map(candidate => ({
+                candidate,
+                distances: candidateDistanceFacts(deckRect, currentRect, candidate.geometryElement.getBoundingClientRect()),
+            })),
+            stackItems: stackItems.map(el => ({
+                el,
+                distances: candidateDistanceFacts(deckRect, currentRect, el.getBoundingClientRect()),
+            })),
+        };
+    }
+
+    // Successor selection is deck-scoped by design. The deck must already be
+    // ready/mounted before this runs; this function only asks which selected
+    // slab in that ready deck is nearest by same-frame distance ahead of
+    // current, within the bounded lookahead distance. Unknown direct-stack
+    // items are reported, not silently treated as valid slabs.
+    function findNextSlabInReadyDeck(deckEl, currentSlab, entryDiag = null) {
+        const selectedCandidates = querySelectedSlabCandidates(deckEl);
+        const stackItems = directStackItems(deckEl);
+        const frame = measureSlabSearchFrame(deckEl, currentSlab, selectedCandidates, stackItems);
+        if (frame.roomAhead <= SMALL_EXTRA) return { kind: 'end-of-deck' };
+
+        if (selectedCandidates.length === 0) {
+            const unlisted = [];
+            for (const { el } of frame.stackItems) {
+                const rule = filteredSlabRuleFor(el);
+                recordFilteredSlabItem(el, rule);
+                if (!rule) unlisted.push(el);
+            }
+            const detail = stackItems.length === 0
+                ? ''
+                : ` ${stackItems.length} direct-stack item(s) existed, but none matched a valid slab selector` +
+                  (unlisted.length ? ` (${unlisted.length} unlisted); see diagnostics.` : '.');
+            return {
+                kind: 'note',
+                slab: {
+                    type: 'note',
+                    element: deckEl,
+                    geometryElement: deckEl,
+                    note: {
+                        // See finishDeckCoverage's identical fix — no
+                        // type-based certainty here, so an unreadable
+                        // attribute is reported as 'unknown', not guessed
+                        // as 'assistant'.
+                        role: deckEl.getAttribute('data-turn') || 'unknown',
+                        text: `*[Empty container — no slab could be detected for this turn (turnId=` +
+                            `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure ` +
+                            `or an extractor bug; see the exported diagnostics.${detail} ` +
+                            `${describeMovesSinceEntry(entryDiag)}, ${describeIntersectingHistory(deckEl)}]*\n\n` +
+                            `${deckEl.outerHTML}\n\n`,
+                        plainText: '[Empty container]',
+                        msgId: null,
+                        turnId: deckSequenceId(deckEl) || null,
+                    },
+                },
+                unlisted: [],
+            };
+        }
+        const ranked = frame.candidates
+            .filter(item => item.distances)
+            .sort((a, b) => {
+                if (a.distances.aheadDistance !== b.distances.aheadDistance) {
+                    return a.distances.aheadDistance - b.distances.aheadDistance;
+                }
+                return a.distances.insideDeckDistance - b.distances.insideDeckDistance;
+            });
+        recordNearbySlabCandidates(ranked.length);
+
+        const selectedGeometry = new Set(selectedCandidates.map(candidate => candidate.geometryElement));
+        const unlisted = [];
+        for (const { el, distances } of frame.stackItems) {
+            if (selectedGeometry.has(el) || selectedCandidates.some(candidate => el.contains(candidate.element))) continue;
+            if (!distances) continue;
+            const rule = filteredSlabRuleFor(el);
+            recordFilteredSlabItem(el, rule);
+            if (!rule) unlisted.push({ el, distances });
+        }
+
+        if (ranked[0]) return { kind: 'slab', slab: ranked[0].candidate, unlisted };
+        return { kind: 'end-of-deck', unlisted };
+    }
+
+    // Selectors are used synchronously, with no wait: findNextSlabInReadyDeck
+    // is called exactly once here. There is no anterior fingerprint that
+    // justifies expecting a candidate to appear if the selector finds none
+    // right now (room permitting) — that's the algorithm's own answer for
+    // this deck, not a timing gap, so 'note'/'end-of-deck' return
+    // immediately. A found candidate is different: its own in-progress
+    // signal (a skeleton class, an image with no src yet) is a fingerprint
+    // we know will resolve, so only that gets a real wait loop, checked
+    // repeatedly on the same already-found element.
+    async function waitForNextSlabInReadyDeck(deckEl, currentSlab, getEntryDiag, onTick, timeoutMs = SLAB_FINISH_TIMEOUT_MS) {
+        const selection = findNextSlabInReadyDeck(deckEl, currentSlab, getEntryDiag());
+        if (selection.kind !== 'slab') return selection; // no fingerprint to wait for — final answer now
+        _perf.slabDiscoveryWait.waited++;
+        const startedAt = performance.now();
+        const deadline = Date.now() + timeoutMs;
+        let fp = slabFinishFingerprint(selection.slab, deckEl);
+        while (!fp.ready) {
+            if (Date.now() > deadline) {
+                const waitedMs = Math.round(performance.now() - startedAt);
+                _perf.slabDiscoveryWait.timedOut++;
+                _perf.slabDiscoveryWait.maxWaitMs = Math.max(_perf.slabDiscoveryWait.maxWaitMs, waitedMs);
+                // A candidate that was found but never passed its own
+                // content fingerprint is evidence of a genuinely
+                // stuck/broken render — fatal, matching the original
+                // waitForSlabFinished behavior, not the ordinary
+                // "nothing here at all" case the 'note' placeholder
+                // already covers non-fatally above.
+                const next = selection.slab;
+                const message =
+                    `Timed out waiting for slab finish fingerprint for type=${next.type} role=${slabRole(next)} ` +
+                    `turnId=${slabTurnId(next) || '(none)'}: last=${fp.reason}, summary=${JSON.stringify(fp.summary)}`;
+                const err = new Error(message);
+                // Captured at the moment of timeout, not after — this is the
+                // one chance to see the exact element state that produced
+                // the dead fingerprint, before the run stops. run()'s catch
+                // inserts this at the current position in the markdown, the
+                // same way the non-fatal placeholders above do.
+                err.placeholder = {
+                    role: slabRole(next),
+                    text: `*[${message}]*\n\n${next.element.outerHTML}\n\n`,
+                    plainText: '[Timed out waiting for slab finish fingerprint]',
+                    msgId: null,
+                    turnId: slabTurnId(next) || null,
+                };
+                throw err;
+            }
+            onTick?.();
+            await sleep(SLAB_FINISH_POLL_MS);
+            fp = slabFinishFingerprint(selection.slab, deckEl);
+        }
+        const waitedMs = Math.round(performance.now() - startedAt);
+        if (waitedMs < SLAB_FINISH_POLL_MS) _perf.slabDiscoveryWait.alreadyReady++;
+        else _perf.slabDiscoveryWait.resolvedAfterWait++;
+        _perf.slabDiscoveryWait.maxWaitMs = Math.max(_perf.slabDiscoveryWait.maxWaitMs, waitedMs);
+        return selection;
+    }
+
+    function extractSlab(slab) {
+        let el = slab.element;
+        // Canvas/textdoc blocks: saved as their own separate .md file at
+        // export time (same deferred-token pattern as images — see
+        // _pendingCanvasDownloads above), linked from here. Mirrors how the
+        // conversation already treats a generated image instead of inlining
+        // a potentially huge nested document into the surrounding
+        // conversation flow. Checked first and returns early — canvas
+        // elements never go through the ordinary anchor-based path below
+        // (no data-message-id of their own). The outer canvas also contains
+        // title and action controls, so serialization targets the mounted
+        // ProseMirror content surface rather than the shell.
+        if (slab.type === 'canvas') {
+            const contentRoot = canvasContentRoot(el);
+            const text = contentRoot ? htmlToMarkdown(contentRoot) : '';
+            if (!text) {
+                _perf.canvasBlocks.markdownEmpty++;
+                return null;
+            }
+            _perf.canvasBlocks.extracted++;
+            const titleEl = el.querySelector('span.font-semibold, [class*="font-semibold"]');
+            const title = (titleEl?.textContent || 'Canvas document').trim();
+            const token = `__CANVAS_PLACEHOLDER_${++_canvasCounter}__`;
+            _pendingCanvasDownloads.push({ text, token, title });
+            const turnSection = el.closest('[data-turn]');
+            return {
+                role: turnSection?.getAttribute('data-turn') || 'assistant',
+                text: `[${title}](${token})\n\n`,
+                plainText: title,
+                msgId: null,
+                turnId: turnSection?.getAttribute('data-turn-id') || null,
+            };
+        }
+        if (slab.type === 'image') {
+            const image = primaryImageForSlab(el);
+            const text = image ? htmlToMarkdown(image) : '';
+            if (!text) return null;
+            const turnSection = el.closest('[data-turn]');
+            return {
+                role: turnSection?.getAttribute('data-turn') || 'assistant',
+                text: text + '\n\n',
+                plainText: image.getAttribute('alt') || 'Generated image',
+                msgId: null,
+                turnId: turnSection?.getAttribute('data-turn-id') || null,
+            };
+        }
+        // querySelectedSlabCandidates falls back to the turn-section wrapper
+        // as the candidate when [data-message-author-role] hasn't rendered
+        // yet — by the time extraction runs, the content fingerprint has
+        // already confirmed real content exists, so the precise element
+        // should now be findable as a descendant. Resolving down here keeps
+        // the rest of this branch (and htmlToMarkdown itself) targeting the
+        // actual message, not the whole turn shell.
+        if (!el.matches('[data-message-author-role]')) {
+            const messageEl = el.querySelector('[data-message-author-role]');
+            if (!messageEl) return null;
+            el = messageEl;
+        }
         // Resolves the composite-fingerprint experiment for this element, if
         // it was ever a candidate: compares the full structural signature
         // (text length, child count, height, code blocks, images, tables,
@@ -1858,7 +3175,7 @@
         if (!text) return null;
         const msgId = el.getAttribute('data-message-id') || null;
         // Image-generation turns have no data-message-id — data-turn-id is
-        // the only identity they carry, used as seenIds' dedup key for them.
+        // the only stable identity they carry.
         const turnId = msgId ? null : (el.getAttribute('data-turn-id') || null);
         // Fire-and-forget, not awaited: tests whether the container-ready
         // flag can flip true before THIS message's own content has finished
@@ -1888,9 +3205,16 @@
     }
 
     async function run(ui, stopBtn) {
+        stopActiveLifecycleObserver();
         _resetPerf();
         _pendingImageDownloads = [];
         _imageCounter = 0;
+        _pendingCanvasDownloads = [];
+        _canvasCounter = 0;
+        _reportedAllowlistedSlabItems = new WeakSet();
+        _reportedUnlistedSlabItems = new WeakSet();
+        _watchedImageSrcHistory = new WeakSet();
+        _watchedIntersectingHistory = new WeakSet();
         _runTimestamp = Date.now();
         _perf.runStartMs = performance.now();
         ui.total = getNavMenuItems().length;
@@ -1914,7 +3238,7 @@
         document.addEventListener('visibilitychange', onVisibilityChange);
 
         const allPrompts = [];
-        const seenIds = new Set();
+        const checkedModelContainers = new WeakSet();
         let lastEl = null;
         let stopReason = null; // non-null = stopped early; still export what we have
         // Cumulative across the whole run, unlike advancesWithoutProgress
@@ -1978,6 +3302,29 @@
         // string. Folding it into the same try the loop already uses means
         // a bootstrap failure gets the same treatment as a mid-walk one:
         // recorded as stopReason, with the full diag block still exported.
+        // Shared by every insertion site (a real extracted slab, or a
+        // finishDeckCoverage/no-valid-slab placeholder) so the direction-aware
+        // ordering logic exists in exactly one place. direction=-1 walks
+        // newest-to-oldest, so within any one deck holding more than one
+        // slab, findNextSlabInReadyDeck discovers them bottom-to-top (whichever is
+        // nearest the current — below this deck — is found first) — the
+        // reverse of normal top-to-bottom reading order. A plain unshift
+        // each time corrects exactly that: every new same-deck discovery
+        // lands ahead of the previous one, restoring top-to-bottom order
+        // within the deck while still landing the whole deck's batch ahead
+        // of everything already collected from later (already-walked) decks.
+        // direction=+1 doesn't need this: push always appends at the end,
+        // and discovery there already runs top-to-bottom. Declared above the
+        // try so it's also reachable from the catch below (a fatal timeout's
+        // captured-outerHTML placeholder is inserted from there).
+        const insertMsg = (msg) => {
+            if (WALK_DIRECTION === -1) {
+                allPrompts.unshift(msg);
+            } else {
+                allPrompts.push(msg);
+            }
+        };
+
         try {
 
         // ── Land on the prompt at the walk's starting edge via the
@@ -1989,7 +3336,7 @@
         // actual edge this run needs to start from.
         // Two genuinely different things can go wrong here, and they call
         // for different responses — conflating them (e.g. by retrying the
-        // prompt check for a while just in case) hides which one actually
+        // slab check for a while just in case) hides which one actually
         // happened. So they get separate throws:
         //   1. The container/scroll itself never settles — a timing/loading
         //      problem. Worth waiting for (up to 30s, matching every other
@@ -2082,133 +3429,39 @@
             _perf.scrollHeightGrowthCheck.grewBy = scrollHAfter - scrollH;
         }
 
-        // This is the only viewport scan in the whole run — everything
-        // after this finds the next prompt purely by geometry against
-        // confirmed signals, never DOM nesting/sibling relationships.
-        // forceScrollToEdge above only proves the *position* is correct —
-        // it says nothing about whether content has actually mounted there
-        // yet. waitForTurnReady already treats that render lag as real for
-        // every subsequent turn in the chain walk (it waits on
-        // data-is-intersecting rather than trusting a freshly-scrolled-to
-        // container immediately); there's no principled reason this first
-        // message would be exempt just because it's the bootstrap rather
-        // than turn N. So poll for it instead of checking once — applied
-        // the same way for both directions even though the upward case
-        // hasn't needed it in practice (chats already render near the
-        // bottom by default), since there's no guarantee that holds in
-        // every case.
-        const bootstrapDeadline = Date.now() + 30_000;
-        let bootstrap = findBootstrapMessage(container, WALK_DIRECTION);
-        while (!bootstrap && Date.now() < bootstrapDeadline) {
-            await sleep(100);
-            bootstrap = findBootstrapMessage(container, WALK_DIRECTION);
-        }
-        if (!bootstrap) {
-            const top = container === document.documentElement ? window.scrollY : container.scrollTop;
-            const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-            const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
-            const totalMsgs = document.querySelectorAll('[data-message-author-role]').length;
-            throw new Error(
-                `No message found in the current viewport after the scroll settled at the ` +
-                `${WALK_DIRECTION === -1 ? 'bottom' : 'top'} (top=${Math.round(top)}, scrollH=${Math.round(scrollH)}, clientH=${Math.round(clientH)}), ` +
-                `even after waiting 30s for content to render there. ` +
-                `${totalMsgs} [data-message-author-role] element(s) exist in the document — a chat always has at ` +
-                `least one, so finding zero overlapping the viewport even after that wait means the viewport-overlap ` +
-                `check in findBootstrapMessage needs investigating, not a longer wait.`
-            );
-        }
-        // Same retry-before-giving-up treatment as the main walk loop below
-        // (see extractRetries there for the full rationale) — bootstrap is
-        // geometrically confirmed the same way every other turn is, so it's
-        // just as exposed to the virtualization-ready-but-content-not-yet
-        // race, and `current = bootstrap` a few lines down would otherwise
-        // silently and permanently drop it the same way.
-        let bootstrapMsg = extractMessage(bootstrap);
-        let bootstrapExtractRetries = 0;
-        while (!bootstrapMsg && bootstrapExtractRetries < 5) {
-            bootstrapExtractRetries++;
-            await sleep(200);
-            bootstrapMsg = extractMessage(bootstrap);
-        }
-        if (!bootstrapMsg) {
-            _perf.extractionFailures.count++;
-            if (_perf.extractionFailures.examples.length < 10) {
-                _perf.extractionFailures.examples.push(
-                    `role=${bootstrap.getAttribute('data-message-author-role') || '(anchorless)'} (bootstrap) ` +
-                    `turnId=${bootstrap.closest('[data-turn]')?.getAttribute('data-turn-id') || bootstrap.getAttribute('data-turn-id') || '(none)'} ` +
-                    `after ${bootstrapExtractRetries} retries`
-                );
-            }
-            ui.log(`  ⚠ bootstrap extraction returned empty after ${bootstrapExtractRetries} retries — content permanently lost`);
-        }
-        if (bootstrapMsg) {
-            if (bootstrapMsg.msgId) seenIds.add(bootstrapMsg.msgId);
-            else if (bootstrapMsg.turnId) { seenIds.add('turn:' + bootstrapMsg.turnId); _perf.imageOnlyTurns.extracted++; }
-            allPrompts.push(bootstrapMsg);
-        }
-        lastEl = bootstrap;
-        ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
-        maybeSnap();
-
-        // The edge of a container nearest the already-explored side of the
-        // walk — i.e. where "light" first reaches it. direction=-1: walking
-        // upward, so a new container's bottom edge is the one adjacent to
-        // the container just finished; its top edge is the unexplored
-        // interior. Used by containerReach below to measure how far past
-        // that entry edge extraction actually finds a slab, as direct
-        // evidence for whether readiness covers the whole container or only
-        // the part nearest the entry point.
+        // No separate bootstrap: SLAB_WALK_START stands in for "current"
+        // before any real slab has been found, so the very first real slab
+        // is simply "the next one after that," found and entered exactly
+        // the same way every later one is. readyContainer starts as null for
+        // the same reason — there is no real deck yet, only the viewport
+        // edge the scroll above already landed on.
+        let readyContainer = null;
+        let current = SLAB_WALK_START;
+        let containerSlabRanges = [];
+        // The edge of a deck nearest the already-explored side of the walk —
+        // i.e. where "light" first reaches it. direction=-1: walking upward,
+        // so a new deck's bottom edge is the one adjacent to the deck just
+        // finished; its top edge is the unexplored interior. Used by
+        // containerReach below to measure how far past that entry edge
+        // extraction actually finds a slab, as direct evidence for whether
+        // readiness covers the whole deck or only the part nearest the
+        // entry point.
         const containerNearEdge = el =>
             WALK_DIRECTION === -1 ? el.getBoundingClientRect().bottom : el.getBoundingClientRect().top;
+        let containerEntryY = null;
+        // Captured the instant a deck's own readiness gate (data-is-
+        // intersecting) resolves, before any further scrolling happens —
+        // lets an "Empty container" placeholder show whether the work zone
+        // moved again (and how many times) between that resolution and the
+        // moment the deck was searched and found empty, since a move in
+        // between could itself be what pushed ChatGPT to re-unmount the
+        // deck it had just mounted.
+        let deckEntryDiag = null;
 
-        let current = bootstrap;
-        let readyContainer = current.closest('[data-turn-id-container]');
-        // Tracks where the *next* sibling found in the current readyContainer
-        // should land, for direction=-1 only. A plain unshift(msg) per find is
-        // only correct when exactly one message is drained per container —
-        // when multiple are (see multiCandidatesInReadyContainer), each
-        // unshift lands ahead of the one before it, reversing the whole batch.
-        // Advancing this index after every insert keeps siblings in their
-        // discovery (DOM) order while the batch as a whole still lands ahead
-        // of everything already collected, same as a single unshift would.
-        // direction=+1 doesn't need this: push always appends at the end, so
-        // discovery order is preserved automatically.
-        let containerInsertAt = 0;
-        _perf.bootstrapRole = bootstrap.getAttribute('data-message-author-role') || '(none)';
-        if (!readyContainer) {
-            stopReason = 'Bootstrap message has no [data-turn-id-container] ancestor — cannot start the chain walk.';
-        } else {
-            // Recorded before the wait below resolves it, to find out
-            // empirically whether the gap this wait closes (see comment)
-            // ever actually mattered — i.e. whether the bootstrap's own
-            // container was ever genuinely unresolved, as opposed to this
-            // being a defensive check that never fires in practice.
-            _perf.bootstrapWasIntersectingFalse = readyContainer.getAttribute('data-is-intersecting') === 'false';
-            // Started before waitForTurnReady, not after: this is the
-            // earliest point readyContainer is identified at all, so it's
-            // the only place that can observe the full not-ready→ready
-            // transition rather than just what happens afterward.
-            watchContainerLifecycle(readyContainer);
-            // Every later container in the chain walk gets verified ready
-            // via waitForTurnReady before findNextPromptIn/findPrevTurn
-            // trust it — the bootstrap's own container never got that same
-            // treatment, despite being reached by exactly the kind of
-            // fresh-scroll-and-poll sequence the render-lag reasoning above
-            // already applies to the message itself. No reason its
-            // container would be exempt from the same check.
-            await waitForTurnReady(container, readyContainer, 30_000, maybeSnap);
-        }
-        let containerEntryY = readyContainer ? containerNearEdge(readyContainer) : 0;
-        viewportMovesAtLastPrompt = totalViewportMoves();
-        ui.log(`#1 confirmed (bootstrap, ${_perf.bootstrapRole}) — viewport moves so far: ${viewportMovesAtLastPrompt}`);
-
-        // Defensive cap: if findNextPromptIn never matches anything despite
-        // many consecutive container advances, that's not "the conversation
-        // is just long" — it's a containment-logic mismatch (e.g. a turn
-        // rendering at the 50vh fallback height before --last-known-height
-        // is cached, putting the message far from its container's own top).
-        // Fail fast with the geometry that didn't match, rather than spin
-        // silently through every remaining container.
+        // Defensive cap: if ready decks keep yielding no extractable slab,
+        // that's not "the conversation is just long." Fail fast with the
+        // geometry that didn't match, rather than spin silently through every
+        // remaining deck.
         let advancesWithoutProgress = 0;
         const MAX_ADVANCES_WITHOUT_PROGRESS = 50;
         // Tracks how many consecutive advances stayed on the same
@@ -2218,11 +3471,11 @@
         // ultimately succeeds or hits the advance cap.
         let lastAdvanceTurnId = null;
         let curTurnIdRun = 0;
-        // className/attributes of every container advanced through without a
-        // matching prompt — rect coordinates alone don't say whether a long
-        // run of zero-height containers are genuine (if sparse) turn wrappers
-        // or some unrelated decorative/structural element that happens to
-        // satisfy findPrevTurn's geometric strip test. Cleared whenever real
+        // className/attributes of every deck advanced through without a
+        // matching slab — rect coordinates alone don't say whether a long
+        // run of zero-height decks are genuine (if sparse) turn wrappers or
+        // some unrelated decorative/structural element that happens to
+        // satisfy findNextDeck's geometric strip test. Cleared whenever real
         // progress resets advancesWithoutProgress, so a later failure's
         // report isn't contaminated by an earlier, unrelated stretch.
         let advanceChain = [];
@@ -2235,237 +3488,199 @@
             return `height=${Math.round(r.height)} class="${(el.className || '').slice(0, 60)}" ${attrs}`;
         };
 
-        // The whole loop body shares the bootstrap sequence's try above, not
-        // just the waitForTurnReady call — any exception here, anticipated
-        // or not, must still leave allPrompts and a diagnostic message
-        // intact for _savedState below. Without this, an unanticipated throw
-        // from e.g. extractMessage or findPrevTurn would skip straight past
-        // _savedState entirely and silently lose everything accumulated so far.
-            while (!ui.stopped && !stopReason) {
-                const candidates = findNextPromptIn(readyContainer, current, seenIds);
-                if (candidates.length > 1) {
-                    _perf.multiCandidatesInReadyContainer++;
-                    _perf.multiCandidatesMax = Math.max(_perf.multiCandidatesMax, candidates.length);
-                    ui.log(`  ⚠ readyContainer has ${candidates.length} unextracted candidates — DOM-order draining assumed correct`);
+        // Moves into the deck that should host the next slab — the only
+        // place a deck's own readiness flag is checked, always before any
+        // search runs against it, never an individual slab's own readiness
+        // (that stays a separate, later check). When readyContainer is still
+        // null (no real deck entered yet), targetDeck comes from the
+        // viewport edge rather than adjacency, since there is nothing yet to
+        // be adjacent to.
+        const currentScrollPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
+        // Re-reads the scroll position fresh at the moment of an "Empty
+        // container" check, alongside the position captured at deck entry —
+        // the gap between the two is the actual realized displacement, not
+        // just a count of move-calls we issued (see deckEntryDiag above).
+        const diagAtFailure = () => deckEntryDiag ? { ...deckEntryDiag, scrollPosNow: currentScrollPos() } : null;
+        const enterDeck = async (targetDeck) => {
+            const readinessEl = readinessElementForDeck(targetDeck);
+            if (!readyContainer) _perf.bootstrapWasIntersectingFalse = readinessEl.getAttribute('data-is-intersecting') === 'false';
+            watchContainerLifecycle(readinessEl);
+            watchIntersectingHistory(readinessEl);
+            await waitForTurnReady(container, readinessEl, 30_000, maybeSnap);
+            // scrollPosAtEntry lets a later "Empty container" placeholder show
+            // the actual realized displacement since this deck was confirmed
+            // ready, not just how many move-calls we issued — a queued/
+            // batched scroll (browser scroll-anchoring or ChatGPT's own
+            // scroll-restoration applying several of our retries at once)
+            // could produce a large displacement from very few call-counted
+            // moves, which a move-count alone would not reveal.
+            deckEntryDiag = {
+                movesAtEntry: totalViewportMoves(),
+                isIntersectingAtEntry: readinessEl.getAttribute('data-is-intersecting'),
+                scrollPosAtEntry: currentScrollPos(),
+            };
+            if (readyContainer) {
+                if (readyContainer.isConnected) {
+                    requireDeckAdjacency(readyContainer, targetDeck);
+                } else {
+                    _perf.containerGapSkippedDetached++;
                 }
-                const next = candidates[0] || null;
-                if (next) {
-                    advancesWithoutProgress = 0;
-                    advanceChain = [];
-                    lastAdvanceTurnId = null;
-                    curTurnIdRun = 0;
-                    const vpNow = totalViewportMoves();
-                    const vpDelta = vpNow - viewportMovesAtLastPrompt;
-                    const msgId = next.getAttribute('data-message-id');
-                    // extractMessage can return null even for a geometrically
-                    // confirmed candidate — virtualization-readiness
-                    // (data-is-intersecting) says nothing about whether an
-                    // image-generation turn's actual <img> has landed in the
-                    // DOM yet. Retrying a few times catches that lag for
-                    // free; lastEl/current still advance past this element
-                    // unconditionally below regardless of outcome (there's
-                    // no mechanism to revisit it later), so if it's still
-                    // null after retrying, that's permanent data loss —
-                    // logged loudly rather than silently, which is what
-                    // happened before this fix (the #N confirmed line below
-                    // printed unconditionally either way, with the same N
-                    // as the previous line, indistinguishable from a normal
-                    // multi-candidate container in the log).
-                    let msg = extractMessage(next);
-                    let extractRetries = 0;
-                    while (!msg && extractRetries < 5) {
-                        extractRetries++;
-                        await sleep(200);
-                        msg = extractMessage(next);
-                    }
-                    if (!msg) {
-                        _perf.extractionFailures.count++;
-                        if (_perf.extractionFailures.examples.length < 10) {
-                            _perf.extractionFailures.examples.push(
-                                `role=${next.getAttribute('data-message-author-role') || '(anchorless)'} ` +
-                                `turnId=${next.closest('[data-turn]')?.getAttribute('data-turn-id') || next.getAttribute('data-turn-id') || '(none)'} ` +
-                                `msgId=${msgId || '(none)'} after ${extractRetries} retries`
-                            );
-                        }
-                        ui.log(`  ⚠ extraction returned empty after ${extractRetries} retries for ` +
-                            `${next.getAttribute('data-message-author-role') || '(anchorless turn)'} — content permanently lost, advancing past it`);
-                    }
-                    if (msg) {
-                        if (msgId) seenIds.add(msgId);
-                        else if (msg.turnId) { seenIds.add('turn:' + msg.turnId); _perf.imageOnlyTurns.extracted++; }
-                        // Direct evidence for the whole-container-readiness
-                        // question: how far past this container's entry edge
-                        // did extraction just reach to find this slab? If
-                        // readiness only ever covered the area right at the
-                        // entry edge, reach would stay small/near-zero even
-                        // for large containers; a reach that grows to a
-                        // large fraction of the container's own height is
-                        // evidence the whole container was actually ready,
-                        // not just the part nearest where light first hit it.
-                        {
-                            const slabY = next.getBoundingClientRect().top;
-                            const reach = WALK_DIRECTION === -1 ? containerEntryY - slabY : slabY - containerEntryY;
-                            _perf.containerReach.count++;
-                            _perf.containerReach.sum += reach;
-                            if (reach > _perf.containerReach.max) {
-                                _perf.containerReach.max = reach;
-                                const containerHeight = readyContainer.getBoundingClientRect().height;
-                                _perf.containerReach.maxWinner = {
-                                    turnId: readyContainer.getAttribute('data-turn-id') || '(none)',
-                                    containerHeight: Math.round(containerHeight),
-                                    pct: containerHeight > 0 ? Math.round(100 * reach / containerHeight) : null,
-                                };
-                            }
-                        }
-                        // direction=-1: walking toward the start, so this
-                        // container's messages as a group are earlier than
-                        // everything already collected — but multiple
-                        // siblings from the same container must keep their
-                        // own discovery order relative to each other (see
-                        // containerInsertAt's definition above).
-                        // direction=+1: walking toward the end, so push's
-                        // natural append-order is already correct.
-                        if (WALK_DIRECTION === -1) {
-                            allPrompts.splice(containerInsertAt, 0, msg);
-                            containerInsertAt++;
-                        } else {
-                            allPrompts.push(msg);
-                        }
-                    }
-                    lastEl = next;
-                    current = next;
-                    viewportMovesAtLastPrompt = vpNow;
+            }
+            readyContainer = targetDeck;
+            containerEntryY = containerNearEdge(readyContainer);
+            current = makeDeckEntryCurrent(readyContainer);
+            containerSlabRanges = [];
+            totalContainerAdvances++;
+            advanceChain.push({ desc: describeTurnContainer(readyContainer), el: readyContainer });
+            const thisTurnId = deckSequenceId(readyContainer);
+            curTurnIdRun = (thisTurnId && thisTurnId === lastAdvanceTurnId) ? curTurnIdRun + 1 : 1;
+            lastAdvanceTurnId = thisTurnId;
+            _perf.turnIdDedupMaxRun = Math.max(_perf.turnIdDedupMaxRun, curTurnIdRun);
+            ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
+            maybeSnap();
+        };
 
-                    ui.log(`#${allPrompts.length} confirmed (${next.getAttribute('data-message-author-role') || '?'}) — Δviewport ${vpDelta}`);
-                    ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
-                    maybeSnap();
-
-                    // Throttle: a pace-limiter, not a content wait (this branch
-                    // never scrolls at all — readyContainer is already loaded).
-                    // Many prompts resolve from the same container with no
-                    // scrolling whatsoever, so an unthrottled loop can still
-                    // advance far faster than intended elsewhere in the run.
-                    await sleep(30);
-                    continue;
-                }
-
-                // findNextPromptIn found nothing — but a height-based
-                // "is the leftover area big enough to expect a prompt"
-                // estimate is itself just a proxy, and a noisy one: ordinary
-                // CSS padding/margin around a message can easily produce a
-                // leftover gap that clears the shortest-prompt threshold
-                // without containing any actual message (observed live: an
-                // 86px leftover against a 68px threshold, which is exactly
-                // the size of plausible container padding, not a hidden
-                // turn). The direct, unambiguous test is to look for an
-                // actual [data-message-author-role] element — not current,
-                // not already extracted — whose rect genuinely overlaps
-                // readyContainer. If one exists, the probe-offset test in
-                // findNextPromptIn should have found it and didn't, which is
-                // real evidence of a miss. If none exists, the leftover
-                // space is just layout, not a missed prompt, no matter how
-                // large it looks.
-                const _rcRect = readyContainer.getBoundingClientRect();
-                const _missed = [...document.querySelectorAll('[data-message-author-role]')].filter(el => {
-                    if (el === current) return false;
-                    const msgId = el.getAttribute('data-message-id');
-                    if (msgId && seenIds.has(msgId)) return false;
-                    const er = el.getBoundingClientRect();
-                    return er.bottom > _rcRect.top && er.top < _rcRect.bottom;
-                });
-                if (_missed.length > 0) {
-                    const mr = _missed[0].getBoundingClientRect();
-                    throw new Error(
-                        `No prompt found by findNextPromptIn, but an unextracted [data-message-author-role] ` +
-                        `element genuinely overlaps readyContainer — the containment test missed it. ` +
-                        `Container rect=[top=${Math.round(_rcRect.top)},bottom=${Math.round(_rcRect.bottom)}]. ` +
-                        `Missed element rect=[top=${Math.round(mr.top)},bottom=${Math.round(mr.bottom)}] ` +
-                        `(${_missed.length} such element(s) found total).`
-                    );
-                }
-
-                // Nothing left to confirm in readyContainer — advance to the
-                // adjacent turn (before it when walking up, after it when
-                // walking down).
-                let prevTurn = findPrevTurn(readyContainer, WALK_DIRECTION);
-                if (!prevTurn) {
-                    // "No adjacent turn" only means the genuine start/end of
-                    // the conversation if we've actually found everything the
-                    // nav-dot count says exists. Without this check, landing on
-                    // the wrong starting message (wrong scroll position, or any
-                    // other structural miss) looks identical to a correct
-                    // finish — same clean exit, wrong count, no diagnosis.
-                    if (ui.total === 0 || countPrompts(allPrompts) >= ui.total) break;
-                    const r = readyContainer.getBoundingClientRect();
-                    const edgeLabel = WALK_DIRECTION === -1 ? 'previous' : 'next';
+        // The loop below is organized slab-to-slab, matching the actual
+        // invariant being maintained: keep the work zone ahead of current,
+        // then find/extract the next slab. Deck ("supply batch")
+        // administration is not the loop's driver — it's a detail that
+        // only matters at the boundary between two adjacent slabs, when
+        // the deck currently hosting `current` can no longer also host
+        // the next one. That boundary case is checked explicitly, by
+        // geometry, before searching — not discovered indirectly by
+        // attempting the search and reading an 'end-of-deck' result back.
+        while (!ui.stopped && !stopReason) {
+            // ── ensure work-zone room ahead of current slab ──
+            // maintainWorkZone now either returns roomSatisfied:true, returns
+            // a clamped boundaryReached result, or throws on a genuine
+            // deviation — never roomSatisfied:false without boundaryReached,
+            // so there's nothing left to retry here.
+            const zoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+            if (!zoneStatus.roomSatisfied) {
+                if (ui.total > 0 && countPrompts(allPrompts) < ui.total) {
                     const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
-                    stopReason = `No ${edgeLabel} turn found, but only ${countPrompts(allPrompts)}/${ui.total} user ` +
-                        `prompts confirmed — this is not the genuine ${boundaryLabel}. Last container rect=` +
-                        `[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}].`;
+                    stopReason = `Reached the supplied ${boundaryLabel} with only ${countPrompts(allPrompts)}/${ui.total} ` +
+                        `user prompts extracted. This is a count mismatch, not proof that more deck space exists; ` +
+                        `earlier slab extraction likely missed prompt(s). ${describeCurrentForStop(current, readyContainer)}`;
+                }
+                break;
+            }
+
+            if (readyContainer) checkReadyContainerModel(readyContainer, checkedModelContainers);
+
+            // ── if the current supply batch cannot contain the next slab,
+            // close it / open the next one — otherwise go straight to
+            // finding the next slab in it. waitForNextSlabInReadyDeck's own
+            // 'end-of-deck' is still honored as a fallback (its internal
+            // retries can occasionally cross the same boundary mid-wait),
+            // so this can never disagree with the search itself — only
+            // pre-empt the common case of having to run it at all. ──
+            let needsNewBatch = !readyContainer || !deckHasRoomAhead(readyContainer, current);
+            let selection = null;
+            if (!needsNewBatch) {
+                selection = await waitForNextSlabInReadyDeck(readyContainer, current, diagAtFailure, maybeSnap);
+                needsNewBatch = selection.kind === 'end-of-deck';
+            }
+
+            if (needsNewBatch) {
+                // === batch administration: close old, open next — supply/
+                // batching detail, not the conceptual loop driver ===
+                if (!readyContainer) {
+                    const bootstrapDeck = findBootstrapContainer(container, WALK_DIRECTION);
+                    if (bootstrapDeck) {
+                        await enterDeck(bootstrapDeck);
+                        continue;
+                    }
+                }
+
+                // The current ready deck (if any) has no remaining
+                // lookahead area ahead of current. Finish its coverage,
+                // then move into the next adjacent deck (by viewport-edge
+                // geometry if none has been entered yet, by adjacency
+                // otherwise). If no next deck exists, that is either the
+                // genuine boundary or a real bug, and those get told apart
+                // below — never papered over with a blind retry.
+                if (readyContainer) {
+                    const placeholder = finishDeckCoverage(readyContainer, containerSlabRanges, current, diagAtFailure());
+                    if (placeholder) insertMsg(placeholder);
+                    current = makeDeckExitCurrent(readyContainer);
+                    const exitZoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+                    if (!exitZoneStatus.roomSatisfied) {
+                        if (ui.total > 0 && countPrompts(allPrompts) < ui.total) {
+                            const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
+                            stopReason = `Reached the supplied ${boundaryLabel} with only ${countPrompts(allPrompts)}/${ui.total} ` +
+                                `user prompts extracted. This is a count mismatch, not proof that more deck space exists; ` +
+                                `earlier slab extraction likely missed prompt(s). ${describeCurrentForStop(current, readyContainer)}`;
+                        }
+                        break;
+                    }
+                }
+                let nextDeck = readyContainer
+                    ? findNextDeck(readyContainer, WALK_DIRECTION)
+                    : findBootstrapContainer(container, WALK_DIRECTION);
+                if (!nextDeck && !readyContainer) {
+                    // No deck has ever been entered yet, and none is visible at
+                    // the viewport edge right now — give content a brief chance
+                    // to mount before concluding there's truly nothing there
+                    // (the page may not have finished its own initial render).
+                    const bootstrapDeadline = Date.now() + 30_000;
+                    while (!nextDeck && Date.now() < bootstrapDeadline) {
+                        await sleep(100);
+                        nextDeck = findBootstrapContainer(container, WALK_DIRECTION);
+                    }
+                }
+                if (!nextDeck) {
+                    if (ui.total === 0 || countPrompts(allPrompts) >= ui.total) break;
+                    const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
+                    if (readyContainer) {
+                        const r = readyContainer.getBoundingClientRect();
+                        stopReason = `Reached the supplied ${boundaryLabel} with no next deck found, but only ` +
+                            `${countPrompts(allPrompts)}/${ui.total} user prompts extracted. This is a count mismatch, ` +
+                            `not proof that more deck space exists; earlier slab extraction likely missed prompt(s). ` +
+                            `Last deck rect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}].`;
+                    } else {
+                        const totalContainers = queryDeckSequenceContainers().length;
+                        stopReason = `No deck found at the viewport edge after waiting 30s, and only ` +
+                            `${countPrompts(allPrompts)}/${ui.total} user prompts confirmed. ` +
+                            `${totalContainers} deck sequence container(s) exist in the document — finding none at ` +
+                            `the viewport edge means the bootstrap geometry check needs investigating, not a longer wait.`;
+                    }
                     break;
                 }
 
-                // findPrevTurn's candidate is a snapshot of geometry at one
-                // moment. On a large, still-resolving conversation, upstream
-                // placeholders can correct while we walk toward it, leaving
-                // it permanently out of reach in the one direction we ever
-                // scroll (observed live: 73 steps, target.top never shrank —
-                // it had drifted to the wrong side of the viewport entirely).
-                // Re-deriving the candidate fresh against current geometry
-                // and retrying handles that, instead of committing to one
-                // possibly-stale pick for the rest of the run.
-                const MAX_PREV_TURN_RETRIES = 3;
-                let prevTurnAttempt = 0;
-                watchContainerLifecycle(prevTurn); // discovery moment — before, not after, readiness is known
+                // nextDeck's candidate is a snapshot of geometry at one moment.
+                // On a large, still-resolving conversation, upstream placeholders
+                // can correct while we walk toward it, leaving it permanently
+                // out of reach in the one direction we ever scroll (observed
+                // live: 73 steps, target.top never shrank — it had drifted to
+                // the wrong side of the viewport entirely). Re-deriving the
+                // candidate fresh and retrying handles that, instead of
+                // committing to one possibly-stale pick.
+                const MAX_NEXT_DECK_RETRIES = 3;
+                let nextDeckAttempt = 0;
                 while (true) {
                     try {
-                        await waitForTurnReady(container, prevTurn, 30_000, maybeSnap);
+                        await enterDeck(nextDeck);
                         break;
                     } catch (e) {
-                        prevTurnAttempt++;
-                        if (prevTurnAttempt >= MAX_PREV_TURN_RETRIES)
-                            throw new Error(`${e.message} (gave up after ${prevTurnAttempt} candidate(s) for the adjacent turn)`);
-                        const fresh = findPrevTurn(readyContainer, WALK_DIRECTION);
+                        nextDeckAttempt++;
+                        if (nextDeckAttempt >= MAX_NEXT_DECK_RETRIES)
+                            throw new Error(`${e.message} (gave up after ${nextDeckAttempt} candidate deck(s))`);
+                        const fresh = readyContainer
+                            ? findNextDeck(readyContainer, WALK_DIRECTION)
+                            : findBootstrapContainer(container, WALK_DIRECTION);
                         if (!fresh) throw e; // can't even re-find a candidate — propagate the original failure
-                        prevTurn = fresh;
-                        watchContainerLifecycle(prevTurn); // re-derived candidate is a new discovery moment too
+                        nextDeck = fresh;
                     }
                 }
-                if (!readyContainer.isConnected) {
-                    // Same reasoning as the message-level check: the
-                    // waitForTurnReady call just above can itself scroll far
-                    // enough to unmount the container we're comparing from.
-                    _perf.containerGapSkippedDetached++;
-                } else {
-                    const gap = adjacencyGap(WALK_DIRECTION, readyContainer.getBoundingClientRect(), prevTurn.getBoundingClientRect());
-                    _perf.maxContainerGap = Math.max(_perf.maxContainerGap, Math.abs(gap));
-                    if (Math.abs(gap) > ADJACENCY_MARGIN) _perf.containerGapViolations++;
-                }
-                readyContainer = prevTurn;
-                containerInsertAt = 0; // new container — its siblings form a fresh batch
-                containerEntryY = containerNearEdge(readyContainer);
-                totalContainerAdvances++;
-                advanceChain.push({ desc: describeTurnContainer(readyContainer), el: readyContainer });
-                {
-                    const thisTurnId = readyContainer.getAttribute('data-turn-id');
-                    curTurnIdRun = (thisTurnId && thisTurnId === lastAdvanceTurnId) ? curTurnIdRun + 1 : 1;
-                    lastAdvanceTurnId = thisTurnId;
-                    _perf.turnIdDedupMaxRun = Math.max(_perf.turnIdDedupMaxRun, curTurnIdRun);
-                }
-                // Container advances don't confirm a new message, so without
-                // this the panel's counts would sit frozen for an entire
-                // stretch of container-only progress, even though real work
-                // (and viewport movement) is happening.
-                ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
-                maybeSnap(); // container-advance path — needed so the time-based snapshot check ever runs during a long stretch with no new prompt confirmed
 
                 advancesWithoutProgress++;
                 _perf.maxAdvancesWithoutProgress = Math.max(_perf.maxAdvancesWithoutProgress, advancesWithoutProgress);
                 if (advancesWithoutProgress > MAX_ADVANCES_WITHOUT_PROGRESS) {
                     const r = readyContainer.getBoundingClientRect();
                     // Find the [data-message-author-role] element geometrically
-                    // closest to this container's range, to show the actual
-                    // mismatch distance rather than just "nothing matched".
+                    // closest to this deck's range, to show the actual mismatch
+                    // distance rather than just "nothing matched".
                     const allMsgs = [...document.querySelectorAll('[data-message-author-role]')];
                     let closest = null, closestDist = Infinity;
                     for (const el of allMsgs) {
@@ -2473,22 +3688,22 @@
                         const dist = mr.top < r.top ? r.top - mr.top : (mr.top > r.bottom ? mr.top - r.bottom : 0);
                         if (dist < closestDist) { closestDist = dist; closest = mr; }
                     }
-                    const curR = current.getBoundingClientRect();
-                    // Deduped, not raw, because a long run is almost always
-                    // the same handful of element shapes repeated — a flat
-                    // 51-line dump would bury the one distinguishing detail
-                    // (do these have a real message inside their height, or
-                    // are they all the same zero-height marker?) in noise.
-                    // Object identity, not just the attribute dump, decides
-                    // between two very different bugs: if every entry in a
-                    // group is the same handful of distinct elements (turn-id
-                    // dedup should have skipped past them but isn't), that's
-                    // a bug in findPrevTurn's exclusion logic. If it's
-                    // genuinely a large number of distinct elements all
-                    // carrying the same turn-id, the dedup filter is working
-                    // exactly as designed and the real problem is that
-                    // ChatGPT renders that many distinct same-turn-id nodes
-                    // in the first place — a different fix entirely.
+                    const curR = current.geometryElement.getBoundingClientRect();
+                    // Deduped, not raw, because a long run is almost always the
+                    // same handful of element shapes repeated — a flat 51-line
+                    // dump would bury the one distinguishing detail (do these
+                    // have a real message inside their height, or are they all
+                    // the same zero-height marker?) in noise. Object identity,
+                    // not just the attribute dump, decides between two very
+                    // different bugs: if every entry in a group is the same
+                    // handful of distinct elements (turn-id dedup should have
+                    // skipped past them but isn't), that's a bug in
+                    // findNextDeck's exclusion logic. If it's genuinely a large
+                    // number of distinct elements all carrying the same turn-id,
+                    // the dedup filter is working exactly as designed and the
+                    // real problem is that ChatGPT renders that many distinct
+                    // same-turn-id nodes in the first place — a different fix
+                    // entirely.
                     const chainGroups = new Map();
                     for (const { desc, el } of advanceChain) {
                         if (!chainGroups.has(desc)) chainGroups.set(desc, new Set());
@@ -2500,28 +3715,229 @@
                             return `        ×${total} (${els.size} distinct element(s)) ${desc}`;
                         })
                         .join('\n');
-                    stopReason = `Advanced through ${advancesWithoutProgress} containers with no matching prompt. ` +
-                        `Last container rect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}]. ` +
-                        `Current (last confirmed) message rect=[top=${Math.round(curR.top)},bottom=${Math.round(curR.bottom)}]. ` +
+                    stopReason = `Advanced through ${advancesWithoutProgress} decks with no matching slab. ` +
+                        `Last deck rect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}]. ` +
+                        `Current (last confirmed) anchor rect=[top=${Math.round(curR.top)},bottom=${Math.round(curR.bottom)}]. ` +
                         (closest
-                            ? `Closest of ${allMsgs.length} [data-message-author-role] elements: rect=[top=${Math.round(closest.top)},bottom=${Math.round(closest.bottom)}], distance=${Math.round(closestDist)}px from container range.`
+                            ? `Closest of ${allMsgs.length} [data-message-author-role] elements: rect=[top=${Math.round(closest.top)},bottom=${Math.round(closest.bottom)}], distance=${Math.round(closestDist)}px from deck range.`
                             : `No [data-message-author-role] elements found in the document at all.`) +
-                        `\n    Chain walked (${advanceChain.length} containers, deduped):\n${chainSummary}`;
+                        `\n    Chain walked (${advanceChain.length} decks, deduped):\n${chainSummary}`;
                     break;
                 }
                 await sleep(30);
+                continue;
             }
+
+            // ── find next slab in the current ready batch + wait for the
+            // slab fingerprint: both already done by waitForNextSlabInReadyDeck
+            // above (one merged readiness loop — see its own comment) — by
+            // this point selection.kind is guaranteed 'slab' or 'note'. ──
+            const next = selection.slab;
+            // current has no element of its own the very first time
+            // through (see SLAB_WALK_START) — nothing real to compare
+            // its adjacency against yet.
+            if (current.element && current.type !== 'note') checkSlabAdjacency(current, next);
+            advancesWithoutProgress = 0;
+            advanceChain = [];
+            lastAdvanceTurnId = null;
+            curTurnIdRun = 0;
+            const vpNow = totalViewportMoves();
+            const vpDelta = vpNow - viewportMovesAtLastPrompt;
+            const msgId = slabMessageId(next);
+            if (next.type === 'note') {
+                recordSlabRange(readyContainer, next.geometryElement, containerSlabRanges);
+                insertMsg(next.note);
+                lastEl = next.geometryElement;
+                current = next;
+                viewportMovesAtLastPrompt = vpNow;
+                ui.log(`#${allPrompts.length} confirmed (note/${slabRole(next)}) — Δviewport ${vpDelta}`);
+                ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
+                maybeSnap();
+                await sleep(30);
+                continue;
+            }
+            // ── extract the slab once ──
+            const msg = extractSlab(next);
+            if (!msg) {
+                _perf.extractionFailures.count++;
+                if (_perf.extractionFailures.examples.length < 10) {
+                    _perf.extractionFailures.examples.push(
+                        `type=${next.type} role=${slabRole(next)} ` +
+                        `turnId=${slabTurnId(next) || '(none)'} ` +
+                        `msgId=${msgId || '(none)'} returned empty under current readiness fingerprint`
+                    );
+                }
+                ui.log(`  ⚠ extraction returned empty under current readiness fingerprint for ` +
+                    `${next.type}/${slabRole(next)} — content permanently lost, advancing past it`);
+                const missingRole = slabRole(next);
+                const missingNote = {
+                    role: missingRole === 'user' ? 'user' : missingRole === 'assistant' ? 'assistant' : 'unknown',
+                    text: `*[Missing slab — selector found a ${next.type}/${missingRole} slab, ` +
+                        `but extraction returned empty after the readiness fingerprint passed. ` +
+                        `turnId=${slabTurnId(next) || 'unknown'}, msgId=${msgId || 'none'}.]*\n\n`,
+                    plainText: '[Missing slab]',
+                    msgId: msgId || null,
+                    turnId: slabTurnId(next) || null,
+                };
+                recordSlabRange(readyContainer, next.geometryElement, containerSlabRanges);
+                insertMsg(missingNote);
+            }
+            if (msg) {
+                if (!_perf.bootstrapRole) _perf.bootstrapRole = slabRole(next);
+                // Gated on byTurnId actually having this turnId, not just
+                // turnId being truthy — canvas-block extractions also
+                // carry a turnId (see extractSlab) but were never found
+                // via the image-turn candidate loop, so they must not
+                // inflate this image-only-turns counter.
+                if (next.type === 'image' && msg.turnId && _perf.imageOnlyTurns.byTurnId[msg.turnId]) {
+                    _perf.imageOnlyTurns.extracted++;
+                    _perf.imageOnlyTurns.byTurnId[msg.turnId].extracted = true;
+                }
+                recordSlabRange(readyContainer, next.geometryElement, containerSlabRanges);
+                // Direct evidence for the whole-deck-readiness question:
+                // how far past this deck's entry edge did extraction just
+                // reach to find this slab? If readiness only ever
+                // covered the area right at the entry edge, reach would
+                // stay small/near-zero even for large decks; a reach
+                // that grows to a large fraction of the deck's own
+                // height is evidence the whole deck was actually ready,
+                // not just the part nearest where light first hit it.
+                {
+                    const slabY = next.geometryElement.getBoundingClientRect().top;
+                    const reach = WALK_DIRECTION === -1 ? containerEntryY - slabY : slabY - containerEntryY;
+                    _perf.containerReach.count++;
+                    _perf.containerReach.sum += reach;
+                    if (reach > _perf.containerReach.max) {
+                        _perf.containerReach.max = reach;
+                        const containerHeight = readyContainer.getBoundingClientRect().height;
+                        _perf.containerReach.maxWinner = {
+                            turnId: deckSequenceId(readyContainer) || '(none)',
+                            containerHeight: Math.round(containerHeight),
+                            pct: containerHeight > 0 ? Math.round(100 * reach / containerHeight) : null,
+                        };
+                    }
+                }
+                insertMsg(msg);
+            }
+            // ── current = extracted slab ──
+            lastEl = next.geometryElement;
+            current = next;
+            viewportMovesAtLastPrompt = vpNow;
+
+            ui.log(`#${allPrompts.length} confirmed (${next.type}/${slabRole(next)}) — Δviewport ${vpDelta}`);
+            ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
+            maybeSnap();
+
+            // Throttle: a pace-limiter, not a content wait (this branch
+            // never scrolls at all — readyContainer is already loaded).
+            // Many prompts resolve from the same deck with no scrolling
+            // whatsoever, so an unthrottled loop can still advance far
+            // faster than intended elsewhere in the run.
+            await sleep(30);
+        }
         } catch (e) {
             stopReason = e.message;
+            if (e.placeholder) insertMsg(e.placeholder);
         }
+        stopActiveLifecycleObserver();
         document.removeEventListener('visibilitychange', onVisibilityChange);
+        if (_perf.readyContainerModel.delayedRechecksResolved < _perf.readyContainerModel.delayedRechecksScheduled) {
+            await sleep(550);
+        }
 
         const _totalMs = performance.now() - _perf.runStartMs;
         const _sleepMs = _totalMs - _perf.htmlToMarkdownMs;
-        ui.log('── perf (v4.65) ──');
-        ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%) | blank waits ${_perf.blankWaits}`);
+        ui.log('── perf (v4.133) ──');
+        ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`${countPrompts(allPrompts)} prompts saved (${allPrompts.length} msgs total).`);
+        ui.log(
+            `Ready-container nearby anchors outside deck: ${_perf.readyContainerProbeMisses.count} overlapping/near ` +
+            `(overlapping=${_perf.readyContainerProbeMisses.overlapping}, near-only=${_perf.readyContainerProbeMisses.nearOnly}, ` +
+            `above=${_perf.readyContainerProbeMisses.above}, below=${_perf.readyContainerProbeMisses.below})`
+        );
+        ui.log(
+            `Ready-container model: ${_perf.readyContainerModel.checked} checked, ` +
+            `containment=${_perf.readyContainerModel.containmentViolations}, ` +
+            `overlap-nonmember=${_perf.readyContainerModel.overlappingNonMembers}, ` +
+            `dom-only=${_perf.readyContainerModel.domOnlyMembers}, ` +
+            `probe-only=${_perf.readyContainerModel.probeOnlyMembers}, ` +
+            `anchor-gaps=${_perf.readyContainerModel.messageGapViolations}, ` +
+            `maxAnchorGap=${Math.round(_perf.readyContainerModel.maxMessageGap)}px, ` +
+            `anchor-insets=${_perf.readyContainerModel.topEdgeViolations + _perf.readyContainerModel.bottomEdgeViolations} ` +
+            `(top=${_perf.readyContainerModel.topEdgeViolations}, bottom=${_perf.readyContainerModel.bottomEdgeViolations}, ` +
+            `maxTop=${Math.round(_perf.readyContainerModel.maxTopEdgeGap)}px, ` +
+            `maxBottom=${Math.round(_perf.readyContainerModel.maxBottomEdgeGap)}px, ` +
+            `maxBottomMsg=${_perf.readyContainerModel.maxBottomEdgeWinner?.msgId || '(none)'}), ` +
+            `slabs=${_perf.readyContainerModel.slabItemsChecked}/${_perf.readyContainerModel.slabStacksChecked}, ` +
+            `unknownSlabs=${_perf.readyContainerModel.unknownSlabItems}, ` +
+            `slabGaps=${_perf.readyContainerModel.slabGapViolations}, ` +
+            `maxSlabGap=${Math.round(_perf.readyContainerModel.maxSlabGap)}px, ` +
+            `rechecks=${_perf.readyContainerModel.delayedRechecksResolved}/${_perf.readyContainerModel.delayedRechecksScheduled}, ` +
+            `changed=${_perf.readyContainerModel.delayedRechecksChanged}`
+        );
+        ui.log(
+            `Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, ` +
+            `already=${_perf.slabDiscoveryWait.alreadyReady}, ` +
+            `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, ` +
+            `timed-out=${_perf.slabDiscoveryWait.timedOut}, ` +
+            `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms`
+        );
+        ui.log(
+            `Image src history watches: ${_perf.imageSrcHistory.watches.length}, ` +
+            `multi-value=${_perf.imageSrcHistory.watches.filter(w => w.values.length > 1).length} ` +
+            `(>1 distinct value seen — full sequence in the exported diagnostics)`
+        );
+        ui.log(
+            `Filtered direct-stack items: allowlisted=${_perf.slabFiltering.allowlisted}, ` +
+            `unlisted-reported=${_perf.slabFiltering.unlisted}, ` +
+            `rules=${FILTERED_SLAB_RULES.map(rule => rule.name).join(', ') || '(none)'}` +
+            (_perf.slabFiltering.unlisted > 0
+                ? ` — inspect exported diagnostics for exact elements`
+                : '')
+        );
+        ui.log(
+            `Intermediate deck advances: ${_perf.intermediateDeckAdvances}`
+        );
+        ui.log(
+            `Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}`
+        );
+        ui.log(
+            `Blank fingerprint (not-yet-ready state captured at first sight, before any wait): ${_perf.blankFingerprint.count}`
+        );
+        ui.log(
+            `Container coverage: ${_perf.containerCoverage.checks} checked, ${_perf.containerCoverage.gaps} gap(s), ` +
+            `${_perf.containerCoverage.zeroSlabDecks} zero-slab deck(s) (placeholder inserted, not fatal — see exported diagnostics)`
+        );
+        ui.log(
+            `Slab adjacency: checked=${_perf.slabAdjacency.checked}, ` +
+            `maxGap=${Math.round(_perf.slabAdjacency.maxGap)}px, ` +
+            `maxOverlap=${Math.round(_perf.slabAdjacency.maxOverlap)}px, ` +
+            `violations=${_perf.slabAdjacency.violations}`
+        );
+        if (_perf.readyContainerModel.exampleMsgIds.length > 0) {
+            const infoByMsgId = new Map();
+            let previousUserMsgId = null;
+            allPrompts.forEach((p, i) => {
+                if (p.msgId && !infoByMsgId.has(p.msgId)) {
+                    infoByMsgId.set(p.msgId, {
+                        rank: i + 1,
+                        role: p.role,
+                        previousUserMsgId,
+                    });
+                }
+                if (p.role === 'user' && p.msgId) previousUserMsgId = p.msgId;
+            });
+            ui.log(
+                'Ready-container model ranks: ' +
+                _perf.readyContainerModel.exampleMsgIds.slice(0, 5).map(({ label, msgId }) => {
+                    const info = infoByMsgId.get(msgId);
+                    return info
+                        ? `${label}=#${info.rank}/${info.role}/prevUser:${info.previousUserMsgId ? `msg-${info.previousUserMsgId}` : 'none'}`
+                        : `${label}=?`;
+                }).join(', ')
+            );
+        }
         if (stopReason) ui.log(`Stopped early — diagnosis: ${stopReason}`);
         // stopReason travels with the saved state (not just ui.stopped, which
         // only tracks the manual Stop button) so the caller can tell a clean
@@ -2551,7 +3967,7 @@
         });
 
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v4.65',
+            innerText: 'ChatGPT Extractor v4.133',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
 
@@ -2570,11 +3986,12 @@
         // script reserves "prompt" specifically for a user message, since
         // every prompt is confirmed as soon as it's found — there's no
         // separate confirmed-vs-total distinction to show for it.
+        const elapsedEl = Object.assign(document.createElement('div'), { innerText: 'Elapsed : —' });
         const promptsEl = Object.assign(document.createElement('div'), { innerText: 'User msgs : —' });
         const msgsEl = Object.assign(document.createElement('div'), { innerText: 'All msgs : —' });
         const containersEl = Object.assign(document.createElement('div'), { innerText: 'Containers advanced : —' });
         const viewportsEl = Object.assign(document.createElement('div'), { innerText: 'Viewport moves : —' });
-        statusEl.append(promptsEl, msgsEl, containersEl, viewportsEl);
+        statusEl.append(elapsedEl, promptsEl, msgsEl, containersEl, viewportsEl);
 
         const logEl = document.createElement('div');
         Object.assign(logEl.style, {
@@ -2676,6 +4093,25 @@
             panel.style.display = 'none';
         };
 
+        let elapsedTimer = null;
+        const formatElapsed = ms => {
+            const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = String(totalSeconds % 60).padStart(2, '0');
+            return `${minutes}:${seconds}`;
+        };
+        const updateElapsed = () => {
+            elapsedEl.innerText = _perf.runStartMs > 0
+                ? `Elapsed : ${formatElapsed(performance.now() - _perf.runStartMs)}`
+                : 'Elapsed : —';
+        };
+        const stopElapsedTimer = () => {
+            if (elapsedTimer !== null) {
+                clearInterval(elapsedTimer);
+                elapsedTimer = null;
+            }
+        };
+
         const ui = {
             stopped: false,
             total: 0,
@@ -2692,10 +4128,12 @@
                 msgsEl.innerText       = `All msgs : ${msgCount}`;
                 containersEl.innerText = `Containers advanced : ${containerCount}`;
                 viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
+                updateElapsed();
                 console.log(`[Extractor] STATUS: prompts ${fmt(promptCount)} | msgs ${msgCount} | ` +
                     `containers ${containerCount} | viewport moves ${viewportCount}`);
             },
             log(msg) {
+                updateElapsed();
                 const line = Object.assign(document.createElement('div'), {
                     innerText: `> ${msg}`,
                 });
@@ -2709,6 +4147,9 @@
         const showRunningState = () => {
             ui.stopped = false;
             logEl.innerHTML = '';
+            elapsedEl.innerText = 'Elapsed : 0:00';
+            stopElapsedTimer();
+            elapsedTimer = setInterval(updateElapsed, 1000);
             btn.disabled = true;
             Object.assign(btn.style, { background: '#45475a', color: '#585b70' });
             note.style.display = 'none';
@@ -2717,6 +4158,8 @@
         };
 
         const showIdleState = (label, stopped) => {
+            updateElapsed();
+            stopElapsedTimer();
             stopBtn.style.display = 'none';
             exportBtn.style.display = _savedState ? '' : 'none';
             btn.disabled = false;
@@ -2928,7 +4371,7 @@
                 // descendant of each other. Nested wrappers for one message
                 // (~2 containers each, already known and expected) share a
                 // turn-id too but aren't the problem; only counting groups
-                // that survive the same containment check findPrevTurn uses
+                // that survive the same containment check findNextDeck uses
                 // avoids flagging that normal case as if it were the bug.
                 const turnIdGroups = new Map();
                 for (const el of allPH) {
