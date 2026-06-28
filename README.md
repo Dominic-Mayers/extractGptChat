@@ -127,6 +127,12 @@ The difficulty is that some slabs are located on deck sections that have not yet
 3. Wait for ChatGPT to prepare it.
 4. Continue walking once the section is ready.
 
+The foreman also assumes that the work zone cannot be teleported safely. The supplier depends on external workers that appear to respond reliably to ordinary incremental scrolling, not to one large jump into unprepared territory. A large jump can skip the intermediate activation work that ChatGPT's virtualized renderer expects. Therefore the extractor moves the work zone in small jumps and checks local stability between jumps.
+
+This warning is about the extractor's scripted scroll movement. It does not mean every large viewport change is equivalent. Clicking a conversation navigation item or using the scrollbar may invoke different ChatGPT/browser anchoring behavior. In the analogy, that is a different supplier service, not simply the foreman taking a larger step.
+
+That stability check is only a browser/layout signal. If the extractor observes a sandwiched-empty deck section — an apparently empty section between neighboring real slab sections — that is treated as evidence that browser stability was not enough and ChatGPT-level readiness still needs a better fingerprint.
+
 A crucial consequence is that the extractor never attempts to understand the contents of an unprepared section. It only relies on a small set of observable readiness indicators exposed through the supplier.
 
 Most failure modes therefore fall into one of two categories:

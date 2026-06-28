@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      4.133
+// @version      4.158
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -102,6 +102,7 @@
             maxContainerGap: 0, containerGapViolations: 0, containerGapSkippedDetached: 0,
             slabAdjacency: { checked: 0, maxGap: 0, maxOverlap: 0, violations: 0 },
             viewportMovesWorkZone: 0, viewportMovesForceEdge: 0,
+            viewportMoveOperationsWorkZone: 0, viewportMoveOperationsForceEdge: 0,
             // Direct image-slab selector diagnostics. candidatesFound counts
             // discovery events because every successor query re-scans the
             // mounted DOM; byTurnId is the deduplicated view.
@@ -123,15 +124,31 @@
             // Informational only — see maintainWorkZone: the room outcome
             // of the one move issued is no longer a gate, just observed.
             workZoneRoomShortfall: { count: 0, examples: [] },
-            // The blank fingerprint: a live capture of the not-yet-rendered
-            // state itself, taken the moment a candidate is first found not
-            // ready (before any waiting). Distinct from the readiness
-            // fingerprint (whose presence means ready) — this captures what
-            // "not ready yet" actually looks like structurally, so it can
-            // be compared against the outerHTML captured from cases that
-            // never become ready at all (e.g. febac401) to see whether
-            // those start out the same way or are a different state.
-            blankFingerprint: { count: 0, examples: [] },
+            // Per-jump pacing inside maintainWorkZone's incremental jumping
+            // loop: how many of the small scrollTop jumps actually had to wait for
+            // scrollHeight to stop changing (vs. being already stable on
+            // the first check), and how many hit the per-jump cap without
+            // ever stabilizing. If `waitedFrames` stays near 0 across a
+            // real run, this signal essentially never fires and isn't
+            // doing anything — useful to know before trusting it as the fix.
+            // sandwichedEmptySeen/sandwichedEmptyTimedOut/sandwichedEmptyExamples
+            // are the separate scrollHeight-blind signal (see
+            // findSandwichedEmptySlabInViewport) — Seen means the pattern was
+            // observed at least once during some jump's wait; TimedOut means
+            // it was *still* present when the per-jump cap was hit (either a
+            // permanently-broken deck, or our cap being too short — examples
+            // record framesWaited to help tell those apart empirically).
+            workZoneJumpStability: {
+                jumps: 0, steps: 0, waitedFrames: 0, timedOut: 0, maxFramesWaited: 0,
+                maxJumpPx: 0, jumpPxSum: 0, jumpMsSum: 0, jumpsAtMax: 0, adaptiveIncreases: 0, adaptiveResets: 0,
+                // How many jumps had the advanceRoom-proximity clamp bind
+                // below WORK_ZONE_MIN_JUMP_PX, i.e. would have requested an
+                // ineffective sub-pixel-scale jump without the floor — see
+                // WORK_ZONE_MIN_JUMP_PX's own comment for the live failure
+                // this floor was added to fix.
+                minFloorApplied: 0,
+                sandwichedEmptySeen: 0, sandwichedEmptyTimedOut: 0, sandwichedEmptyExamples: [],
+            },
             // A candidate that findNextSlabInReadyDeck geometrically confirmed but
             // extractSlab() returned null for (htmlToMarkdown produced
             // no text — e.g. an image-generation turn whose container passed
@@ -238,6 +255,28 @@
     // image download spacing.
     let _pendingCanvasDownloads = [];
     let _canvasCounter = 0;
+    // A second, parallel "version of the conversation" — real captured
+    // outerHTML, not text extracted from it, written to its own .html file
+    // at export time (see exportMarkdown) rather than inlined into the
+    // markdown. One entry per deck as it's confirmed ready and entered
+    // (enterDeck), plus work-zone-move/fatal-timeout captures for
+    // whatever's intersecting the viewport at those moments — diagnostic
+    // ground truth that numeric geometry deltas can't substitute for (see
+    // memory). Each entry: { label, turnId, role, html }.
+    let _htmlCaptures = [];
+    // Decks the sandwiched-empty check (see findSandwichedEmptySlabInViewport)
+    // has already waited out the full WORK_ZONE_JUMP_STABLE_MAX_MS for once
+    // this run, without it ever resolving. A deck can stay "sandwiched" in
+    // the viewport across many consecutive small steps (each only 120px) —
+    // re-discovering and re-waiting the full cap on the *same* deck on every
+    // one of those steps is pure waste, not added safety: the first
+    // encounter already gave it a fair wait, and Step 3's own much longer,
+    // fresh wait is still the authoritative check when extraction actually
+    // reaches this slab. First real run: every one of 7 sandwiched-empty
+    // detections capped out (100%), suggesting these are genuinely broken/
+    // permanently-empty decks, not transient mid-render lag — exactly the
+    // case this memoization is for.
+    let _knownUnresolvableSandwichedTurnIds = new Set();
     let _reportedAllowlistedSlabItems = new WeakSet();
     let _reportedUnlistedSlabItems = new WeakSet();
     // Diagnostic only — tracks which image-type slab candidates already
@@ -250,12 +289,13 @@
     // each entry shouldn't attach a second observer to the same element.
     let _watchedIntersectingHistory = new WeakSet();
     function totalViewportMoves() {
-        return _perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge;
+        return _perf.viewportMoveOperationsWorkZone + _perf.viewportMoveOperationsForceEdge;
     }
 
     const escLabel = s => s.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
     const escUrl   = s => s.replace(/>/g, '%3E');
     const escHtmlAttr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escHtmlText = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     /** Converts a rendered ChatGPT message element to Markdown. */
     function htmlToMarkdown(el) {
@@ -580,14 +620,23 @@
             if (_perf.containerCoverage.zeroSlabDecks > 0) issueLines.push(`zero-slab-decks=${_perf.containerCoverage.zeroSlabDecks}`);
             if (_perf.slabFiltering.unlisted > 0) issueLines.push(`unlisted-stack-items=${_perf.slabFiltering.unlisted}`);
             if (_perf.readyContainerModel.unknownSlabItems > 0) issueLines.push(`unknown-slab-items=${_perf.readyContainerModel.unknownSlabItems}`);
+            if (_perf.workZoneJumpStability.sandwichedEmptySeen > 0) {
+                issueLines.push(`SANDWICHED-EMPTY-SLAB=${_perf.workZoneJumpStability.sandwichedEmptySeen}`);
+            }
+            const sandwichedWarning = _perf.workZoneJumpStability.sandwichedEmptySeen > 0
+                ? `    ⚠ SANDWICHED EMPTY SLAB DETECTED: a deck with no selectable slab was visible between ` +
+                  `neighboring real-slab decks during work-zone stepping. This means browser/layout stability alone ` +
+                  `did not prove ChatGPT-level slab readiness; the jump + stability approach needs a readiness patch.\n`
+                : '';
 
-            md += `    ── perf (v4.133) ──\n`
+            md += `    ── perf (v4.158) ──\n`
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
                 + `    Exported ${exported}${expected ? `/${expected}` : ''} user prompts (${prompts.length} slabs/notes). TOC=${tocStatus}.\n`
                 + `\n`
-                + `    ── diag (v4.133) ──\n`
+                + `    ── diag (v4.158) ──\n`
                 + `    Missing-slab signals: ${issueLines.length ? issueLines.join(', ') : 'none'}\n`
+                + sandwichedWarning
                 + `    Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, already=${_perf.slabDiscoveryWait.alreadyReady}, `
                   + `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, timed-out=${_perf.slabDiscoveryWait.timedOut}, `
                   + `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms\n`
@@ -600,9 +649,19 @@
                   (_perf.workZoneRoomShortfall.examples.length
                       ? `\n      ${_perf.workZoneRoomShortfall.examples.join('\n      ')}`
                       : '') + `\n`
-                + `    Blank fingerprint (not-yet-ready state captured at first sight, before any wait): ${_perf.blankFingerprint.count}` +
-                  (_perf.blankFingerprint.examples.length
-                      ? `\n      ${_perf.blankFingerprint.examples.join('\n      ---\n      ')}`
+                + `    Work-zone jump pacing: jumps=${_perf.workZoneJumpStability.jumps}, stability-checks=${_perf.workZoneJumpStability.steps}, waited=${_perf.workZoneJumpStability.waitedFrames}, `
+                  + `capped-out=${_perf.workZoneJumpStability.timedOut}, maxFramesWaited=${_perf.workZoneJumpStability.maxFramesWaited}, `
+                  + `avgJump=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpPxSum / _perf.workZoneJumpStability.jumps) : 0}px, `
+                  + `avgJumpTime=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpMsSum / _perf.workZoneJumpStability.jumps) : 0}ms, `
+                  + `avgTimePer120px=${_perf.workZoneJumpStability.jumpPxSum ? Math.round(_perf.workZoneJumpStability.jumpMsSum / (_perf.workZoneJumpStability.jumpPxSum / 120)) : 0}ms, `
+                  + `maxJump=${_perf.workZoneJumpStability.maxJumpPx}px, jumpsAtMax=${_perf.workZoneJumpStability.jumpsAtMax}, `
+                  + `minFloorApplied=${_perf.workZoneJumpStability.minFloorApplied}, `
+                  + `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, `
+                  + `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}\n`
+                + `    Sandwiched-empty-slab readiness failure signal (see findSandwichedEmptySlabInViewport): ` +
+                  `seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}` +
+                  (_perf.workZoneJumpStability.sandwichedEmptyExamples.length
+                      ? `\n      ${_perf.workZoneJumpStability.sandwichedEmptyExamples.join('\n      ')}`
                       : '') + `\n`
                 + `    Timer slip: samples=${_perf.sleepSlip.count}, avg=${_perf.sleepSlip.count ? Math.round(_perf.sleepSlip.sum / _perf.sleepSlip.count) : 0}ms, `
                   + `max=${Math.round(_perf.sleepSlip.max)}ms; tab hidden ${_perf.tabHidden.hideCount} time(s)\n`
@@ -815,6 +874,39 @@
                 ui.log(`  ${toSave.length} canvas/textdoc block(s) saved alongside the .md file — same folder, same name prefix.`);
             }
         }
+        if (_htmlCaptures.length > 0) {
+            // A second, parallel record of the walk — not full visual
+            // snapshots (see trimmedCaptureHtml): each entry is the
+            // captured deck's own opening tag, the first slab's opening
+            // tag, and a very small first-slab preview. A single deck's
+            // full content can run to several KB on its own (confirmed
+            // live), which is exactly why this stays trimmed: enough to
+            // verify what was actually there at a given point in the walk,
+            // without the export ballooning in size. Plain string
+            // concatenation, not appended via DOM nodes/innerHTML — this
+            // never touches the live page's DOM, only builds a standalone
+            // document to hand to the browser as a download.
+            const slug = titleToSlug(title);
+            const sections = _htmlCaptures.map((c, i) =>
+                `<h2>#${i + 1} — label=${escHtmlAttr(c.label)} role=${escHtmlAttr(c.role)} turnId=${escHtmlAttr(c.turnId)}</h2>\n` +
+                `${c.html}\n<hr>`
+            ).join('\n');
+            const htmlDoc =
+                `<!DOCTYPE html>\n<html><head><meta charset="utf-8">` +
+                `<title>${escHtmlAttr(title)} — captured deck identities</title></head><body>\n` +
+                `<h1>${escHtmlAttr(title)} — captured deck identities (${_htmlCaptures.length})</h1>\n` +
+                `<p>Companion to the .md export — trimmed identity markup (deck's own opening tag + first slab's ` +
+                `opening tag, both self-closed) plus a small first-slab preview. Message previews keep only the first ` +
+                `sentence; image/canvas previews use compact link-style placeholders.</p>\n<hr>\n` +
+                `${sections}\n</body></html>`;
+            const htmlA = document.createElement('a');
+            htmlA.href = URL.createObjectURL(new Blob([htmlDoc], { type: 'text/html;charset=utf-8' }));
+            htmlA.download = `${slug}-${exportTimestamp}.html`;
+            document.body.appendChild(htmlA);
+            htmlA.click();
+            setTimeout(() => { URL.revokeObjectURL(htmlA.href); htmlA.remove(); }, 100);
+            ui.log(`  ${_htmlCaptures.length} captured deck identity record(s) saved as a separate .html file — same folder, same name prefix.`);
+        }
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob(['﻿' + md], { type: 'text/markdown;charset=utf-8' }));
         a.download = `${titleToSlug(title)}-${exportTimestamp}.md`;
@@ -1015,7 +1107,21 @@
     // so the relative offsets stay valid even though the page scrolls (and
     // the container's absolute viewport position changes) between one
     // slab's extraction and the next.
-    const CONTAINER_COVERAGE_GAP_THRESHOLD = 80; // tolerate ordinary inter-message padding/margin; the canvas-block gap was ~370px
+    // Tolerate ordinary inter-message padding/margin and ChatGPT's own
+    // per-message UI chrome (the Copy/Edit or Copy/Good/Bad/Share actions
+    // row rendered below every message, inside the same deck, never
+    // covered by the extracted slab's own rect) — confirmed false-positive
+    // live: a one-line user message ("Can you tell why I cannot branch
+    // this conversation?") reproducibly flagged an 86px trailing gap on
+    // every run, verified against the real conversation to have nothing
+    // missing. Short messages are exactly where this misfires most, since
+    // the actions row's height is ~fixed regardless of message length,
+    // so it dominates a short message's trailing space. Raised from 80 to
+    // comfortably clear that 86px case while staying well under the real
+    // canvas-block miss this check actually needs to catch (~370px) —
+    // chosen as a reasoned middle point between the two observed
+    // data points, not measured against the actions row's exact height.
+    const CONTAINER_COVERAGE_GAP_THRESHOLD = 160;
     function recordSlabRange(containerEl, slabEl, ranges) {
         const cRect = containerEl.getBoundingClientRect();
         const sRect = slabEl.getBoundingClientRect();
@@ -1150,7 +1256,7 @@
                 `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure or an ` +
                 `extractor bug; see the exported diagnostics. ${describeMovesSinceEntry(entryDiag)}, ` +
                 `${describeIntersectingHistory(deckEl)}]*\n\n` +
-                `${deckEl.outerHTML}\n\n`,
+                `${captureElementHtmlReference('empty-container-coverage', deckEl, deckEl.getAttribute('data-turn') || 'unknown', deckSequenceId(deckEl))}\n\n`,
             plainText: '[Empty container]',
             msgId: null,
             turnId: deckSequenceId(deckEl) || null,
@@ -1868,6 +1974,358 @@
     // with whatever clientHeight actually is.
     const WORK_ZONE_MARGIN_FRACTION = 0.1;
 
+    // How far a triggered move advances, separate from WORK_ZONE_MARGIN_FRACTION
+    // (which only decides *when* a move triggers). Expressed as a fraction of
+    // clientH: this is how much fresh room past current the move aims to
+    // create. 1.0 would put current's leading edge exactly on the new work
+    // zone's edge (no overlap at all, current effectively out of view) — not
+    // a real option, since current needs to stay genuinely inside the new
+    // viewport, not just at its boundary. The default reproduces the
+    // original design's behavior exactly ("a minimum number of maximal
+    // jumps"): advance close to a full work zone's worth, leaving just
+    // WORK_ZONE_MARGIN_FRACTION of current still inside view. maintainWorkZone
+    // takes this as an overridable parameter (not just a constant) so
+    // different advance strategies — this maximal one, a minimal
+    // "just enough room past the trigger margin" one, or anything between —
+    // can be experimented with from call sites without touching this function.
+    const WORK_ZONE_ADVANCE_FRACTION = 1 - WORK_ZONE_MARGIN_FRACTION;
+
+    // A single large, blind scrollTop jump has no guarantee ChatGPT's own
+    // virtualizer reacts to it — ordinary incremental scrolling (wheel,
+    // trackpad) is the one interaction pattern it must support reliably,
+    // since that's the default way every real user scrolls. So the work
+    // zone starts with a conservative wheel-like step, then earns larger
+    // steps only after repeated clean stability checks. This keeps the
+    // default interaction human-like while letting clean runs discover a
+    // larger safe buffer ahead of the viewport.
+    const WORK_ZONE_MOVE_JUMP_PX = 120;
+    const WORK_ZONE_MOVE_JUMP_MAX_PX = 600;
+    const WORK_ZONE_MOVE_JUMP_GROW_PX = 30;
+    const WORK_ZONE_MOVE_JUMP_CLEAN_STREAK = 3;
+    // The clamp added to stop a jump overshooting current out of the
+    // viewport (Math.min(_workZoneAdaptiveJumpPx, advanceRoom - room)) has
+    // no floor on its own: as room approaches advanceRoom, the remaining
+    // gap shrinks toward zero, and so does the requested jump — eventually
+    // asking for a sub-pixel scroll that can round away to no real
+    // movement at all. When that happens, room never actually closes the
+    // gap, the next iteration computes the same tiny remaining distance,
+    // and the loop spins indefinitely (observed live: single moves taking
+    // 1700-1800+ jumps, burning the full 30s deadline, avgJump dragged down
+    // to ~6px across the whole run) until the unrelated 30s deadline trips
+    // — not a hang, but a hugely wasteful near-hang. This floor guarantees
+    // every jump makes real, measurable progress, at the cost of a bounded
+    // (at most this many px) overshoot past advanceRoom on the very last
+    // jump of a move — utterly negligible next to the existing margins
+    // (WORK_ZONE_MARGIN_FRACTION alone is ~10% of clientH).
+    const WORK_ZONE_MIN_JUMP_PX = 8;
+    let _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
+    let _workZoneCleanJumpStreak = 0;
+
+    // maintainWorkZone's per-step pacing gate (see waitForLayoutStable):
+    // how many consecutive animation frames scrollHeight must hold still
+    // for before the next step is allowed to fire, and the hard cap on how
+    // long any single step will wait for that before giving up and moving
+    // on anyway. First real full run (174/174 prompts, 2801 total steps):
+    // only 319 steps (~11%) ever saw any change at all across every frame
+    // checked — the other ~89% paid the full multi-frame requirement for
+    // nothing. Dropped from 3 to 1: a single clean frame already is what
+    // distinguishes the "nothing happening" majority from the "something
+    // changed" minority (which resets the counter regardless of what this
+    // value is) — there's no evidence in that run that requiring more
+    // consecutive confirmations ever caught a real multi-frame wobble.
+    const WORK_ZONE_JUMP_STABLE_FRAMES = 1;
+    const WORK_ZONE_JUMP_STABLE_MAX_MS = 1500;
+
+    // waitForLayoutStable's scrollHeight check can only ever catch a mount
+    // that changes the *total* document height. ChatGPT pre-reserves exact
+    // pixel height for a turn before its real content mounts (the
+    // `--last-known-height` custom property observed on deck containers in
+    // captured page HTML elsewhere in this project) — so swapping a
+    // placeholder for real content inside an already-correctly-sized box
+    // changes nothing about scrollHeight at all. "scrollHeight hasn't
+    // moved" is therefore not the same claim as "nothing is happening."
+    // Confirmed directly via screen recording of a real run: a deck with
+    // no real slab selector match yet, sitting between two decks that
+    // already have one — lasting up to ~5 video frames (real-time
+    // duration unknown; see workZoneJumpStability.sandwichedEmptyExamples'
+    // framesWaited for how that maps to rAF frames once measured). The
+    // neighbor requirement (not just "any blank deck in the viewport") is
+    // what makes this safe to use where the reverted findBlankDeckInViewport
+    // wasn't (see memory): that one had no way to tell "still
+    // transitioning" apart from "permanently broken" (a deck that will
+    // never render, like turnId 70e7d42f, also looks blank forever). A
+    // permanently-broken deck can still happen to satisfy this stricter
+    // pattern if both neighbors are real — this narrows the classification
+    // problem, it doesn't solve it — so it's used the same non-fatal,
+    // bounded way as everything else downstream (Step 3's fingerprint wait
+    // already has to make this same judgment call, for the same reason).
+    function findSandwichedEmptySlabInViewport(container) {
+        const viewTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+        const viewBottom = viewTop + (container === document.documentElement ? window.innerHeight : container.clientHeight);
+        const decks = queryDeckSequenceContainers();
+        const hasRealSlab = deckEl => !!deckEl.querySelector(
+            '[data-message-author-role], [id^="textdoc-message-"], .group\\/imagegen-image'
+        );
+        for (let i = 1; i < decks.length - 1; i++) {
+            const deckEl = decks[i];
+            const r = deckEl.getBoundingClientRect();
+            if (r.bottom <= viewTop || r.top >= viewBottom) continue; // not actually in the viewport
+            if (hasRealSlab(deckEl)) continue; // not empty
+            if (!hasRealSlab(decks[i - 1]) || !hasRealSlab(decks[i + 1])) continue; // not sandwiched between two real ones
+            const sectionEl = deckEl.matches('[data-turn]') ? deckEl : deckEl.querySelector('[data-turn]');
+            return { deckEl, sectionEl };
+        }
+        return null;
+    }
+
+    // Diagnostic captures only need enough to identify *what* was there —
+    // the container's own identity (its tag + attributes: turn-id, role,
+    // etc.) plus the first real message's identity inside it — not the
+    // full nested content. A single deck can hold multiple stacked
+    // messages plus a large code block (confirmed live: turnId
+    // 78a011c7-...  ran to several KB of outerHTML on its own, just from
+    // one deck), which is exactly what made captures balloon in size. This
+    // builds opening tags from el.attributes directly (not by slicing
+    // outerHTML as a string, which a stray '>' inside a quoted attribute
+    // value could throw off) and immediately self-closes them — so a
+    // capture is always well-formed, empty-bodied markup, never the real
+    // content, and never leaves an unclosed tag that would swallow
+    // whatever capture comes after it once many of these are concatenated
+    // into one .html document.
+    function elementIdentityTag(el) {
+        const attrs = [...el.attributes].map(a => `${a.name}="${a.value.replace(/"/g, '&quot;')}"`).join(' ');
+        const tag = el.tagName.toLowerCase();
+        return `<${tag}${attrs ? ' ' + attrs : ''}></${tag}>`;
+    }
+
+    function selfAndDescendantsMatching(el, selector) {
+        const found = [];
+        if (el.matches?.(selector)) found.push(el);
+        found.push(...(el.querySelectorAll?.(selector) || []));
+        return found;
+    }
+
+    function firstCapturedSlab(el) {
+        const slabs = [
+            ...selfAndDescendantsMatching(el, '[data-message-author-role]').map(element => ({ type: 'message', element })),
+            ...selfAndDescendantsMatching(el, '[id^="textdoc-message-"]').map(element => ({ type: 'canvas', element })),
+            ...selfAndDescendantsMatching(el, '.group\\/imagegen-image').map(element => ({ type: 'image', element })),
+        ];
+        if (!slabs.length) return null;
+        slabs.sort((a, b) => {
+            if (a.element === b.element) return 0;
+            const pos = a.element.compareDocumentPosition(b.element);
+            return pos & Node.DOCUMENT_POSITION_PRECEDING ? 1 : -1;
+        });
+        return slabs[0];
+    }
+
+    function firstSentence(text, maxLen = 180) {
+        const flat = (text || '').replace(/\s+/g, ' ').trim();
+        if (!flat) return '';
+        const sentence = flat.match(/^(.+?[.!?])(?:\s|$)/)?.[1] || flat;
+        return sentence.length > maxLen ? sentence.slice(0, maxLen - 1).trimEnd() + '…' : sentence;
+    }
+
+    function firstSlabPreviewHtml(slab) {
+        if (!slab) return '';
+        if (slab.type === 'message') {
+            const sentence = firstSentence(dryMarkdownFor(slab.element));
+            return sentence
+                ? `<div data-first-slab-preview="message">${escHtmlText(sentence)}</div>`
+                : `<div data-first-slab-preview="message">(empty message preview)</div>`;
+        }
+        if (slab.type === 'image') {
+            const image = primaryImageForSlab(slab.element);
+            const src = image?.getAttribute('src') || '';
+            const alt = image?.getAttribute('alt') || 'Generated image';
+            return src
+                ? `<div data-first-slab-preview="image"><a href="${escHtmlAttr(src)}">Image: ${escHtmlText(firstSentence(alt, 80) || 'Generated image')}</a></div>`
+                : `<div data-first-slab-preview="image">Image: ${escHtmlText(firstSentence(alt, 80) || 'Generated image')}</div>`;
+        }
+        if (slab.type === 'canvas') {
+            const titleEl = slab.element.querySelector('span.font-semibold, [class*="font-semibold"]');
+            const title = (titleEl?.textContent || 'Canvas document').trim();
+            return `<div data-first-slab-preview="canvas"><a href="#">Canvas: ${escHtmlText(firstSentence(title, 120) || 'Canvas document')}</a></div>`;
+        }
+        return '';
+    }
+
+    function trimmedCaptureHtml(el) {
+        if (!el) return '(no element reference captured)';
+        const parts = [elementIdentityTag(el)];
+        const firstSlab = firstCapturedSlab(el);
+        if (firstSlab && firstSlab.element !== el) {
+            parts.push(elementIdentityTag(firstSlab.element));
+        }
+        const preview = firstSlabPreviewHtml(firstSlab);
+        if (preview) parts.push(preview);
+        return parts.join('\n');
+    }
+
+    // Diagnostic only — ground truth in place of geometry inference. A
+    // numeric room/scrollMax delta after a move can't be trusted to mean
+    // any one specific thing: any number of unrelated DOM changes could
+    // produce the same numbers, and reverse-engineering a story from them
+    // (see memory: the v4.142/v4.143 incident) is not reliable. The actual
+    // identity of whatever's intersecting the viewport right after a
+    // move's last step is real, checkable evidence instead — captured once
+    // per completed maintainWorkZone call (not per step) and fed to
+    // pushHtmlCaptures below, which is what actually accumulates it for the
+    // separate .html export — this function just collects, it doesn't
+    // format or store.
+    function capturedIntersectingDecksHtml(container) {
+        const viewTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+        const viewBottom = viewTop + (container === document.documentElement ? window.innerHeight : container.clientHeight);
+        const captured = [];
+        for (const deckEl of queryDeckSequenceContainers()) {
+            const r = deckEl.getBoundingClientRect();
+            if (r.bottom <= viewTop || r.top >= viewBottom) continue; // not actually in the viewport
+            const sectionEl = deckEl.matches('[data-turn]') ? deckEl : deckEl.querySelector('[data-turn]');
+            captured.push({
+                turnId: deckSequenceId(deckEl) || '(none)',
+                role: sectionEl?.getAttribute('data-turn') || deckEl.getAttribute('data-turn') || 'unknown',
+                html: trimmedCaptureHtml(sectionEl || deckEl),
+            });
+        }
+        return captured;
+    }
+
+    // Feeds _htmlCaptures, the accumulator behind the separate .html export
+    // (see exportMarkdown) — real captured markup goes there now, not
+    // inline in the markdown text, per the user's direction: keep the two
+    // exports separate so the markdown stays clean and the HTML can
+    // actually be opened and viewed rendered. `label` distinguishes the
+    // capture's origin (deck-entry / work-zone-move / work-zone-fatal) for
+    // the reader scanning the combined file later.
+    function pushHtmlCaptures(label, captured) {
+        for (const c of captured) _htmlCaptures.push({ label, ...c });
+    }
+
+    function captureElementHtmlReference(label, el, role = 'unknown', turnId = null) {
+        if (!el) return '(no element reference captured)';
+        const resolvedTurnId = turnId || deckSequenceId(el) || el.getAttribute?.('data-turn-id') || '(none)';
+        _htmlCaptures.push({
+            label,
+            turnId: resolvedTurnId,
+            role: role || el.getAttribute?.('data-turn') || el.getAttribute?.('data-message-author-role') || 'unknown',
+            html: trimmedCaptureHtml(el),
+        });
+        return `Captured HTML: see companion .html snapshot #${_htmlCaptures.length} ` +
+            `(label=${label}, turnId=${resolvedTurnId}).`;
+    }
+
+    // Per-step pacing signal for maintainWorkZone's stepping loop: waits for
+    // the container's scrollHeight to stop changing across a few consecutive animation
+    // frames, AND for no sandwiched-empty-slab to be present (see
+    // findSandwichedEmptySlabInViewport just above — this is the part that
+    // actually targets "ChatGPT busy mid-swap," which scrollHeight alone
+    // can't see), before the next step is allowed to fire. Just yielding a
+    // fixed number of frames (the original version of this, before the
+    // sandwiched-empty check existed) only proved the small jumps land as
+    // separate scroll events instead of being coalesced into one teleport —
+    // it said nothing about whether ChatGPT's virtualizer had actually
+    // reacted to what each step revealed before the next one ran past it,
+    // which is the same gap that made the original one-big-jump activation
+    // unreliable in the first place. Bounded by WORK_ZONE_JUMP_STABLE_MAX_MS
+    // so a page with continuous, unrelated layout churn (or a permanently-
+    // broken sandwiched deck — see findSandwichedEmptySlabInViewport) can't
+    // hang a single step forever.
+    function waitForLayoutStable(container) {
+        const readHeight = () => container === document.documentElement
+            ? document.documentElement.scrollHeight
+            : container.scrollHeight;
+        return new Promise(resolve => {
+            const deadline = performance.now() + WORK_ZONE_JUMP_STABLE_MAX_MS;
+            let lastHeight = readHeight();
+            let stableFrames = 0;
+            let framesChecked = 0;
+            let changed = false;
+            let sawSandwiched = false;
+            let lastSandwiched = null;
+            function tick() {
+                framesChecked++;
+                const h = readHeight();
+                if (h === lastHeight) {
+                    stableFrames++;
+                } else {
+                    stableFrames = 0;
+                    lastHeight = h;
+                    changed = true;
+                }
+                const timedOut = performance.now() > deadline;
+                // findSandwichedEmptySlabInViewport scans every deck in the
+                // whole document and calls getBoundingClientRect() on each
+                // one — real, forced-layout cost that scales with
+                // conversation length. Running that on every single frame
+                // (regardless of whether scrollHeight-stability was even
+                // close to being satisfied yet) was paying that cost dozens
+                // of times per step for no benefit: the pattern can't
+                // resolve before scrollHeight itself looks stable, so
+                // there's nothing to gain by checking earlier. Only pay for
+                // it right when we'd otherwise consider the step settled
+                // (or we're about to give up) — once per step in the common
+                // case, more only if the pattern is actually found and
+                // needs to keep being polled until it resolves or times out.
+                let readyToResolve = stableFrames >= WORK_ZONE_JUMP_STABLE_FRAMES || timedOut;
+                if (readyToResolve) {
+                    const sandwiched = findSandwichedEmptySlabInViewport(container);
+                    // A deck stays "sandwiched" in the viewport across many
+                    // consecutive small steps (each only 120px) — once one
+                    // has already been waited out the full cap this run
+                    // without resolving (see _knownUnresolvableSandwichedTurnIds),
+                    // re-discovering and re-waiting on the *same* deck on
+                    // every subsequent step is pure waste, not added safety.
+                    const sandwichedTurnId = sandwiched ? deckSequenceId(sandwiched.deckEl) : null;
+                    const alreadyKnownUnresolvable = sandwichedTurnId && _knownUnresolvableSandwichedTurnIds.has(sandwichedTurnId);
+                    if (sandwiched && !alreadyKnownUnresolvable) {
+                        sawSandwiched = true;
+                        lastSandwiched = sandwiched;
+                        stableFrames = 0; // not actually settled — keep waiting
+                        readyToResolve = timedOut; // still finalize on timeout even if found
+                    }
+                }
+                if (readyToResolve) {
+                    _perf.workZoneJumpStability.steps++;
+                    if (changed) _perf.workZoneJumpStability.waitedFrames++;
+                    if (timedOut) _perf.workZoneJumpStability.timedOut++;
+                    _perf.workZoneJumpStability.maxFramesWaited =
+                        Math.max(_perf.workZoneJumpStability.maxFramesWaited, framesChecked);
+                    if (sawSandwiched) {
+                        _perf.workZoneJumpStability.sandwichedEmptySeen++;
+                        if (timedOut && lastSandwiched) {
+                            _perf.workZoneJumpStability.sandwichedEmptyTimedOut++;
+                            const role = lastSandwiched.sectionEl?.getAttribute('data-turn') ||
+                                lastSandwiched.deckEl.getAttribute('data-turn') || 'unknown';
+                            const tId = deckSequenceId(lastSandwiched.deckEl);
+                            // Never wait the full cap on this exact deck
+                            // again this run (see _knownUnresolvableSandwichedTurnIds)
+                            // — and capture its real markup so "permanently
+                            // broken" is something the user can actually
+                            // verify in the .html export, not just infer
+                            // from a 100% cap-out rate.
+                            if (tId) _knownUnresolvableSandwichedTurnIds.add(tId);
+                            pushHtmlCaptures('sandwiched-empty-timed-out', [{
+                                turnId: tId || '(none)',
+                                role,
+                                html: trimmedCaptureHtml(lastSandwiched.sectionEl || lastSandwiched.deckEl),
+                            }]);
+                            if (_perf.workZoneJumpStability.sandwichedEmptyExamples.length < 5) {
+                                _perf.workZoneJumpStability.sandwichedEmptyExamples.push(
+                                    `role=${role} turnId=${tId || '(none)'}, framesWaited=${framesChecked}`
+                                );
+                            }
+                        }
+                    }
+                    resolve({ changed, timedOut, sawSandwiched, framesChecked });
+                } else {
+                    requestAnimationFrame(tick);
+                }
+            }
+            requestAnimationFrame(tick);
+        });
+    }
+
     // Forces the scroll position to a boundary edge (bottom for direction=-1,
     // top for +1) and keeps re-asserting it until it actually holds — a
     // one-time assignment isn't enough. Observed live: clicking the
@@ -1882,6 +2340,7 @@
     // means continuously re-asserting can outlast a reversion that only
     // fires after some idle period — never giving it the chance.
     async function forceScrollToEdge(container, direction, timeoutMs = 30_000) {
+        _perf.viewportMoveOperationsForceEdge++;
         const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
         const setPos = v => {
             if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
@@ -1924,144 +2383,182 @@
     // the work zone's own leading edge stays exactly where it is until
     // this moves it. So current's advance is guaranteed to eventually
     // close the gap down to the margin — that moment is what triggers a
-    // move, never a deck's fingerprint. The move itself goes as far ahead
-    // as is safe in one motion, restoring close to a full work zone's
-    // worth of newly lit territory past current, rather than inching
-    // toward whatever the next slab specifically turns out to be — a
-    // minimum number of maximal jumps, not frequent small ones.
-    async function maintainWorkZone(container, current, minimumRoomAhead = 0) {
+    // move, never a deck's fingerprint. *Whether* to move (room <= extra)
+    // is unchanged from the original design. *How far* it tries to advance
+    // is the advanceFraction parameter (see WORK_ZONE_ADVANCE_FRACTION) —
+    // independent of the trigger margin and deliberately overridable, so
+    // call sites can experiment with maximal-jump vs just-enough-room
+    // advance strategies without touching this function.
+    //
+    // There used to be a separate "move to a precomputed target, then
+    // separately wait/poll for room" two-phase design (moveWorkZoneTo +
+    // a doubleRAF-paced settle loop — see memory). That fell apart on a
+    // real run: a precomputed target/scrollMax snapshot can go stale
+    // during the time spent reaching and then waiting on it (layout above
+    // current shifting by 1000+px mid-wait, see memory), and the doubleRAF
+    // settle phase had zero stability awareness of its own — it just
+    // polled a number with no way to tell "still genuinely converging"
+    // from "stuck." This version is one continuous loop instead: take one
+    // small step toward more room, wait for it via the same
+    // waitForLayoutStable used everywhere else (browser+ChatGPT-stability,
+    // not just a frame count), re-measure room live, and decide whether to
+    // take another step — never computing a destination in advance, never
+    // trusting any position/height snapshot beyond the instant it was read.
+    async function maintainWorkZone(container, current, minimumRoomAhead = 0, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
         if (current.type === 'start') return { roomSatisfied: true, boundaryReached: false, room: Infinity, required: 0 }; // no deck/slab reference yet
         const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
         const setPos = v => {
             if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
             else container.scrollTop = v;
             _perf.viewportMovesWorkZone++;
+            _perf.workZoneJumpStability.jumps++;
         };
         const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
         const containerTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-        const r = current.geometryElement.getBoundingClientRect();
-        const curTop = readPos();
-        // current's own leading edge, in the same absolute,
-        // scroll-independent frame curTop already is.
-        const currentEdge = WALK_DIRECTION === -1
-            ? (r.top - containerTop) + curTop
-            : (r.bottom - containerTop) + curTop;
-        const workZoneEdge = WALK_DIRECTION === -1 ? curTop : curTop + clientH;
+        // Room ahead of current, read fresh from the live DOM every single
+        // time this is called — never cached, never reused across a step.
+        // getBoundingClientRect() already gives current's position
+        // *relative to the viewport*, which is exactly "room" with no
+        // scroll-position arithmetic and no absolute-coordinate snapshot
+        // needed at all — so there's no snapshot to go stale in the first
+        // place, no matter how long stepping/waiting below takes.
+        const measureRoom = () => {
+            const r = current.geometryElement.getBoundingClientRect();
+            return WALK_DIRECTION === -1 ? (r.top - containerTop) : (clientH - (r.bottom - containerTop));
+        };
+        const liveScrollMax = () => {
+            const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
+            return Math.max(0, scrollH - clientH);
+        };
         const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, minimumRoomAhead);
-        const room = WALK_DIRECTION === -1 ? currentEdge - workZoneEdge : workZoneEdge - currentEdge;
+        let room = measureRoom();
         if (room > extra) return { roomSatisfied: true, boundaryReached: false, room, required: extra }; // still plenty of light ahead of current
-        // The bar for calling the move done is not landing on target
-        // exactly, nor holding stable — just whether the same room check
-        // that triggered this now passes, however the position actually
-        // landed. That check is the fingerprint we wait for below, after
-        // issuing the move exactly once.
-        const idealTarget = WALK_DIRECTION === -1
-            ? currentEdge - clientH + extra
-            : currentEdge - extra;
-        // The ideal target can fall outside what scrollTop can currently
-        // hold (negative, or past scrollHeight - clientHeight). That is not
-        // success by itself: on a virtualized conversation it may only mean
-        // the supplier has not mounted more deck space yet. We still perform
-        // the clamped move once, then report whether the required room ahead
-        // was actually achieved; callers decide whether to wait for more
-        // mounted content or accept a genuine boundary.
-        const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-        const scrollMax = Math.max(0, scrollH - clientH);
-        const target = Math.max(0, Math.min(scrollMax, idealTarget));
-        if (target !== idealTarget) {
-            setPos(target);
-            await sleep(150);
-            const newWorkZoneEdge = WALK_DIRECTION === -1 ? readPos() : readPos() + clientH;
-            const newRoom = WALK_DIRECTION === -1 ? currentEdge - newWorkZoneEdge : newWorkZoneEdge - currentEdge;
-            return { roomSatisfied: newRoom > extra, boundaryReached: true, room: newRoom, required: extra };
-        }
-        // One move — the activation signal. This is not clamped by the
-        // document boundary (that's the branch above), so the target was a
-        // genuinely reachable scroll position. Two separate conditions must
-        // both hold before the move counts as settled: room (pure layout
-        // geometry — proves the scroll position changed) and no blank deck
-        // currently in the viewport (proves rendering has actually caught
-        // up with what that position now reveals). room alone settles
-        // almost instantly and was never a real signal that ChatGPT's own
-        // mount-on-approach logic had a chance to react — the
-        // blank-in-viewport check is the part that's actually tied to
-        // rendering. Same discipline as the other fingerprint waits — loop,
-        // poll, 30s timeout. A timeout means the viewport moved through
-        // territory ChatGPT's own rendering never caught up with — the
-        // failure mode behind the skipped-small-deck cases (a small deck
-        // sandwiched between two huge ones never gets real dwell time
-        // before the next move jumps past it). Fatal: note it and stop.
-        setPos(target);
+        // advanceRoom is aspirational, not a destination to walk straight
+        // to and stop at: how much fresh room past current we'd like to
+        // end up with if nothing stops us, floored at `extra` (a step that
+        // didn't even clear the trigger margin wouldn't be worth taking)
+        // and capped just short of clientH (current must stay genuinely
+        // inside the viewport, not sit exactly on its edge). The loop below
+        // keeps stepping toward this, but is content to stop as soon as
+        // `extra` is cleared if it runs out of patience or room first —
+        // exactly the same bar the original design judged success against.
+        const advanceRoom = Math.min(clientH - 1, Math.max(extra, clientH * advanceFraction));
+        const jumpSign = WALK_DIRECTION === -1 ? -1 : 1; // direction of scrollTop change that increases room
         const startedAt = performance.now();
         const deadline = Date.now() + SLAB_FINISH_TIMEOUT_MS;
-        const measureRoom = () => {
-            const newWorkZoneEdge = WALK_DIRECTION === -1 ? readPos() : readPos() + clientH;
-            return WALK_DIRECTION === -1 ? currentEdge - newWorkZoneEdge : newWorkZoneEdge - currentEdge;
-        };
-        let newRoom = measureRoom();
-        let blank = findBlankDeckInViewport(container);
-        // The blank fingerprint: captured here, right after the move, by
-        // scanning everything currently intersecting the viewport and
-        // recording the first deck that hasn't become a real slab type yet
-        // — not at slab-search time (too late; the short, ordinary blanks
-        // have usually already resolved by then). This is the one moment
-        // most likely to still catch an ordinary few-frame blank in the
-        // act, for comparison against the outerHTML already captured from
-        // cases that never resolve at all (e.g. febac401).
-        const blankRole = b => b.sectionEl?.getAttribute('data-turn') || b.deckEl.getAttribute('data-turn') || 'unknown';
-        const blankOuterHTML = b => (b.sectionEl || b.deckEl).outerHTML;
-        const blankPlaceholderSource = b => b.sectionEl ? { element: b.sectionEl } : { element: null, deckElement: b.deckEl };
-        if (blank) {
-            _perf.blankFingerprint.count++;
-            if (_perf.blankFingerprint.examples.length < 5) {
-                _perf.blankFingerprint.examples.push(
-                    `role=${blankRole(blank)} turnId=${deckSequenceId(blank.deckEl) || '(none)'}: ` +
-                    `no real slab selector matched yet\n${blankOuterHTML(blank)}`
-                );
-            }
-        }
-        while (newRoom <= extra || blank) {
-            if (Date.now() > deadline) {
+        let boundaryReached = false;
+        let jumpsTaken = 0;
+        let outcome = 'advance-complete'; // overwritten below if the loop exits any other way
+        while (room < advanceRoom) {
+            if (room > extra && Date.now() > deadline) { outcome = 'satisfied-timeout'; break; } // good enough already, not worth chasing the aspirational extra any further
+            if (room <= extra && Date.now() > deadline) {
                 const waitedMs = Math.round(performance.now() - startedAt);
-                // Re-read live, at the moment of timeout — scrollH/scrollMax
-                // above were captured once, before the move, on a
-                // virtualized page where that value can shift as ChatGPT
-                // revises not-yet-rendered decks' placeholder heights. If
-                // `observed` is actually pinned at the CURRENT real
-                // scrollMax, this was a genuine boundary our earlier,
-                // stale snapshot just failed to recognize as one — not a
-                // case of rendering never catching up.
-                const liveScrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-                const liveScrollMax = Math.max(0, liveScrollH - clientH);
+                // Numeric geometry (room/scrollMax deltas) isn't trustworthy
+                // diagnostic evidence on its own — any number of unrelated
+                // DOM changes could produce the same numbers (see memory).
+                // The outerHTML of whatever's actually intersecting the
+                // viewport right now is real, checkable ground truth
+                // instead — captured to the separate .html export (not
+                // inlined into this message) so the markdown stays clean.
+                pushHtmlCaptures('work-zone-fatal-timeout', capturedIntersectingDecksHtml(container));
                 _perf.workZoneRoomShortfall.count++;
                 if (_perf.workZoneRoomShortfall.examples.length < 10) {
                     _perf.workZoneRoomShortfall.examples.push(
-                        `target=${Math.round(target)}, observed=${Math.round(readPos())}, current's edge=${Math.round(currentEdge)}, ` +
-                        `room=${Math.round(newRoom)}px, required=${Math.round(extra)}px, ` +
-                        `liveScrollMax=${Math.round(liveScrollMax)} (was ${Math.round(scrollMax)} when computed), ` +
-                        `blank=${blank ? `${blankRole(blank)}/turnId=${deckSequenceId(blank.deckEl) || '(none)'}` : '(none)'}, waited=${waitedMs}ms`
+                        `steps=${jumpsTaken}, room=${Math.round(room)}px, required=${Math.round(extra)}px, ` +
+                        `boundaryReached=${boundaryReached}, waited=${waitedMs}ms`
                     );
                 }
-                const message = newRoom <= extra
-                    ? `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s waiting for work-zone room ahead of an unclamped target: ` +
-                      `target=${Math.round(target)}, observed=${Math.round(readPos())}, current's edge=${Math.round(currentEdge)}, ` +
-                      `room=${Math.round(newRoom)}px, required=${Math.round(extra)}px, ` +
-                      `liveScrollMax=${Math.round(liveScrollMax)} (was ${Math.round(scrollMax)} when computed). Not a document-boundary case ` +
-                      `per the original snapshot, but check liveScrollMax against observed before trusting that.`
-                    : `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s waiting for a deck in the viewport to become a real slab ` +
-                      `after a work-zone move: role=${blankRole(blank)} turnId=${deckSequenceId(blank.deckEl) || '(none)'}: ` +
-                      `no real slab selector ever matched. Room itself was satisfied; this deck simply never rendered while in view.`;
+                // See describeCurrentAttachment's own comment — same check
+                // also reused by describeCurrentForStop, since a broken
+                // current can surface via either path.
+                const message =
+                    `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s stepping toward work-zone room ahead of current ` +
+                    `(${jumpsTaken} small step(s) taken, room=${Math.round(room)}px, required=${Math.round(extra)}px, ` +
+                    `boundaryReached=${boundaryReached}). ${describeCurrentAttachment(current)}. ` +
+                    `See the separate .html export for the intersecting deck(s) captured at this moment.`;
                 const err = new Error(message);
-                err.placeholder = blank
-                    ? currentNotePlaceholder(blankPlaceholderSource(blank), message)
-                    : currentNotePlaceholder(current, message);
+                err.placeholder = currentNotePlaceholder(current, message);
                 throw err;
             }
-            await sleep(SLAB_FINISH_POLL_MS);
-            newRoom = measureRoom();
-            blank = findBlankDeckInViewport(container);
+            const curTop = readPos();
+            const max = liveScrollMax(); // re-read live every step — the document's own scrollable range can shift mid-run, same as everything else
+            // _workZoneAdaptiveJumpPx grows purely from "was the last jump
+            // clean" — it has no idea where current actually is right now.
+            // Left unclamped, a grown jump can push room straight past
+            // advanceRoom (capped at clientH-1 specifically so current
+            // stays genuinely inside the viewport) in one leap — taking
+            // current from "inside the viewport" to "fully behind it" in a
+            // single jump, with no intermediate check. If ChatGPT's own
+            // virtualizer then unmounts DOM content that far behind the
+            // viewport, current.geometryElement becomes a detached node —
+            // getBoundingClientRect() on it returns an all-zero rect
+            // forever after, which reads as a permanent room=0 that no
+            // further jump can ever correct (observed live: a 30s timeout
+            // with room stuck at exactly 0 across 101 jumps). Clamping the
+            // jump itself to never overshoot advanceRoom keeps current
+            // inside the same safety margin advanceRoom already encodes,
+            // regardless of how large the adaptive size has grown. Floored
+            // at WORK_ZONE_MIN_JUMP_PX (see its own comment) so the clamp
+            // can't shrink the request to an ineffective sub-pixel amount
+            // as room approaches advanceRoom — that was a second, separate
+            // bug discovered live (1700+ jumps in a single move, burning
+            // the full 30s deadline on no real progress) right after this
+            // clamp first shipped.
+            const remainingToAdvanceRoom = advanceRoom - room;
+            const safeJumpPx = Math.max(WORK_ZONE_MIN_JUMP_PX, Math.min(_workZoneAdaptiveJumpPx, remainingToAdvanceRoom));
+            if (remainingToAdvanceRoom < WORK_ZONE_MIN_JUMP_PX) _perf.workZoneJumpStability.minFloorApplied++;
+            const nextPos = Math.max(0, Math.min(max, curTop + jumpSign * safeJumpPx));
+            if (nextPos === curTop) {
+                // Genuinely can't move any further in the direction that
+                // would help — a real document-boundary case, not a
+                // failure to retry against. Not fatal even if room is
+                // still <= extra: the caller decides whether to wait for
+                // more mounted content or accept the boundary.
+                boundaryReached = true;
+                outcome = 'boundary';
+                break;
+            }
+            setPos(nextPos);
+            const appliedJumpPx = Math.round(Math.abs(nextPos - curTop));
+            _perf.workZoneJumpStability.maxJumpPx = Math.max(_perf.workZoneJumpStability.maxJumpPx, appliedJumpPx);
+            _perf.workZoneJumpStability.jumpPxSum += appliedJumpPx;
+            if (appliedJumpPx >= WORK_ZONE_MOVE_JUMP_MAX_PX) _perf.workZoneJumpStability.jumpsAtMax++;
+            jumpsTaken++;
+            const jumpStartedAt = performance.now();
+            const stability = await waitForLayoutStable(container);
+            _perf.workZoneJumpStability.jumpMsSum += performance.now() - jumpStartedAt;
+            room = measureRoom();
+            // "Clean" does not mean "nothing changed." Mounting newly
+            // revealed content is exactly the normal case we are pacing for.
+            // A jump is clean if the page reached a stable state without
+            // hitting the per-jump cap and without seeing the stronger
+            // sandwiched-empty signal.
+            const cleanJump = stability && !stability.timedOut && !stability.sawSandwiched;
+            if (cleanJump) {
+                _workZoneCleanJumpStreak++;
+                if (_workZoneCleanJumpStreak >= WORK_ZONE_MOVE_JUMP_CLEAN_STREAK && _workZoneAdaptiveJumpPx < WORK_ZONE_MOVE_JUMP_MAX_PX) {
+                    _workZoneAdaptiveJumpPx = Math.min(WORK_ZONE_MOVE_JUMP_MAX_PX, _workZoneAdaptiveJumpPx + WORK_ZONE_MOVE_JUMP_GROW_PX);
+                    _workZoneCleanJumpStreak = 0;
+                    _perf.workZoneJumpStability.adaptiveIncreases++;
+                }
+            } else {
+                _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
+                _workZoneCleanJumpStreak = 0;
+                _perf.workZoneJumpStability.adaptiveResets++;
+            }
         }
-        return { roomSatisfied: true, boundaryReached: false, room: newRoom, required: extra };
+        // Capture only when a move actually happened — most calls find
+        // room > extra immediately above and return before this point.
+        // Goes to the separate .html export (pushHtmlCaptures), not the
+        // markdown — the markdown stays clean text, the real captured
+        // markup lives in its own file. jumpsTaken/outcome are still
+        // returned so the caller can log them live without needing the
+        // capture itself.
+        if (jumpsTaken > 0) {
+            _perf.viewportMoveOperationsWorkZone++;
+            pushHtmlCaptures('work-zone-move', capturedIntersectingDecksHtml(container));
+        }
+        return { roomSatisfied: room > extra, boundaryReached, room, required: extra, jumpsTaken, outcome };
     }
 
     // current can be a real slab (element set) or a synthetic deck-entry/
@@ -2078,11 +2575,37 @@
             : (deckSequenceId(current?.deckElement) || null);
         return {
             role,
-            text: `*[${reason}]*\n\n${el ? el.outerHTML : '(no element reference for current)'}\n\n`,
+            text: `*[${reason}]*\n\n${captureElementHtmlReference('current-note-placeholder', el, role, turnId)}\n\n`,
             plainText: '[Work-zone move came up short]',
             msgId: null,
             turnId,
         };
+    }
+
+    // Direct test of two competing explanations for a stuck/broken current:
+    // (a) current.geometryElement was detached — isConnected false on a real
+    // (non-synthetic) slab; (b) ChatGPT's own readiness fingerprint
+    // (data-is-intersecting on the [data-turn-id-container] deck — the same
+    // attribute waitForTurnReady/measureReadyMargin already trust) still
+    // reads "false", meaning we're sitting in not-yet-rendered placeholder
+    // territory rather than current having been unmounted at all. Shared by
+    // both the fatal-timeout throw and describeCurrentForStop — a broken
+    // current can surface through either path (reaching a boundary while
+    // room is still short exits via 'boundary', never hitting the timeout
+    // throw at all).
+    function describeCurrentAttachment(current) {
+        const geometryIsConnected = (current?.geometryElement && 'isConnected' in current.geometryElement)
+            ? current.geometryElement.isConnected
+            : '(synthetic marker, n/a)';
+        const deckEl = current?.deckElement || current?.element?.closest?.('[data-turn-id-container]') || null;
+        const deckConnected = deckEl ? deckEl.isConnected : '(no deck found)';
+        const deckFingerprint = deckEl
+            ? (deckEl.hasAttribute('data-is-intersecting')
+                ? deckEl.getAttribute('data-is-intersecting')
+                : '(attribute absent — already considered ready)')
+            : '(no deck found)';
+        return `geometryElement.isConnected=${geometryIsConnected}, deck.isConnected=${deckConnected}, ` +
+            `deck data-is-intersecting=${deckFingerprint}`;
     }
 
     function describeCurrentForStop(current, readyContainer) {
@@ -2091,7 +2614,8 @@
             ` turnId=${current?.element ? (slabTurnId(current) || '(none)') : '(none)'}` +
             ` msgId=${current?.element ? (slabMessageId(current) || '(none)') : '(none)'}` +
             (rect ? ` rect=[top=${Math.round(rect.top)},bottom=${Math.round(rect.bottom)}]` : '') +
-            ` deckId=${deckSequenceId(readyContainer) || '(none)'}`;
+            ` deckId=${deckSequenceId(readyContainer) || '(none)'}` +
+            ` ${describeCurrentAttachment(current)}`;
     }
 
     // Mechanism A — is the deck found by findNextDeck actually loaded?
@@ -2770,38 +3294,6 @@
         return candidates;
     }
 
-    // room (pure layout geometry) settles essentially instantly after a
-    // move — it proves the scroll position changed, not that ChatGPT's own
-    // mount-on-approach logic has had any chance to react to what's now in
-    // view. This checks the one thing that's actually tied to rendering:
-    // whether any deck currently visible has not yet become one of the
-    // three real slab types. A blank deck is not a guessed-type candidate
-    // that merely lacks content yet — going through
-    // querySelectedSlabCandidates's section fallback and then checking its
-    // content fingerprint asks the wrong question (does this thing we
-    // already decided to call 'message' have message content), when the
-    // real question is simpler: has any real selector matched at all yet.
-    // While blank, a deck is not a message, canvas, or image in waiting —
-    // it's none of those; it gets REPLACED by one once rendering catches
-    // up, not gradually filled in as one. So this checks the three precise
-    // selectors directly, with no fallback and no fingerprint call.
-    function findBlankDeckInViewport(container) {
-        const viewTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-        const viewBottom = viewTop + (container === document.documentElement ? window.innerHeight : container.clientHeight);
-        for (const deckEl of queryDeckSequenceContainers()) {
-            const r = deckEl.getBoundingClientRect();
-            if (r.bottom <= viewTop || r.top >= viewBottom) continue; // not actually in the viewport
-            const hasRealSlab = deckEl.querySelector(
-                '[data-message-author-role], [id^="textdoc-message-"], .group\\/imagegen-image'
-            );
-            if (!hasRealSlab) {
-                const sectionEl = deckEl.matches('[data-turn]') ? deckEl : deckEl.querySelector('[data-turn]');
-                return { deckEl, sectionEl };
-            }
-        }
-        return null;
-    }
-
     const SLAB_LOOKAHEAD_PX = Math.max(
         SLAB_ADJACENCY_MAX_GAP + MIN_ONE_LINE_MESSAGE_HEIGHT,
         MIN_ONE_LINE_MESSAGE_HEIGHT * 2
@@ -2940,7 +3432,7 @@
                             `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure ` +
                             `or an extractor bug; see the exported diagnostics.${detail} ` +
                             `${describeMovesSinceEntry(entryDiag)}, ${describeIntersectingHistory(deckEl)}]*\n\n` +
-                            `${deckEl.outerHTML}\n\n`,
+                            `${captureElementHtmlReference('empty-container-selection', deckEl, deckEl.getAttribute('data-turn') || 'unknown', deckSequenceId(deckEl))}\n\n`,
                         plainText: '[Empty container]',
                         msgId: null,
                         turnId: deckSequenceId(deckEl) || null,
@@ -2994,30 +3486,33 @@
                 const waitedMs = Math.round(performance.now() - startedAt);
                 _perf.slabDiscoveryWait.timedOut++;
                 _perf.slabDiscoveryWait.maxWaitMs = Math.max(_perf.slabDiscoveryWait.maxWaitMs, waitedMs);
-                // A candidate that was found but never passed its own
-                // content fingerprint is evidence of a genuinely
-                // stuck/broken render — fatal, matching the original
-                // waitForSlabFinished behavior, not the ordinary
-                // "nothing here at all" case the 'note' placeholder
-                // already covers non-fatally above.
+                // A candidate that was found but never passes its own
+                // content fingerprint within the same patience every other
+                // slab gets is a valid empty slab, not a reason to stop the
+                // whole run — the same outcome the 'note' placeholder above
+                // already covers for "nothing here at all", just reached
+                // after waiting instead of immediately. Note it and
+                // proceed exactly like that case: current advances past it.
                 const next = selection.slab;
-                const message =
-                    `Timed out waiting for slab finish fingerprint for type=${next.type} role=${slabRole(next)} ` +
-                    `turnId=${slabTurnId(next) || '(none)'}: last=${fp.reason}, summary=${JSON.stringify(fp.summary)}`;
-                const err = new Error(message);
-                // Captured at the moment of timeout, not after — this is the
-                // one chance to see the exact element state that produced
-                // the dead fingerprint, before the run stops. run()'s catch
-                // inserts this at the current position in the markdown, the
-                // same way the non-fatal placeholders above do.
-                err.placeholder = {
-                    role: slabRole(next),
-                    text: `*[${message}]*\n\n${next.element.outerHTML}\n\n`,
-                    plainText: '[Timed out waiting for slab finish fingerprint]',
-                    msgId: null,
-                    turnId: slabTurnId(next) || null,
+                return {
+                    kind: 'note',
+                    slab: {
+                        type: 'note',
+                        element: next.element,
+                        geometryElement: next.geometryElement,
+                        note: {
+                            role: slabRole(next),
+                            text: `*[Empty slab — selector found a ${next.type}/${slabRole(next)} slab ` +
+                                `(turnId=${slabTurnId(next) || 'unknown'}), but it never passed its own content ` +
+                                `fingerprint within ${Math.round(timeoutMs / 1000)}s: last=${fp.reason}, ` +
+                                `summary=${JSON.stringify(fp.summary)}]*\n\n` +
+                                `${captureElementHtmlReference('empty-slab-fingerprint-timeout', next.element, slabRole(next), slabTurnId(next))}\n\n`,
+                            plainText: '[Empty slab]',
+                            msgId: slabMessageId(next) || null,
+                            turnId: slabTurnId(next) || null,
+                        },
+                    },
                 };
-                throw err;
             }
             onTick?.();
             await sleep(SLAB_FINISH_POLL_MS);
@@ -3211,6 +3706,10 @@
         _imageCounter = 0;
         _pendingCanvasDownloads = [];
         _canvasCounter = 0;
+        _htmlCaptures = [];
+        _knownUnresolvableSandwichedTurnIds = new Set();
+        _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
+        _workZoneCleanJumpStreak = 0;
         _reportedAllowlistedSlabItems = new WeakSet();
         _reportedUnlistedSlabItems = new WeakSet();
         _watchedImageSrcHistory = new WeakSet();
@@ -3527,6 +4026,17 @@
                 }
             }
             readyContainer = targetDeck;
+            // One capture per deck, here, at the moment it's confirmed
+            // ready and entered — the main source of entries in the
+            // separate .html export (see _htmlCaptures), matching the
+            // markdown's own one-deck-at-a-time walk so the two exports
+            // stay roughly parallel in density/coverage.
+            const entrySectionEl = targetDeck.matches('[data-turn]') ? targetDeck : targetDeck.querySelector('[data-turn]');
+            pushHtmlCaptures('deck-entry', [{
+                turnId: deckSequenceId(targetDeck) || '(none)',
+                role: entrySectionEl?.getAttribute('data-turn') || targetDeck.getAttribute('data-turn') || 'unknown',
+                html: trimmedCaptureHtml(entrySectionEl || targetDeck),
+            }]);
             containerEntryY = containerNearEdge(readyContainer);
             current = makeDeckEntryCurrent(readyContainer);
             containerSlabRanges = [];
@@ -3556,6 +4066,9 @@
             // deviation — never roomSatisfied:false without boundaryReached,
             // so there's nothing left to retry here.
             const zoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+            if (zoneStatus.jumpsTaken > 0) {
+                ui.log(`  work-zone move: ${zoneStatus.jumpsTaken} step(s), outcome=${zoneStatus.outcome}`);
+            }
             if (!zoneStatus.roomSatisfied) {
                 if (ui.total > 0 && countPrompts(allPrompts) < ui.total) {
                     const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
@@ -3605,6 +4118,9 @@
                     if (placeholder) insertMsg(placeholder);
                     current = makeDeckExitCurrent(readyContainer);
                     const exitZoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+                    if (exitZoneStatus.jumpsTaken > 0) {
+                        ui.log(`  work-zone move (deck exit): ${exitZoneStatus.jumpsTaken} step(s), outcome=${exitZoneStatus.outcome}`);
+                    }
                     if (!exitZoneStatus.roomSatisfied) {
                         if (ui.total > 0 && countPrompts(allPrompts) < ui.total) {
                             const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
@@ -3652,8 +4168,8 @@
                 // On a large, still-resolving conversation, upstream placeholders
                 // can correct while we walk toward it, leaving it permanently
                 // out of reach in the one direction we ever scroll (observed
-                // live: 73 steps, target.top never shrank — it had drifted to
-                // the wrong side of the viewport entirely). Re-deriving the
+                // live: 73 steps, target.top never shrank — the target had
+                // moved to the wrong side of the viewport entirely). Re-deriving the
                 // candidate fresh and retrying handles that, instead of
                 // committing to one possibly-stale pick.
                 const MAX_NEXT_DECK_RETRIES = 3;
@@ -3847,7 +4363,7 @@
 
         const _totalMs = performance.now() - _perf.runStartMs;
         const _sleepMs = _totalMs - _perf.htmlToMarkdownMs;
-        ui.log('── perf (v4.133) ──');
+        ui.log('── perf (v4.158) ──');
         ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`${countPrompts(allPrompts)} prompts saved (${allPrompts.length} msgs total).`);
@@ -3903,8 +4419,26 @@
             `Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}`
         );
         ui.log(
-            `Blank fingerprint (not-yet-ready state captured at first sight, before any wait): ${_perf.blankFingerprint.count}`
+            `Work-zone jump pacing: jumps=${_perf.workZoneJumpStability.jumps}, stability-checks=${_perf.workZoneJumpStability.steps}, waited=${_perf.workZoneJumpStability.waitedFrames}, ` +
+            `capped-out=${_perf.workZoneJumpStability.timedOut}, maxFramesWaited=${_perf.workZoneJumpStability.maxFramesWaited}, ` +
+            `avgJump=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpPxSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
+            `avgJumpTime=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpMsSum / _perf.workZoneJumpStability.jumps) : 0}ms, ` +
+            `avgTimePer120px=${_perf.workZoneJumpStability.jumpPxSum ? Math.round(_perf.workZoneJumpStability.jumpMsSum / (_perf.workZoneJumpStability.jumpPxSum / 120)) : 0}ms, ` +
+            `maxJump=${_perf.workZoneJumpStability.maxJumpPx}px, jumpsAtMax=${_perf.workZoneJumpStability.jumpsAtMax}, ` +
+            `minFloorApplied=${_perf.workZoneJumpStability.minFloorApplied}, ` +
+            `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, ` +
+            `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}`
         );
+        ui.log(
+            `Sandwiched-empty-slab readiness failure signal: seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, ` +
+            `capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}`
+        );
+        if (_perf.workZoneJumpStability.sandwichedEmptySeen > 0) {
+            ui.log(
+                `⚠ SANDWICHED EMPTY SLAB DETECTED — browser/layout stability was not enough to prove ChatGPT-level readiness; ` +
+                `the jump + stability approach needs a readiness patch.`
+            );
+        }
         ui.log(
             `Container coverage: ${_perf.containerCoverage.checks} checked, ${_perf.containerCoverage.gaps} gap(s), ` +
             `${_perf.containerCoverage.zeroSlabDecks} zero-slab deck(s) (placeholder inserted, not fatal — see exported diagnostics)`
@@ -3967,7 +4501,7 @@
         });
 
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v4.133',
+            innerText: 'ChatGPT Extractor v4.158',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
 
@@ -3991,7 +4525,8 @@
         const msgsEl = Object.assign(document.createElement('div'), { innerText: 'All msgs : —' });
         const containersEl = Object.assign(document.createElement('div'), { innerText: 'Containers advanced : —' });
         const viewportsEl = Object.assign(document.createElement('div'), { innerText: 'Viewport moves : —' });
-        statusEl.append(elapsedEl, promptsEl, msgsEl, containersEl, viewportsEl);
+        const jumpsEl = Object.assign(document.createElement('div'), { innerText: 'Work-zone jumps : —' });
+        statusEl.append(elapsedEl, promptsEl, msgsEl, containersEl, viewportsEl, jumpsEl);
 
         const logEl = document.createElement('div');
         Object.assign(logEl.style, {
@@ -4117,7 +4652,7 @@
             total: 0,
             get includeDiag() { return diagCheck.checked; },
             isAutoStart: _autoStartOnce,
-            status(promptCount, msgCount, containerCount, viewportCount) {
+            status(promptCount, msgCount, containerCount, viewportCount, jumpCount = _perf.workZoneJumpStability.jumps) {
                 // this.total is the nav-dot count — a count of prompts, not
                 // messages — so only the prompt line has a meaningful
                 // percentage to show against it.
@@ -4128,9 +4663,10 @@
                 msgsEl.innerText       = `All msgs : ${msgCount}`;
                 containersEl.innerText = `Containers advanced : ${containerCount}`;
                 viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
+                jumpsEl.innerText      = `Work-zone jumps : ${jumpCount}`;
                 updateElapsed();
                 console.log(`[Extractor] STATUS: prompts ${fmt(promptCount)} | msgs ${msgCount} | ` +
-                    `containers ${containerCount} | viewport moves ${viewportCount}`);
+                    `containers ${containerCount} | viewport moves ${viewportCount} | work-zone jumps ${jumpCount}`);
             },
             log(msg) {
                 updateElapsed();

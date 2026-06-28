@@ -47,6 +47,12 @@ The work zone is the activation window where ChatGPT's rendering systems can pre
 
 ChatGPT's lazy-loading and rendering systems react to deck regions entering this work zone. The extractor can move the work zone by scrolling, but it does not directly control those systems.
 
+The extractor assumes that the Supplier and its external workers are not reliable under a single large jump of the work zone. ChatGPT's rendering pipeline appears to be designed around ordinary incremental scrolling: each newly exposed region gets a chance to mount, measure, and trigger its own readiness work before the next region is exposed. A large jump can land the work zone inside territory whose intermediate decks were never properly activated, leaving both the extractor and ChatGPT's own virtualizer with an incomplete supply surface.
+
+This applies specifically to the extractor's ordinary scripted scrolling (`scrollTop` / `scrollTo`). It should not be confused with ChatGPT or browser navigation paths such as clicking a conversation navigation item or using the scrollbar. Those actions may use different anchoring or reconstruction behavior. They are a different Supplier service, not merely the same work-zone movement with a larger distance.
+
+For that reason, work-zone movement is modeled as a sequence of small jumps. After each jump, the foreman waits for local stability before asking the Supplier for the next measurements. Browser/layout stability is necessary but not sufficient: diagnostics such as a sandwiched-empty slab mean the browser frame has settled while ChatGPT-level slab readiness has not. Such a case is a readiness failure signal, not proof that the deck is truly empty.
+
 The work zone provides:
 
 - visible top and bottom boundaries;
