@@ -109,7 +109,7 @@ For the more precise DOM/deck/slab architecture, see [`ARCHITECTURE.md`](ARCHITE
 The extractor can be understood as a **foreman** building a walkway from individual slabs while consulting a **supplier**.
 
 * **Slabs** are ChatGPT messages (user and assistant prompts). They are the pieces that are extracted and assembled into the final transcript.
-* **Anchors** are the survey markers driven into the ground at the start of each slab. An anchor is a *point*, not the slab itself — it tells the foreman where a slab begins, but has no width or area of its own.
+* **Message slab selectors** identify ordinary message slabs. In the currently observed DOM, `[data-message-author-role]` selects the message element that is extracted and captured for diagnostics.
 * **Deck sections** are ChatGPT's internal lazy-loaded containers. They are not part of the transcript; they are structural units used by ChatGPT to manage the DOM.
 * **The work zone** is the viewport area where ChatGPT's loading and rendering systems can prepare deck sections.
 * **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. It answers operational questions about currently available measurements, deck readiness, slab candidates, and slab readiness.
@@ -118,7 +118,7 @@ The foreman's job is simple: build the walkway by repeatedly asking the supplier
 
 The supplier only exposes a changing, partial supply surface. The foreman cannot rely on a complete stable plan of the conversation; it only keeps the current working state, the current slab cursor, and the walkway already built.
 
-Because anchors are identifiers rather than regions, reasoning about their position is usually more reliable than reasoning about their extent. Questions about whether an anchor "covers" or "spans" part of the DOM are usually better reformulated in terms of the slab that begins at that anchor.
+Other slab types, such as generated images and Canvas/textdoc blocks, need their own selectors. They should not be forced into the ordinary-message selector model.
 
 The difficulty is that some slabs are located on deck sections that have not yet been prepared by ChatGPT's rendering systems. The extractor cannot force a section to become ready. It can only:
 
@@ -129,7 +129,7 @@ The difficulty is that some slabs are located on deck sections that have not yet
 
 The foreman also assumes that the work zone cannot be teleported safely. The supplier depends on external workers that appear to respond reliably to ordinary incremental scrolling, not to one large jump into unprepared territory. A large jump can skip the intermediate activation work that ChatGPT's virtualized renderer expects. Therefore the extractor moves the work zone in small jumps and checks local stability between jumps.
 
-This warning is about the extractor's scripted scroll movement. It does not mean every large viewport change is equivalent. Clicking a conversation navigation item or using the scrollbar may invoke different ChatGPT/browser anchoring behavior. In the analogy, that is a different supplier service, not simply the foreman taking a larger step.
+This warning is about the extractor's scripted scroll movement. It does not mean every large viewport change is equivalent. Clicking a conversation navigation item or using the scrollbar may invoke different ChatGPT/browser positioning behavior. In the analogy, that is a different supplier service, not simply the foreman taking a larger step.
 
 That stability check is only a browser/layout signal. If the extractor observes a sandwiched-empty deck section — an apparently empty section between neighboring real slab sections — that is treated as evidence that browser stability was not enough and ChatGPT-level readiness still needs a better fingerprint.
 
