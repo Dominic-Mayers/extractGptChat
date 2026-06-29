@@ -164,7 +164,7 @@
             slabDiscoveryWait: { waited: 0, alreadyReady: 0, resolvedAfterWait: 0, timedOut: 0, maxWaitMs: 0 },
             // Dedicated, independently-lived observers (see
             // watchForToComeFingerprint) attached the instant a turn is
-            // found anchorless-and-imageless at the moment it's declared
+            // found without a message element or image at the moment it's declared
             // ready. Unlike _activeLifecycleObserver (replaced/disconnected
             // the moment the walk moves to the next container, ~1s after
             // ready in the retry-loop case), these keep running independent
@@ -214,9 +214,9 @@
      * Falls back to document.documentElement if nothing suitable is found.
      */
     function findScrollContainer() {
-        const anchor = document.querySelector('[data-message-author-role]');
-        if (anchor) {
-            let el = anchor.parentElement;
+        const messageEl = document.querySelector('[data-message-author-role]');
+        if (messageEl) {
+            let el = messageEl.parentElement;
             while (el && el !== document.body) {
                 const { overflowY } = getComputedStyle(el);
                 if ((overflowY === 'auto' || overflowY === 'scroll') &&
@@ -325,7 +325,7 @@
             // Screen-reader-only labels (e.g. "ChatGPT said:" before an
             // image-generation turn) sit as siblings inside the turn section
             // itself, not inside [data-message-author-role] — invisible to
-            // every extraction that targeted the narrower anchor, but a real
+            // every extraction that targeted the narrower message element, but a real
             // leak now that image-only turns are extracted from their
             // section as a whole.
             if (/\bsr-only\b/.test(node.getAttribute('class') || '')) return '';
@@ -644,7 +644,7 @@
                   `canvas extracted=${_perf.canvasBlocks.extracted}, canvas markdown-empty=${_perf.canvasBlocks.markdownEmpty}\n`
                 + `    Geometry/model: deck-gap-violations=${_perf.containerGapViolations}, `
                   + `container-coverage-gaps=${_perf.containerCoverage.gaps}, slab-adjacency-violations=${_perf.slabAdjacency.violations}, `
-                  + `model anchor-gaps=${_perf.readyContainerModel.messageGapViolations}, unknown slab items=${_perf.readyContainerModel.unknownSlabItems}\n`
+                  + `model message-gaps=${_perf.readyContainerModel.messageGapViolations}, unknown slab items=${_perf.readyContainerModel.unknownSlabItems}\n`
                 + `    Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}` +
                   (_perf.workZoneRoomShortfall.examples.length
                       ? `\n      ${_perf.workZoneRoomShortfall.examples.join('\n      ')}`
@@ -1096,8 +1096,8 @@
     // for all of its vertical space." Anything occupying real space inside
     // a container that no extracted slab's rect touches is direct, structural
     // proof something was missed — regardless of what it turns out to be.
-    // Catches the canvas-block case (a mixed container with one anchored
-    // slab and one anchorless block we never registered as a candidate at
+    // Catches the canvas-block case (a mixed container with one ordinary
+    // message slab and one non-message block we never registered as a candidate at
     // all) the same way it would catch any future content type we haven't
     // even seen yet, without needing to special-case any of them.
     //
@@ -1440,19 +1440,14 @@
     // This captures the richer per-message signature so the comparison can
     // catch that gap instead of just text length.
     function summarizeMessageStructure(el, container) {
-        // [data-message-author-role] is an anchor — a point marking where a
-        // message starts — not necessarily the area holding everything
-        // visually part of it. Text happens to nest inside the anchor's own
-        // subtree (which is why text extraction has always worked), but a
-        // media element positioned absolutely can render as a sibling
-        // outside that subtree entirely, invisible to a search scoped to
-        // the anchor. The container is the actual content area. Only trusted
-        // when the container holds exactly one message, though: attributing
-        // an image to the right one of several messages in a shared
-        // container would need the same geometric reasoning used by the
-        // successor search — deferred rather
-        // than guessed at here, so the multi-message case falls back to the
-        // anchor-scoped search (undercounts there, but doesn't miscount).
+        // [data-message-author-role] is the extraction scope for ordinary
+        // message slabs, not just a point marker. Images are treated more
+        // cautiously here because ChatGPT can expose generated-image content
+        // as a separate slab type or as nearby deck content. If a container
+        // holds exactly one message, it is safe to include container images
+        // in that message's readiness signature; otherwise, attributing an
+        // image to the right message would need geometric reasoning and is
+        // intentionally not guessed here.
         const imageScope = imageScopeFor(el, container);
         return {
             textLen: el.innerText.length,
@@ -1647,7 +1642,7 @@
                 // text alone would silently exclude exactly the messages most
                 // likely to actually contain an image — never registering
                 // them as candidates, regardless of how many images they have.
-                // Same anchor-vs-container scoping as summarizeMessageStructure:
+                // Same message-element-vs-container scoping as summarizeMessageStructure:
                 // only trusted for a single-message container, since that's
                 // the only case where "an image exists somewhere in here"
                 // unambiguously means "this message has an image".
@@ -1673,7 +1668,7 @@
             }
         }
         // Diagnostic only: image-generation turns carry no ordinary message
-        // anchor, so snapshot the containing turn section separately. Runtime
+        // element, so snapshot the containing turn section separately. Runtime
         // selection no longer uses this broad scope; it directly selects
         // `.group/imagegen-image` slabs.
         if (turnEl.querySelectorAll('[data-message-author-role]').length === 0) {
@@ -1724,7 +1719,7 @@
         });
         _activeLifecycleObserver = obs;
     }
-    // Attached the instant a turn is found anchorless (no
+    // Attached the instant a turn is found without an ordinary message element (no
     // [data-message-author-role]) and imageless (no <img> yet) at the exact
     // moment its container is declared ready — i.e. exactly the precondition
     // that produced the original silent-drop bug. Deliberately a separate
@@ -1955,7 +1950,7 @@
             }
         }
         if (_activeLifecycleTurnEl && _activeLifecycleTurnEl.isConnected) {
-            // Same multi-turn-per-container fix as the anchorless candidate
+            // Same multi-turn-per-container fix as the non-message candidate
             // registration above — querySelector (singular) would watch only
             // the first [data-turn] section, silently missing a sibling.
             // This is not hypothetical: it's the likely reason the first
@@ -2675,20 +2670,20 @@
         return heights.length ? Math.min(...heights) : SLAB_ADJACENCY_MAX_GAP;
     }
 
-    function slabStackForAnchor(anchor) {
-        const scope = anchor.closest('[data-conversation-screenshot-content]');
+    function slabStackForMessageElement(messageEl) {
+        const scope = messageEl.closest('[data-conversation-screenshot-content]');
         if (!scope) return null;
-        return [...scope.children].find(child => child.contains(anchor)) || null;
+        return [...scope.children].find(child => child.contains(messageEl)) || null;
     }
 
-    function slabItemForAnchor(anchor) {
-        const stack = slabStackForAnchor(anchor);
+    function slabItemForMessageElement(messageEl) {
+        const stack = slabStackForMessageElement(messageEl);
         if (!stack) return null;
-        return [...stack.children].find(child => child.contains(anchor)) || null;
+        return [...stack.children].find(child => child.contains(messageEl)) || null;
     }
 
-    function slabScopeForMessageAnchor(el) {
-        return slabItemForAnchor(el) || el;
+    function slabScopeForMessageElement(el) {
+        return slabItemForMessageElement(el) || el;
     }
 
     function rectSummary(rect) {
@@ -2707,14 +2702,14 @@
             (el.className ? ` class="${String(el.className).slice(0, 80)}"` : '');
     }
 
-    function describeSlabScopeCandidatesForAnchor(anchor, stopAt) {
+    function describeSlabScopeCandidatesForMessageElement(messageEl, stopAt) {
         const out = [];
-        for (let el = anchor, depth = 0; el && depth < 8; el = el.parentElement, depth++) {
+        for (let el = messageEl, depth = 0; el && depth < 8; el = el.parentElement, depth++) {
             const rect = el.getBoundingClientRect();
             const messageCount = el.matches('[data-message-author-role]')
                 ? 1
                 : el.querySelectorAll('[data-message-author-role]').length;
-            const marker = el === anchor ? 'anchor' : (el === stopAt ? 'readyContainer' : `ancestor+${depth}`);
+            const marker = el === messageEl ? 'messageElement' : (el === stopAt ? 'readyContainer' : `ancestor+${depth}`);
             out.push(
                 `${marker}:${elementSignature(el)}, rect=[${rectSummary(rect)}], messages=${messageCount}`
             );
@@ -2724,9 +2719,9 @@
     }
 
     function classifySlabItem(el) {
-        if (el.matches('[data-message-author-role]')) return el.getAttribute('data-message-author-role') || 'message-anchor';
-        const anchored = el.querySelector('[data-message-author-role]');
-        if (anchored) return anchored.getAttribute('data-message-author-role') || 'contains-message-anchor';
+        if (el.matches('[data-message-author-role]')) return el.getAttribute('data-message-author-role') || 'message';
+        const messageEl = el.querySelector('[data-message-author-role]');
+        if (messageEl) return messageEl.getAttribute('data-message-author-role') || 'contains-message';
         if (el.querySelector('[id^="textdoc-message-"], #prosemirror-editor-container, .ProseMirror')) return 'textdoc/canvas';
         if (el.querySelector('.group\\/imagegen-image, [data-testid^="image-gen-"], img')) return 'image';
         if (el.matches('.group\\/tool-message') || el.querySelector('.group\\/tool-message')) return 'tool-message';
@@ -2769,9 +2764,9 @@
             `/${elementSignature(el)}/rect=[${rectSummary(rect)}]/${deckIdNote}`;
     }
 
-    function describeSiblingSlabItemsInRange(anchor, top, bottom) {
-        const stack = slabStackForAnchor(anchor);
-        const anchorSlab = slabItemForAnchor(anchor);
+    function describeSiblingSlabItemsInRange(messageEl, top, bottom) {
+        const stack = slabStackForMessageElement(messageEl);
+        const messageSlab = slabItemForMessageElement(messageEl);
         if (!stack) return 'stack=(none)';
         const items = [...stack.children]
             .map((el, i) => {
@@ -2779,7 +2774,7 @@
                 const overlap = Math.min(rect.bottom, bottom) - Math.max(rect.top, top);
                 return { el, i, rect, overlap };
             })
-            .filter(item => item.el !== anchorSlab && item.overlap > SMALL_EXTRA)
+            .filter(item => item.el !== messageSlab && item.overlap > SMALL_EXTRA)
             .sort((a, b) => b.overlap - a.overlap);
         const stackRect = stack.getBoundingClientRect();
         return `stackRect=[${rectSummary(stackRect)}], stackChildren=${stack.children.length}, ` +
@@ -2803,12 +2798,12 @@
             }
             const r = readyContainer.getBoundingClientRect();
             const firstRect = firstEl.getBoundingClientRect();
-            const firstScopeRect = slabScopeForMessageAnchor(firstEl).getBoundingClientRect();
+            const firstScopeRect = slabScopeForMessageElement(firstEl).getBoundingClientRect();
             const secondRect = secondEl?.getBoundingClientRect();
-            const secondScopeRect = secondEl ? slabScopeForMessageAnchor(secondEl).getBoundingClientRect() : null;
+            const secondScopeRect = secondEl ? slabScopeForMessageElement(secondEl).getBoundingClientRect() : null;
             let recheckedGap;
-            if (kind === 'top-anchor-inset') recheckedGap = firstRect.top - r.top;
-            else if (kind === 'bottom-anchor-inset') recheckedGap = r.bottom - firstRect.bottom;
+            if (kind === 'top-message-inset') recheckedGap = firstRect.top - r.top;
+            else if (kind === 'bottom-message-inset') recheckedGap = r.bottom - firstRect.bottom;
             else recheckedGap = secondRect.top - firstRect.bottom;
             const delta = recheckedGap - initialGap;
             _perf.readyContainerModel.delayedRechecksResolved++;
@@ -2817,9 +2812,9 @@
                 _perf.readyContainerModel.delayedRecheckExamples.push(
                     `${label} → after 500ms ${Math.round(recheckedGap)}px (Δ${Math.round(delta)}px), ` +
                     `containerRect=[${rectSummary(r)}], ` +
-                    `firstAnchorRect=[${rectSummary(firstRect)}], ` +
+                    `firstMessageRect=[${rectSummary(firstRect)}], ` +
                     `firstSlabScopeRect=[${rectSummary(firstScopeRect)}]` +
-                    (secondRect ? `, secondAnchorRect=[${rectSummary(secondRect)}]` : '') +
+                    (secondRect ? `, secondMessageRect=[${rectSummary(secondRect)}]` : '') +
                     (secondScopeRect ? `, secondSlabScopeRect=[${rectSummary(secondScopeRect)}]` : '')
                 );
             }
@@ -2857,7 +2852,7 @@
                     _perf.readyContainerModel.containmentViolations++;
                     if (_perf.readyContainerModel.examples.length < 10) {
                         _perf.readyContainerModel.examples.push(
-                            `containment: anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
+                            `containment: message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
                             `not fully inside container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
                             `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
                             `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
@@ -2868,7 +2863,7 @@
                 _perf.readyContainerModel.overlappingNonMembers++;
                 if (_perf.readyContainerModel.examples.length < 10) {
                     _perf.readyContainerModel.examples.push(
-                        `overlap-nonmember: anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
+                        `overlap-nonmember: message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
                         `overlaps container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}] by ${Math.round(overlapPx)}px ` +
                         `but probe=${Math.round(probe)} is outside; ` +
                         `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
@@ -2885,7 +2880,7 @@
                 const er = el.getBoundingClientRect();
                 _perf.readyContainerModel.examples.push(
                     `dom-only-member: message is a DOM descendant but its probe is outside readyContainer; ` +
-                    `anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
+                    `message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
                     `container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
                     `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
                     `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
@@ -2899,7 +2894,7 @@
                 const er = el.getBoundingClientRect();
                 _perf.readyContainerModel.examples.push(
                     `probe-only-member: message probe is inside readyContainer but it is not a DOM descendant; ` +
-                    `anchor rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
+                    `message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
                     `container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
                     `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
                     `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
@@ -2960,8 +2955,8 @@
                     containerTurnId,
                     gap: Math.round(topGap),
                     containerRect: rectSummary(r),
-                    anchorRect: rectSummary(members[0].rect),
-                    slabScopeRect: rectSummary(slabScopeForMessageAnchor(members[0].el).getBoundingClientRect()),
+                    messageRect: rectSummary(members[0].rect),
+                    slabScopeRect: rectSummary(slabScopeForMessageElement(members[0].el).getBoundingClientRect()),
                     memberCount: members.length,
                 };
             }
@@ -2973,14 +2968,14 @@
                     containerTurnId,
                     gap: Math.round(bottomGap),
                     containerRect: rectSummary(r),
-                    anchorRect: rectSummary(members[members.length - 1].rect),
-                    slabScopeRect: rectSummary(slabScopeForMessageAnchor(members[members.length - 1].el).getBoundingClientRect()),
+                    messageRect: rectSummary(members[members.length - 1].rect),
+                    slabScopeRect: rectSummary(slabScopeForMessageElement(members[members.length - 1].el).getBoundingClientRect()),
                     memberCount: members.length,
                 };
             }
             if (topGap >= edgeGapThreshold) {
                 _perf.readyContainerModel.topEdgeViolations++;
-                scheduleReadyContainerGapRecheck('top-anchor-inset', readyContainer, members[0].el, null, topGap, edgeGapThreshold, containerTurnId);
+                scheduleReadyContainerGapRecheck('top-message-inset', readyContainer, members[0].el, null, topGap, edgeGapThreshold, containerTurnId);
                 if (_perf.readyContainerModel.examples.length < 10) {
                     const gapTop = r.top;
                     const gapBottom = members[0].rect.top;
@@ -3039,13 +3034,13 @@
                           `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)},height=${Math.round(item.rect.height)}]`
                         : '(none)';
                     _perf.readyContainerModel.examples.push(
-                        `top-anchor-inset: ${Math.round(topGap)}px before first message anchor in readyContainer ` +
+                        `top-message-inset: ${Math.round(topGap)}px before first message slab in readyContainer ` +
                         `(threshold=${Math.round(edgeGapThreshold)}px); ` +
                         `firstMsgId=${members[0].el.getAttribute('data-message-id') || '(none)'}, ` +
                         `readyContainerTurnId=${containerTurnId}, ` +
                         `containerRect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}], ` +
-                        `firstAnchorRect=[top=${Math.round(members[0].rect.top)},bottom=${Math.round(members[0].rect.bottom)}], ` +
-                        `firstSlabScopeRect=[${rectSummary(slabScopeForMessageAnchor(members[0].el).getBoundingClientRect())}], ` +
+                        `firstMessageRect=[top=${Math.round(members[0].rect.top)},bottom=${Math.round(members[0].rect.bottom)}], ` +
+                        `firstSlabScopeRect=[${rectSummary(slabScopeForMessageElement(members[0].el).getBoundingClientRect())}], ` +
                         `memberCount=${members.length}, ` +
                         `gapOccupantCount=${gapOccupants.length}, ` +
                         `nearestGapOccupant=${describeGapMessage(gapOccupants[0])}, ` +
@@ -3059,28 +3054,28 @@
                             ? `id=${ancestorContainers[0].id}, rect=[top=${Math.round(ancestorContainers[0].rect.top)},bottom=${Math.round(ancestorContainers[0].rect.bottom)},height=${Math.round(ancestorContainers[0].rect.height)}]`
                             : '(none)'}, ` +
                         `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[0].el, gapTop, gapBottom)}, ` +
-                        `slabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[0].el, readyContainer)}`
+                        `slabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[0].el, readyContainer)}`
                     );
-                    rememberModelExampleMsgId('top-anchor-inset first', members[0].el.getAttribute('data-message-id'));
+                    rememberModelExampleMsgId('top-message-inset first', members[0].el.getAttribute('data-message-id'));
                 }
             }
             if (bottomGap >= edgeGapThreshold) {
                 _perf.readyContainerModel.bottomEdgeViolations++;
-                scheduleReadyContainerGapRecheck('bottom-anchor-inset', readyContainer, members[members.length - 1].el, null, bottomGap, edgeGapThreshold, containerTurnId);
+                scheduleReadyContainerGapRecheck('bottom-message-inset', readyContainer, members[members.length - 1].el, null, bottomGap, edgeGapThreshold, containerTurnId);
                 if (_perf.readyContainerModel.examples.length < 10) {
                     _perf.readyContainerModel.examples.push(
-                        `bottom-anchor-inset: ${Math.round(bottomGap)}px after last message anchor in readyContainer ` +
+                        `bottom-message-inset: ${Math.round(bottomGap)}px after last message slab in readyContainer ` +
                         `(threshold=${Math.round(edgeGapThreshold)}px); ` +
                         `lastMsgId=${members[members.length - 1].el.getAttribute('data-message-id') || '(none)'}, ` +
                         `readyContainerTurnId=${containerTurnId}, ` +
                         `containerRect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}], ` +
-                        `lastAnchorRect=[top=${Math.round(members[members.length - 1].rect.top)},bottom=${Math.round(members[members.length - 1].rect.bottom)}], ` +
-                        `lastSlabScopeRect=[${rectSummary(slabScopeForMessageAnchor(members[members.length - 1].el).getBoundingClientRect())}], ` +
+                        `lastMessageRect=[top=${Math.round(members[members.length - 1].rect.top)},bottom=${Math.round(members[members.length - 1].rect.bottom)}], ` +
+                        `lastSlabScopeRect=[${rectSummary(slabScopeForMessageElement(members[members.length - 1].el).getBoundingClientRect())}], ` +
                         `memberCount=${members.length}, ` +
                         `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[members.length - 1].el, members[members.length - 1].rect.bottom, r.bottom)}, ` +
-                        `slabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[members.length - 1].el, readyContainer)}`
+                        `slabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[members.length - 1].el, readyContainer)}`
                     );
-                    rememberModelExampleMsgId('bottom-anchor-inset last', members[members.length - 1].el.getAttribute('data-message-id'));
+                    rememberModelExampleMsgId('bottom-message-inset last', members[members.length - 1].el.getAttribute('data-message-id'));
                 }
             }
         }
@@ -3089,20 +3084,20 @@
             if (gap > _perf.readyContainerModel.maxMessageGap) _perf.readyContainerModel.maxMessageGap = gap;
             if (gap >= messageGapThreshold) {
                 _perf.readyContainerModel.messageGapViolations++;
-                scheduleReadyContainerGapRecheck('anchor-gap', readyContainer, members[i - 1].el, members[i].el, gap, messageGapThreshold, containerTurnId);
+                scheduleReadyContainerGapRecheck('message-gap', readyContainer, members[i - 1].el, members[i].el, gap, messageGapThreshold, containerTurnId);
                 if (_perf.readyContainerModel.examples.length < 10) {
                     _perf.readyContainerModel.examples.push(
-                        `anchor-gap: ${Math.round(gap)}px between adjacent message anchors in readyContainer ` +
+                        `message-gap: ${Math.round(gap)}px between adjacent message slabs in readyContainer ` +
                         `(threshold=${Math.round(messageGapThreshold)}px); ` +
                         `prevMsgId=${members[i - 1].el.getAttribute('data-message-id') || '(none)'}, ` +
                         `nextMsgId=${members[i].el.getAttribute('data-message-id') || '(none)'}, ` +
                         `readyContainerTurnId=${containerTurnId}, ` +
                         `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[i].el, members[i - 1].rect.bottom, members[i].rect.top)}, ` +
-                        `prevSlabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[i - 1].el, readyContainer)}, ` +
-                        `nextSlabScopeCandidates=${describeSlabScopeCandidatesForAnchor(members[i].el, readyContainer)}`
+                        `prevSlabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[i - 1].el, readyContainer)}, ` +
+                        `nextSlabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[i].el, readyContainer)}`
                     );
-                    rememberModelExampleMsgId('anchor-gap prev', members[i - 1].el.getAttribute('data-message-id'));
-                    rememberModelExampleMsgId('anchor-gap next', members[i].el.getAttribute('data-message-id'));
+                    rememberModelExampleMsgId('message-gap prev', members[i - 1].el.getAttribute('data-message-id'));
+                    rememberModelExampleMsgId('message-gap next', members[i].el.getAttribute('data-message-id'));
                 }
             }
         }
@@ -3533,7 +3528,7 @@
         // conversation already treats a generated image instead of inlining
         // a potentially huge nested document into the surrounding
         // conversation flow. Checked first and returns early — canvas
-        // elements never go through the ordinary anchor-based path below
+        // elements never go through the ordinary message-based path below
         // (no data-message-id of their own). The outer canvas also contains
         // title and action controls, so serialization targets the mounted
         // ProseMirror content surface rather than the shell.
@@ -4233,7 +4228,7 @@
                         .join('\n');
                     stopReason = `Advanced through ${advancesWithoutProgress} decks with no matching slab. ` +
                         `Last deck rect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}]. ` +
-                        `Current (last confirmed) anchor rect=[top=${Math.round(curR.top)},bottom=${Math.round(curR.bottom)}]. ` +
+                        `Current (last confirmed) message rect=[top=${Math.round(curR.top)},bottom=${Math.round(curR.bottom)}]. ` +
                         (closest
                             ? `Closest of ${allMsgs.length} [data-message-author-role] elements: rect=[top=${Math.round(closest.top)},bottom=${Math.round(closest.bottom)}], distance=${Math.round(closestDist)}px from deck range.`
                             : `No [data-message-author-role] elements found in the document at all.`) +
@@ -4368,7 +4363,7 @@
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`${countPrompts(allPrompts)} prompts saved (${allPrompts.length} msgs total).`);
         ui.log(
-            `Ready-container nearby anchors outside deck: ${_perf.readyContainerProbeMisses.count} overlapping/near ` +
+            `Ready-container nearby message slabs outside deck: ${_perf.readyContainerProbeMisses.count} overlapping/near ` +
             `(overlapping=${_perf.readyContainerProbeMisses.overlapping}, near-only=${_perf.readyContainerProbeMisses.nearOnly}, ` +
             `above=${_perf.readyContainerProbeMisses.above}, below=${_perf.readyContainerProbeMisses.below})`
         );
@@ -4378,9 +4373,9 @@
             `overlap-nonmember=${_perf.readyContainerModel.overlappingNonMembers}, ` +
             `dom-only=${_perf.readyContainerModel.domOnlyMembers}, ` +
             `probe-only=${_perf.readyContainerModel.probeOnlyMembers}, ` +
-            `anchor-gaps=${_perf.readyContainerModel.messageGapViolations}, ` +
-            `maxAnchorGap=${Math.round(_perf.readyContainerModel.maxMessageGap)}px, ` +
-            `anchor-insets=${_perf.readyContainerModel.topEdgeViolations + _perf.readyContainerModel.bottomEdgeViolations} ` +
+            `message-gaps=${_perf.readyContainerModel.messageGapViolations}, ` +
+            `maxMessageGap=${Math.round(_perf.readyContainerModel.maxMessageGap)}px, ` +
+            `message-insets=${_perf.readyContainerModel.topEdgeViolations + _perf.readyContainerModel.bottomEdgeViolations} ` +
             `(top=${_perf.readyContainerModel.topEdgeViolations}, bottom=${_perf.readyContainerModel.bottomEdgeViolations}, ` +
             `maxTop=${Math.round(_perf.readyContainerModel.maxTopEdgeGap)}px, ` +
             `maxBottom=${Math.round(_perf.readyContainerModel.maxBottomEdgeGap)}px, ` +
