@@ -19,8 +19,7 @@ rendering systems do their work. The boundary therefore exposes only a
 changing, partial surface and cannot predict when additional supplies will
 arrive.
 
-To work with this incomplete inventory, the traversal logic uses three kinds of
-information or action:
+To work with this incomplete inventory, the traversal logic relies on two kinds of observations and one kind of action:
 
 - **Structural observations**, which describe what kinds of supplies may become
   available as the delivery process continues.
@@ -52,7 +51,7 @@ readiness observations may later become meaningful.
 A readiness observation is something that the traversal logic may meaningfully
 wait for or test before proceeding with an already selected supply.
 
-Unlike structural expectations, readiness observations describe the present
+Unlike structural observations, readiness observations describe the present
 rather than the future. They tell the extractor that a selected supply has
 reached a state where the next stage of work may begin.
 
@@ -86,26 +85,13 @@ Within this safe part, the workers can
 reliably prepare the detailed structure required by the current and
 upcoming supplies.
 
-Consequently, the foreman advances the work zone in small jumps. After
-each jump, it waits until the newly reached safe part has been prepared
-before making the next jump. These small jumps exist solely to satisfy
-the operating constraints of the Supplier's workers. Their purpose is
-not to expose a new slab. A small jump may reveal no new slab at all.
+Consequently, the foreman advances the work zone in small jumps. After each jump, it waits until the newly reached safe part has been prepared before making the next jump. These small jumps exist solely to satisfy the operating constraints of the Supplier's workers.
 
-A small jump does not necessarily make a new slab available. Some slabs extend across many successive work zones, so several small jumps may occur while the foreman is still working with the same slab.
+A small jump does not necessarily make a new slab available. Some slabs extend across many successive work zones, so several small jumps may occur while the foreman is still working with the same slab. Small jumps are therefore not considered traversal events.
 
-For this reason, small jumps are not considered traversal events. The foreman groups them into a single large work-zone movement, which ends only when the work zone has advanced as far as possible while the current slab still intersects it. 
+Instead, the foreman groups successive small jumps into a single **large work-zone movement**. A large work-zone movement begins when traversal cannot continue without advancing the work zone. It consists of as many small jumps as needed, each followed by waiting for the newly reached safe part to become ready. The movement ends when the work zone has advanced as far as possible while the current slab still intersects it.
 
-A large work-zone movement begins when traversal cannot continue without
-advancing the work zone. The foreman then performs successive small
-jumps, waiting after each one for the newly reached safe part to become
-ready. The movement ends only when the work zone has advanced as far as
-possible while the current slab still intersects it.
-
-Only after the large work-zone movement is complete does normal slab
-traversal resume. The intermediate jumps are not traversal events in
-their own right; they are merely the mechanism by which the Supplier's
-workers progressively prepare the walkway ahead of the foreman.
+Only after the large work-zone movement is complete does normal slab traversal resume. The intermediate jumps are merely the mechanism by which the Supplier's workers progressively prepare the walkway ahead of the foreman.
 
 ## Current DOM Adapter
 
