@@ -226,5 +226,30 @@ The diagnostic values that matter for this model are:
 - number of jumps at the maximum;
 - total elapsed time.
 
+Observed runs used while testing the model:
+
+| Run | Max jump | Total time | Jumps | Avg jump | Avg jump time | Avg / 120px | Notes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `1782598151699` | 120px | 238.6s | 2807 | 120px | 70ms | 70ms | Successful export; early timing-model baseline. |
+| `1782599578119` | 240px | 267.5s | 1417 | 239px | 116ms | 58ms | Successful export; slower environment/run. |
+| `1782597788119` | 360px | 188.1s | 957 | 353px | 149ms | 50ms | Successful export. |
+| `1782598763176` | 480px | 164.1s | 729 | 463px | 165ms | 43ms | Successful export. |
+| `1782678455439` | 480px | 165.2s | 825 | 408px | 152ms | 45ms | Later successful 480px run. |
+| `1782675112575` | 600px | 172.8s | 770 | 439px | 158ms | 43ms | Successful 600px run; environment likely less favorable. |
+| `1782723470852` | 600px | 137.0s | 706 | 476px | 137ms | 34ms | Faster successful 600px run. |
+| `1782781471095` | 720px | 164.6s | 567 | 593px | 140ms | 28ms | Isolated successful 720px run; no capped-out jumps. |
+| `1782781952284` | 720px | 250.7s | 702 | 480px | 146ms | 37ms | Successful 720px run with several Resume-from-current stops. |
+| `1782783497011` | 720px | 157.8s | 567 | 593px | 135ms | 27ms | Second isolated successful 720px run (no resumes, no capped-out jumps); fastest 720px run so far. |
+
+The table should be read as empirical calibration data, not a benchmark suite.
+The 120→480px sequence shows the main shape of the model: bigger jumps sharply
+reduce jump count at first, and therefore reduce fixed overhead. Later 600px
+and 720px runs show that the environment and resumptions can dominate a single
+run's total time, but the jump-count term still explains the best 720px run
+well. A rough fit of `avgJumpTime ≈ F + R × avgJump` over the original
+120–480px calibration rows gives `F ≈ 43ms` and `R ≈ 0.28ms/px`; including the
+later runs shifts the estimate, which is expected because browser/ChatGPT load
+conditions were not controlled.
+
 Large viewport drifts are not part of this model. They are usually artifacts of
 ChatGPT's virtualized rendering and should not be used as explanatory telemetry.
