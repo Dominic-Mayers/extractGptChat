@@ -86,7 +86,7 @@ Assistant response...
 
 ## Notes
 
-* Extraction speed is limited by ChatGPT's server-side lazy loading. Expect roughly **0.5 seconds per user prompt** — for example, about 4 minutes for a 500-prompt conversation.
+* Extraction speed is limited by ChatGPT's server-side lazy loading. Expect roughly **1 second per user prompt** — for example, about 3 minutes for a 180-prompt conversation.
 * The script depends on ChatGPT's DOM structure. If ChatGPT changes its markup, extraction may need adjustment.
 
 ## Troubleshooting
