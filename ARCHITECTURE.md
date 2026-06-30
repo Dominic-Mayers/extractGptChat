@@ -58,7 +58,7 @@ reached a state where the next stage of work may begin.
 
 Some readiness observations are meaningful from the beginning because they are
 established by the environment boundary's interface. Others become meaningful
-only after earlier structural expectations have established that this kind of
+only after earlier structural observations have established that this kind of
 observation may now occur.
 
 Readiness observations are fallible. They are evidence, not proof. A readiness
@@ -96,12 +96,12 @@ Only after the large work-zone movement is complete does normal slab traversal r
 
 ## Current DOM Adapter
 
-The architecture intentionally does not prescribe how structural expectations,
+The architecture intentionally does not prescribe how structural observations,
 readiness observations, or interventions are represented.
 
 In the current ChatGPT DOM adapter:
 
-- structural expectations are realized primarily through selectors;
+- structural observations are realized primarily through selectors;
 - readiness observations are realized primarily through readiness fingerprints;
 - interventions are realized primarily through scripted work-zone movement.
 
@@ -114,7 +114,7 @@ ChatGPT's observable DOM surface into these architectural concepts.
 
 A **slab** is an extractable content unit. Ordinary text messages, generated
 images, and Canvas/textdoc blocks are different slab types and may require
-different structural expectations and readiness observations.
+different structural observations and readiness observations.
 
 A **deck** is a traversal region exposed by ChatGPT's rendering system. Decks
 are not transcript content. They are part of the environment's supply surface:
@@ -143,7 +143,7 @@ Important diagnostic questions include:
 - Did extraction serialize a selected ready slab successfully?
 
 When the model fails, diagnostics should identify which boundary failed:
-structural expectation, readiness observation, intervention, geometry,
+structural observation, readiness observation, intervention, geometry,
 ordering, or extraction.
 
 ## Execution-Time Model
