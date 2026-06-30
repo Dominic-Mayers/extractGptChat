@@ -1,14 +1,11 @@
 # Architecture
 
 This extractor works against ChatGPT's live, virtualized DOM. The DOM is not
-the transcript: it is the observable surface through which ChatGPT's own
-lazy-loading and rendering systems expose transcript content.
+the entire conversation saved on the server: it is the observable surface through which ChatGPT's own lazy-loading and rendering systems expose conversation content. The extractor must create a transcript of the conversation.
 
-The walkway analogy is only a guide. In that analogy, a foreman builds a
+A walkway analogy is offered as a guide. In that analogy, a foreman builds a
 walkway from slabs while a supplier exposes the materials, measurements, and
-notes currently available on the work site. The technical architecture should
-not depend on the analogy, but it borrows some of its vocabulary: **slabs**,
-**decks**, and **work zone**.
+notes currently available on the work site. The technical architecture borrows some of its vocabulary from the analogy: **slabs**, **decks**, and **work zone**.
 
 ## Supplier / Environment Boundary
 
@@ -25,28 +22,26 @@ arrive.
 To work with this incomplete inventory, the traversal logic uses three kinds of
 information or action:
 
-- **Structural expectations**, which describe what kinds of supplies may become
+- **Structural observations**, which describe what kinds of supplies may become
   available as the delivery process continues.
 - **Readiness observations**, which describe whether selected supplies are
   ready for the next stage of work now.
-- **Interventions**, which actively change the situation so that more supplies
-  may become observable.
+- **Work Zone Movements**, which actively change the situation so that more supplies may become observable.
 
-The traversal logic interprets this information when deciding how to continue.
-Adapters may perform local translation and observation work, but traversal
+The traversal logic interprets this information when deciding how to continue. Structural and readiness observations are used top-dowmn, whereas work zone movements have an effect bottom-up.  Adapters may perform local translation and observation work, but traversal
 decisions belong to the traversal logic, not to the raw DOM.
 
-## Structural Expectations
+## Structural Observations
 
-A structural expectation describes what developments in the environment
+A structural observation describes what developments in the environment
 boundary's delivery process may now occur. It tells the traversal logic what
 kinds of supplies it may reasonably expect to encounter next.
 
-Structural expectations are derived from present evidence, but their importance
+Structural observations are present evidence, but their importance
 is predictive: they describe what may become available if the structure
 continues to be respected.
 
-Some structural expectations are established from the beginning as part of the
+Some structural observations are established from the beginning as part of the
 environment boundary's interface. Others arise only as the delivery process
 progresses. For example, once a message slab element has been selected, its
 known structure tells the extractor what content shape, descendants, or
