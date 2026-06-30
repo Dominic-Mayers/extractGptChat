@@ -97,13 +97,13 @@ Only after the large work-zone movement is complete does normal slab traversal r
 ## Current DOM Adapter
 
 The architecture intentionally does not prescribe how structural observations,
-readiness observations, or interventions are represented.
+readiness observations, or work-zone movements are represented.
 
 In the current ChatGPT DOM adapter:
 
 - structural observations are realized primarily through selectors;
 - readiness observations are realized primarily through readiness fingerprints;
-- interventions are realized primarily through scripted work-zone movement.
+- work-zone movements are viewport operations.
 
 Selectors and readiness fingerprints are therefore implementation concepts
 rather than architectural concepts. The architecture is expressed from the
@@ -138,12 +138,12 @@ Important diagnostic questions include:
 
 - Did the expected structural development fail to occur?
 - Did a readiness observation time out or prove too weak?
-- Did a work-zone intervention fail to expose enough new surface?
+- Did a work-zone movement fail to expose enough new surface?
 - Did deck or slab geometry violate an expected adjacency or containment rule?
 - Did extraction serialize a selected ready slab successfully?
 
 When the model fails, diagnostics should identify which boundary failed:
-structural observation, readiness observation, intervention, geometry,
+structural observation, readiness observation, work-zone movement, geometry,
 ordering, or extraction.
 
 ## Execution-Time Model
