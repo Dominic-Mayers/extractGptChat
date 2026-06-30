@@ -26,6 +26,7 @@
             r();
         }, ms);
     });
+    const nextAnimationFrame = () => new Promise(r => requestAnimationFrame(() => r()));
 
     // ── Performance counters (reset each run, reported before export) ──
     let _perf = {};
@@ -148,6 +149,40 @@
                 // this floor was added to fix.
                 minFloorApplied: 0,
                 sandwichedEmptySeen: 0, sandwichedEmptyTimedOut: 0, sandwichedEmptyExamples: [],
+                // See WORK_ZONE_JUMP_HIDDEN_RETRY_MS's comment: a "pure"
+                // timeout (no sawSandwiched, no detached) that happened
+                // while the tab was hidden gets one retry with a much
+                // longer deadline, since live evidence points to tab-
+                // backgrounding-induced requestAnimationFrame starvation
+                // rather than a real failure. pureTimeoutHiddenRetries
+                // counts every such retry across the whole run;
+                // pureTimeoutHiddenExhausted counts how many times even
+                // the extended wait still failed.
+                pureTimeoutHiddenRetries: 0, pureTimeoutHiddenExhausted: 0,
+                // Tests the assumption behind treating room as something
+                // we can keep using after a wait without re-deriving it
+                // from scratch: does an already-rendered slab's room
+                // (measureRoom's value — distance from the viewport top to
+                // current's top, for WALK_DIRECTION===-1) actually stay the
+                // same between right-after-the-synchronous-jump and after
+                // waitForLayoutStable resolves, or can the page settling
+                // (new content mounting elsewhere, virtualization, etc.)
+                // move it too? Measured every jump, not assumed — see
+                // maintainWorkZone. Not "headroom" — that term already
+                // means something else (distance from current's top to
+                // the viewport's *bottom*, i.e. clientH - room), and using
+                // it here for room itself caused real confusion. roomDriftSum
+                // keeps sign (does it trend one direction); roomDriftAbsSum
+                // is for a magnitude-only average; roomDriftLog is the full
+                // (rightAfterJump, drift) pair for every jump, not just
+                // outliers — needed to check whether drift correlates with
+                // room's own size, which a pre-filtered sample of only the
+                // large ones can't answer.
+                roomDriftSum: 0, roomDriftAbsSum: 0, roomDriftMaxAbs: 0, roomDriftLog: [],
+                // See WORK_ZONE_JUMP_SNAPSHOT_CAP — counts jumps that got
+                // the full current+precedent+subsequent outerHTML capture,
+                // so the cap can actually stop new ones once reached.
+                fullSnapshotCount: 0,
             },
             // A candidate that findNextSlabInReadyDeck geometrically confirmed but
             // extractSlab() returned null for (htmlToMarkdown produced
@@ -197,6 +232,7 @@
     _resetPerf();
 
     let _savedState = null;
+    let _resumeState = null;
     // Fixed once per run (not per export click) — re-clicking "Export
     // again" against the same _savedState must keep reusing the same
     // timestamp, since any images already downloaded for this run have it
@@ -276,7 +312,21 @@
     // detections capped out (100%), suggesting these are genuinely broken/
     // permanently-empty decks, not transient mid-render lag — exactly the
     // case this memoization is for.
-    let _knownUnresolvableSandwichedTurnIds = new Set();
+    // Temporary, conversation-specific workaround: turnIds already
+    // confirmed (not just suspected) to never render a selectable slab —
+    // pre-seeded into _knownUnresolvableSandwichedTurnIds below so the
+    // sandwiched-empty check skips them from the very first encounter
+    // instead of discovering them fresh (and fatally failing on them) every
+    // single run. 70e7d42f is the deck already named in
+    // findSandwichedEmptySlabInViewport's own comment as the original
+    // example of a permanently-broken deck; two separate runs on this
+    // conversation both died on it with geometryElement.isConnected=true —
+    // confirmed not a detachment/jump-size case. This list is meant to be
+    // deleted once per-jump failure handling stops treating
+    // sawSandwiched-without-detachment as fatal (see conversation) — it's a
+    // patch to unblock this one conversation, not a general mechanism.
+    const KNOWN_PERMANENTLY_BROKEN_TURN_IDS = ['70e7d42f-42df-4fa6-8c41-fb72b4aee15f'];
+    let _knownUnresolvableSandwichedTurnIds = new Set(KNOWN_PERMANENTLY_BROKEN_TURN_IDS);
     let _reportedAllowlistedSlabItems = new WeakSet();
     let _reportedUnlistedSlabItems = new WeakSet();
     // Diagnostic only — tracks which image-type slab candidates already
@@ -658,6 +708,16 @@
                   + `minFloorApplied=${_perf.workZoneJumpStability.minFloorApplied}, `
                   + `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, `
                   + `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}\n`
+                + `    Pure-timeout hidden-tab retries (see WORK_ZONE_JUMP_HIDDEN_RETRY_MS — timed out, not sandwiched, ` +
+                  `not detached, tab was hidden during the wait): retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
+                  `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}\n`
+                + `    Room drift during wait (does an already-rendered slab's distance from the viewport edge hold ` +
+                  `steady between right-after-the-jump and after waitForLayoutStable resolves? See maintainWorkZone): ` +
+                  `avgAbs=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.roomDriftAbsSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
+                  `netSum=${Math.round(_perf.workZoneJumpStability.roomDriftSum)}px, maxAbs=${Math.round(_perf.workZoneJumpStability.roomDriftMaxAbs)}px` +
+                  (_perf.workZoneJumpStability.roomDriftLog.length
+                      ? `\n      ${_perf.workZoneJumpStability.roomDriftLog.join('\n      ')}`
+                      : '') + `\n`
                 + `    Sandwiched-empty-slab readiness failure signal (see findSandwichedEmptySlabInViewport): ` +
                   `seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}` +
                   (_perf.workZoneJumpStability.sandwichedEmptyExamples.length
@@ -875,17 +935,20 @@
             }
         }
         if (_htmlCaptures.length > 0) {
-            // A second, parallel record of the walk — not full visual
-            // snapshots (see trimmedCaptureHtml): each entry is the
-            // captured deck's own opening tag, the first slab's opening
-            // tag, and a very small first-slab preview. A single deck's
-            // full content can run to several KB on its own (confirmed
-            // live), which is exactly why this stays trimmed: enough to
-            // verify what was actually there at a given point in the walk,
-            // without the export ballooning in size. Plain string
-            // concatenation, not appended via DOM nodes/innerHTML — this
-            // never touches the live page's DOM, only builds a standalone
-            // document to hand to the browser as a download.
+            // A second, parallel record of the walk — most entries are not
+            // full visual snapshots (see trimmedCaptureHtml): the captured
+            // deck's own opening tag, the first slab's opening tag, and a
+            // very small first-slab preview, kept trimmed since a single
+            // deck's full content can run to several KB on its own
+            // (confirmed live). The 'room-drift-right-after-jump' /
+            // 'room-drift-after-wait' labels are the deliberate exception —
+            // real, untrimmed outerHTML (see maintainWorkZone), because the
+            // whole point there is diffing the actual DOM at two specific
+            // instants, which trimmedCaptureHtml's identity-tag-only output
+            // can't show. Plain string concatenation, not appended via DOM
+            // nodes/innerHTML — this never touches the live page's DOM,
+            // only builds a standalone document to hand to the browser as
+            // a download.
             const slug = titleToSlug(title);
             const sections = _htmlCaptures.map((c, i) =>
                 `<h2>#${i + 1} — label=${escHtmlAttr(c.label)} role=${escHtmlAttr(c.role)} turnId=${escHtmlAttr(c.turnId)}</h2>\n` +
@@ -1990,13 +2053,24 @@
     // trackpad) is the one interaction pattern it must support reliably,
     // since that's the default way every real user scrolls. So the work
     // zone starts with a conservative wheel-like step, then earns larger
-    // steps only after repeated clean stability checks. This keeps the
-    // default interaction human-like while letting clean runs discover a
-    // larger safe buffer ahead of the viewport.
+    // steps as jumps come back clean. This keeps the default interaction
+    // human-like while letting clean runs discover a larger safe buffer
+    // ahead of the viewport.
+    //
+    // Calibration state machine: the jump size lives on a ladder of 30px
+    // states (120, 150, 180, ..., WORK_ZONE_MOVE_JUMP_MAX_PX). A clean jump
+    // advances one state immediately — no streak requirement, the jump size
+    // alone is the calibration state and fully determines what happens
+    // next. A failed jump is fatal (no automatic retry — see
+    // maintainWorkZone) but first retreats WORK_ZONE_MOVE_JUMP_RETREAT_STATES
+    // states (4 × 30px = 120px) rather than collapsing all the way back to
+    // the floor, floored at WORK_ZONE_MOVE_JUMP_PX, so the size is already
+    // smaller by the time the user manually retries via the panel's Restart
+    // button.
     const WORK_ZONE_MOVE_JUMP_PX = 120;
-    const WORK_ZONE_MOVE_JUMP_MAX_PX = 600;
+    const WORK_ZONE_MOVE_JUMP_MAX_PX = 720;
     const WORK_ZONE_MOVE_JUMP_GROW_PX = 30;
-    const WORK_ZONE_MOVE_JUMP_CLEAN_STREAK = 3;
+    const WORK_ZONE_MOVE_JUMP_RETREAT_STATES = 4;
     // The clamp added to stop a jump overshooting current out of the
     // viewport (Math.min(_workZoneAdaptiveJumpPx, advanceRoom - room)) has
     // no floor on its own: as room approaches advanceRoom, the remaining
@@ -2013,8 +2087,159 @@
     // jump of a move — utterly negligible next to the existing margins
     // (WORK_ZONE_MARGIN_FRACTION alone is ~10% of clientH).
     const WORK_ZONE_MIN_JUMP_PX = 8;
+    // A room-prediction check used to live here: compare room after a jump
+    // to roomBeforeJump + appliedJumpPx, flag a mismatch beyond a tolerance
+    // as a failure. Removed — the outcome of our own scripted jump isn't
+    // something we can predict in the first place. ChatGPT's own reactive
+    // behavior (the same "stay near the latest content" correction
+    // forceScrollToEdge already has to fight) can move things by an amount
+    // unrelated to appliedJumpPx as completely normal operation, not a
+    // fault. current.geometryElement getting detached (all-zero rect)
+    // stays checked — that's a structural fact (is it in the document or
+    // not), not a comparison against a number we made up. See
+    // maintainWorkZone's cleanJump for where this is actually used.
     let _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
-    let _workZoneCleanJumpStreak = 0;
+
+    // Visual aid for video-recording a real run, nothing more — a small,
+    // fixed-position dot, persistent for the whole run (created once,
+    // never removed/recreated mid-run), that just toggles color: green by
+    // default, light blue for exactly the real, unmodified duration of
+    // waitForLayoutStable's own wait (set right after the jump's
+    // synchronous scroll assignment, cleared right when room is
+    // re-measured after that wait resolves — no added delay of any kind,
+    // since adding delay is never behavior-neutral in a loop this timing-
+    // sensitive — see memory). The viewport visibly jumping is the cue
+    // for "about to turn light blue." Any other visible movement seen while the
+    // dot is green — i.e. not during that real wait — is then direct,
+    // unambiguous visual evidence that "stable" was declared too early
+    // (or that something moved for a reason that has nothing to do with
+    // our own jump at all): the dot's color is exactly synced to real
+    // waitForLayoutStable timing, with nothing of ours added or removed
+    // from that timing to produce it. Fixed position, high z-index,
+    // pointer-events:none, no text/animation, so showing it costs nothing
+    // and can't interfere with anything being filmed.
+    let _stabilizationMarkerEl = null;
+    function setStabilizationMarkerColor(color) {
+        if (!_stabilizationMarkerEl) {
+            _stabilizationMarkerEl = document.createElement('div');
+            Object.assign(_stabilizationMarkerEl.style, {
+                position: 'fixed', top: '10px', right: '10px', width: '18px', height: '18px',
+                borderRadius: '50%', boxShadow: '0 0 0 2px #fff, 0 0 6px rgba(0,0,0,0.5)',
+                zIndex: '2147483647', pointerEvents: 'none',
+            });
+            document.body.appendChild(_stabilizationMarkerEl);
+        }
+        _stabilizationMarkerEl.style.background = color;
+    }
+    function removeStabilizationMarker() {
+        if (_stabilizationMarkerEl) {
+            _stabilizationMarkerEl.remove();
+            _stabilizationMarkerEl = null;
+        }
+    }
+
+    // Set by every setPos (maintainWorkZone and forceScrollToEdge) right
+    // when we ourselves assign scrollTop/scrollY — the one fact the
+    // background sampler below needs to tell "we just moved this" apart
+    // from "something else moved it." null until the very first scripted
+    // jump of the run.
+    let _lastIntentionalScrollPos = null;
+
+    // Confirmed live: movement does happen with no dot showing at all —
+    // more than once in a single green period. This watches for it
+    // without repeating the earlier mistake (see memory: delay is never
+    // behavior-neutral). It's a requestAnimationFrame loop the main walk
+    // never awaits — nothing here can hold up or reorder anything the
+    // extraction actually does, since the main loop never once looks at
+    // this loop's progress or result. getCurrent is a closure over run()'s
+    // own `current` binding (passed in, not copied), so this always reads
+    // whatever current actually is at that instant, with no separate
+    // module-level variable to keep manually in sync at every one of the
+    // several places `current` gets reassigned. Logged to the same
+    // roomDriftLog as everything else, with the marker's own current
+    // color included, so a movement can be directly checked against
+    // whether it happened during light blue, green, or (if this fires between
+    // current changing and the marker's own next color change) neither.
+    let _samplerRunning = false;
+    function startBackgroundPositionSampler(getCurrent, container) {
+        if (_samplerRunning) return;
+        _samplerRunning = true;
+        let lastTop = null, lastBottom = null, lastTurnId = null;
+        let lastScrollPos = null, lastScrollHeight = null;
+        const readScrollPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
+        const readScrollHeight = () => container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
+        // type included, not just turnId/deckSequenceId — deck-entry and
+        // deck-exit (makeDeckEntryCurrent/makeDeckExitCurrent) share the
+        // same deckSequenceId for one deck but are genuinely different
+        // positions (the deck's leading vs trailing edge) with different
+        // synthetic geometry. Without this, current legitimately flipping
+        // entry->exit (or exit->the deck's first real slab) reads as a
+        // huge, spurious "movement" of one stable identity, when it's
+        // really just current correctly becoming something else.
+        const identify = cur => {
+            if (!cur) return '(none)';
+            if (cur.element) return `${cur.type}:${slabTurnId(cur) || '(no turn-id)'}`;
+            if (cur.deckElement) return `${cur.type}:${deckSequenceId(cur.deckElement) || '(no turn-id, deck)'}`;
+            return '(synthetic)';
+        };
+        const tick = () => {
+            if (!_samplerRunning) return;
+            const cur = getCurrent();
+            const turnId = identify(cur);
+            if (cur?.geometryElement) {
+                const r = cur.geometryElement.getBoundingClientRect();
+                if (lastTurnId === turnId && lastTop !== null && (r.top !== lastTop || r.bottom !== lastBottom)) {
+                    if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
+                        _perf.workZoneJumpStability.roomDriftLog.push(
+                            `BACKGROUND SAMPLE: current (turnId=${turnId}) moved between two animation frames with ` +
+                            `no tracked jump in between — top ${Math.round(lastTop)}->${Math.round(r.top)}px, ` +
+                            `bottom ${Math.round(lastBottom)}->${Math.round(r.bottom)}px, ` +
+                            `markerColor=${_stabilizationMarkerEl?.style.background || '(no marker)'}`
+                        );
+                    }
+                }
+                lastTop = r.top; lastBottom = r.bottom; lastTurnId = turnId;
+            } else {
+                lastTop = lastBottom = null; lastTurnId = turnId;
+            }
+            // The rawest possible signals, watched independently of
+            // current entirely: the actual scrollTop/scrollY (compared
+            // against _lastIntentionalScrollPos — what *we* last set it
+            // to, via setPos — so a mismatch means something other than
+            // our own scripted jump moved it) and scrollHeight (any
+            // change at all, since we never set this ourselves — it's
+            // purely a side effect of content mounting/unmounting). This
+            // is what current's own rect alone can't catch: movement of
+            // the viewport or page that doesn't happen to touch current
+            // directly, like the neighboring-deck case found earlier.
+            const scrollPos = readScrollPos();
+            const scrollHeight = readScrollHeight();
+            if (lastScrollPos !== null && scrollPos !== lastScrollPos && scrollPos !== _lastIntentionalScrollPos) {
+                if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
+                    _perf.workZoneJumpStability.roomDriftLog.push(
+                        `BACKGROUND SAMPLE: scroll position changed to something we did not set ourselves — ` +
+                        `${Math.round(lastScrollPos)}->${Math.round(scrollPos)}px (last intentional set: ${Math.round(_lastIntentionalScrollPos ?? NaN)}px), ` +
+                        `markerColor=${_stabilizationMarkerEl?.style.background || '(no marker)'}`
+                    );
+                }
+            }
+            if (lastScrollHeight !== null && scrollHeight !== lastScrollHeight) {
+                if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
+                    _perf.workZoneJumpStability.roomDriftLog.push(
+                        `BACKGROUND SAMPLE: scrollHeight changed — ${Math.round(lastScrollHeight)}->${Math.round(scrollHeight)}px, ` +
+                        `markerColor=${_stabilizationMarkerEl?.style.background || '(no marker)'}`
+                    );
+                }
+            }
+            lastScrollPos = scrollPos;
+            lastScrollHeight = scrollHeight;
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+    }
+    function stopBackgroundPositionSampler() {
+        _samplerRunning = false;
+    }
 
     // maintainWorkZone's per-step pacing gate (see waitForLayoutStable):
     // how many consecutive animation frames scrollHeight must hold still
@@ -2030,6 +2255,42 @@
     // consecutive confirmations ever caught a real multi-frame wobble.
     const WORK_ZONE_JUMP_STABLE_FRAMES = 1;
     const WORK_ZONE_JUMP_STABLE_MAX_MS = 1500;
+    // Retrying a *short* wait several times (the first version of this)
+    // turned out to be the wrong shape for the problem. The reason isn't
+    // just "give it more chances" — it's that maintainWorkZone's whole
+    // stepping model depends on knowing the real, settled room value
+    // before it can decide anything about the next step: if the viewport
+    // (or content around current) genuinely drifted while we weren't
+    // looking, the stabilized state IS the new ground truth current must
+    // be measured against, not a number we can route around. So there are
+    // only two honest outcomes for a timeout: wait for an actual settled
+    // value, or fail and say why. A handful of repeats of the same short
+    // 1500ms window doesn't really do either — if the cause is
+    // backgrounding, requestAnimationFrame stays throttled across retries
+    // too, so most or all of them just burn the same dead time again.
+    // What's actually known to throttle rAF is the tab being hidden
+    // (document.hidden — see the existing visibilitychange listener in
+    // run()), which is directly, cheaply checkable. So: a "pure" timeout
+    // (timedOut, neither sawSandwiched nor detached) that happened while
+    // the tab was hidden at some point during the wait gets exactly one
+    // retry, with the deadline extended to WORK_ZONE_JUMP_HIDDEN_RETRY_MS —
+    // long enough for even a heavily-throttled rAF to tick a meaningful
+    // number of times. A pure timeout with no such explanatory sign just
+    // fails immediately; waiting longer with no reason to expect anything
+    // different is not the same thing as waiting for a real value.
+    //
+    // document.hidden is only the one delay-explaining sign known and
+    // checkable today — the structure here (check signs, extend once if
+    // any apply, otherwise fail) is meant to take more without rework if
+    // other such signs turn up later.
+    const WORK_ZONE_JUMP_HIDDEN_RETRY_MS = SLAB_FINISH_TIMEOUT_MS; // reuse the existing "give it a real, generous chance" duration rather than invent a new one
+    // Safety net for the per-jump current+precedent+subsequent outerHTML
+    // capture in maintainWorkZone — bounds the .html export's size on a
+    // long/complete run, not a deliberate sample size. Each jump captured
+    // is 2 entries (right-after-jump, after-wait), each bundling up to 3
+    // real deck snapshots, so this is already generous before the export
+    // gets unwieldy.
+    const WORK_ZONE_JUMP_SNAPSHOT_CAP = 150;
 
     // waitForLayoutStable's scrollHeight check can only ever catch a mount
     // that changes the *total* document height. ChatGPT pre-reserves exact
@@ -2210,6 +2471,23 @@
             `(label=${label}, turnId=${resolvedTurnId}).`;
     }
 
+    // The same isConnected test describeCurrentAttachment uses for its
+    // diagnostic string, factored out as a boolean so waitForLayoutStable
+    // can act on it, not just report it. A real slab's geometryElement is
+    // an actual DOM node, so isConnected is meaningful directly. The
+    // deck-entry/deck-exit synthetic markers (see makeDeckEntryCurrent/
+    // makeDeckExitCurrent) hand back a plain object with a
+    // getBoundingClientRect method but no isConnected of its own — for
+    // those, the thing that could actually get unmounted is the deck
+    // element they wrap, so that's what's checked instead.
+    function isCurrentDetached(current) {
+        if (current?.geometryElement && 'isConnected' in current.geometryElement) {
+            return !current.geometryElement.isConnected;
+        }
+        if (current?.deckElement) return !current.deckElement.isConnected;
+        return false; // nothing real to check against (e.g. SLAB_WALK_START) — never reaches the work-zone loop anyway
+    }
+
     // Per-step pacing signal for maintainWorkZone's stepping loop: waits for
     // the container's scrollHeight to stop changing across a few consecutive animation
     // frames, AND for no sandwiched-empty-slab to be present (see
@@ -2226,20 +2504,23 @@
     // so a page with continuous, unrelated layout churn (or a permanently-
     // broken sandwiched deck — see findSandwichedEmptySlabInViewport) can't
     // hang a single step forever.
-    function waitForLayoutStable(container) {
+    function attemptLayoutStable(container, current, maxMs = WORK_ZONE_JUMP_STABLE_MAX_MS) {
         const readHeight = () => container === document.documentElement
             ? document.documentElement.scrollHeight
             : container.scrollHeight;
         return new Promise(resolve => {
-            const deadline = performance.now() + WORK_ZONE_JUMP_STABLE_MAX_MS;
+            const deadline = performance.now() + maxMs;
             let lastHeight = readHeight();
             let stableFrames = 0;
             let framesChecked = 0;
             let changed = false;
             let sawSandwiched = false;
             let lastSandwiched = null;
+            let detached = false;
+            let wasHidden = document.hidden;
             function tick() {
                 framesChecked++;
+                if (document.hidden) wasHidden = true; // sticky: even a brief hide during this wait can explain a stall
                 const h = readHeight();
                 if (h === lastHeight) {
                     stableFrames++;
@@ -2249,22 +2530,28 @@
                     changed = true;
                 }
                 const timedOut = performance.now() > deadline;
-                // findSandwichedEmptySlabInViewport scans every deck in the
-                // whole document and calls getBoundingClientRect() on each
-                // one — real, forced-layout cost that scales with
-                // conversation length. Running that on every single frame
-                // (regardless of whether scrollHeight-stability was even
-                // close to being satisfied yet) was paying that cost dozens
-                // of times per step for no benefit: the pattern can't
-                // resolve before scrollHeight itself looks stable, so
-                // there's nothing to gain by checking earlier. Only pay for
-                // it right when we'd otherwise consider the step settled
-                // (or we're about to give up) — once per step in the common
-                // case, more only if the pattern is actually found and
-                // needs to keep being polled until it resolves or times out.
+                // Both checks below only make sense once the frame itself
+                // has settled (or we're out of patience) — there's nothing
+                // to learn from either one before that point, since the
+                // page is still mid-change. findSandwichedEmptySlabInViewport
+                // also scans every deck in the whole document and calls
+                // getBoundingClientRect() on each one — real, forced-layout
+                // cost that scales with conversation length — so checking
+                // only here, instead of every frame, avoids paying that
+                // dozens of times per step for no benefit too.
                 let readyToResolve = stableFrames >= WORK_ZONE_JUMP_STABLE_FRAMES || timedOut;
                 if (readyToResolve) {
-                    const sandwiched = findSandwichedEmptySlabInViewport(container);
+                    // Detachment is checked first and is decisive the
+                    // instant it's seen: unlike the sandwiched-empty pattern
+                    // below, it is not a transient rendering state that more
+                    // waiting at this same scroll position could resolve —
+                    // it means the jump pushed current's element far enough
+                    // behind the viewport that ChatGPT's virtualizer
+                    // unmounted it (see WORK_ZONE_MIN_JUMP_PX's comment and
+                    // isCurrentDetached). No point also paying for the
+                    // sandwiched-empty scan in that case.
+                    detached = isCurrentDetached(current);
+                    const sandwiched = detached ? null : findSandwichedEmptySlabInViewport(container);
                     // A deck stays "sandwiched" in the viewport across many
                     // consecutive small steps (each only 120px) — once one
                     // has already been waited out the full cap this run
@@ -2312,13 +2599,40 @@
                             }
                         }
                     }
-                    resolve({ changed, timedOut, sawSandwiched, framesChecked });
+                    resolve({ changed, timedOut, sawSandwiched, detached, wasHidden, framesChecked });
                 } else {
                     requestAnimationFrame(tick);
                 }
             }
             requestAnimationFrame(tick);
         });
+    }
+
+    // Wraps attemptLayoutStable per WORK_ZONE_JUMP_HIDDEN_RETRY_MS's
+    // comment: a "pure" timeout (neither sawSandwiched nor detached) is
+    // retried — once, with a much longer deadline, not several times with
+    // the same short one — only when document.hidden explains why the
+    // wait might not have reflected reality. With no such sign, there is
+    // no positive reason to expect a retry to behave any differently, so
+    // it fails immediately instead of guessing. Reported either way, not
+    // silent: this is meant to be visible evidence of how often this
+    // actually happens, not a safety net to hide it.
+    async function waitForLayoutStable(container, current) {
+        const result = await attemptLayoutStable(container, current);
+        if (!result.timedOut || result.sawSandwiched || result.detached) return { ...result, hiddenRetried: false };
+        if (!result.wasHidden) return { ...result, hiddenRetried: false }; // no explanatory sign — nothing to gain by waiting again
+        _perf.workZoneJumpStability.pureTimeoutHiddenRetries++;
+        console.warn(
+            `[Extractor] work-zone stability wait timed out while the tab was hidden, with current still connected ` +
+            `and no sandwiched-empty deck present — retrying once with the deadline extended to ` +
+            `${WORK_ZONE_JUMP_HIDDEN_RETRY_MS / 1000}s, since requestAnimationFrame throttling while backgrounded ` +
+            `can fully explain a short wait never seeing a settled frame.`
+        );
+        const retried = await attemptLayoutStable(container, current, WORK_ZONE_JUMP_HIDDEN_RETRY_MS);
+        if (retried.timedOut && !retried.sawSandwiched && !retried.detached) {
+            _perf.workZoneJumpStability.pureTimeoutHiddenExhausted++;
+        }
+        return { ...retried, hiddenRetried: true };
     }
 
     // Forces the scroll position to a boundary edge (bottom for direction=-1,
@@ -2340,6 +2654,7 @@
         const setPos = v => {
             if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
             else container.scrollTop = v;
+            _lastIntentionalScrollPos = v;
             _perf.viewportMovesForceEdge++;
         };
         const target = () => {
@@ -2405,19 +2720,26 @@
         const setPos = v => {
             if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
             else container.scrollTop = v;
+            _lastIntentionalScrollPos = v;
             _perf.viewportMovesWorkZone++;
             _perf.workZoneJumpStability.jumps++;
         };
         const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
-        const containerTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
         // Room ahead of current, read fresh from the live DOM every single
         // time this is called — never cached, never reused across a step.
-        // getBoundingClientRect() already gives current's position
-        // *relative to the viewport*, which is exactly "room" with no
-        // scroll-position arithmetic and no absolute-coordinate snapshot
-        // needed at all — so there's no snapshot to go stale in the first
-        // place, no matter how long stepping/waiting below takes.
+        // This used to read containerTop once, outside this function, and
+        // reuse that snapshot for every jump in the whole call — directly
+        // contradicting this comment's own claim. If container isn't
+        // document.documentElement (findScrollContainer can return a
+        // nested scrollable div), its own position on the page is exactly
+        // as capable of drifting mid-call (a header, banner, or the
+        // composer box changing height) as anything else here. Reading it
+        // fresh on every call closes that gap; if container really is
+        // document.documentElement this costs nothing extra and always
+        // yields exactly 0.
+        const liveContainerTop = () => container === document.documentElement ? 0 : container.getBoundingClientRect().top;
         const measureRoom = () => {
+            const containerTop = liveContainerTop();
             const r = current.geometryElement.getBoundingClientRect();
             return WALK_DIRECTION === -1 ? (r.top - containerTop) : (clientH - (r.bottom - containerTop));
         };
@@ -2444,6 +2766,12 @@
         let boundaryReached = false;
         let jumpsTaken = 0;
         let outcome = 'advance-complete'; // overwritten below if the loop exits any other way
+        // No automatic retry here. A failure ends this run and surfaces one
+        // complete diagnostic. Detached current is decisive evidence that
+        // the jump was too aggressive, so it retreats the adaptive jump size
+        // before stopping. Non-detached failures keep the live cursor and
+        // offer a panel Resume instead of rebuilding from the conversation
+        // edge or silently retrying inside this loop.
         while (room < advanceRoom) {
             if (room > extra && Date.now() > deadline) { outcome = 'satisfied-timeout'; break; } // good enough already, not worth chasing the aspirational extra any further
             if (room <= extra && Date.now() > deadline) {
@@ -2463,9 +2791,12 @@
                         `boundaryReached=${boundaryReached}, waited=${waitedMs}ms`
                     );
                 }
-                // See describeCurrentAttachment's own comment — same check
-                // also reused by describeCurrentForStop, since a broken
-                // current can surface via either path.
+                // Not retreating the jump size here: the overall deadline is
+                // a cumulative-time signal, not one correlated specifically
+                // with the jump size just used (unlike timedOut/
+                // sawSandwiched/detached, each checked once per jump — see
+                // cleanJump below), so there's no evidence here that a
+                // smaller size would even help next time.
                 const message =
                     `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s stepping toward work-zone room ahead of current ` +
                     `(${jumpsTaken} small step(s) taken, room=${Math.round(room)}px, required=${Math.round(extra)}px, ` +
@@ -2473,6 +2804,7 @@
                     `See the separate .html export for the intersecting deck(s) captured at this moment.`;
                 const err = new Error(message);
                 err.placeholder = currentNotePlaceholder(current, message);
+                err.resumeFromCurrent = !isCurrentDetached(current);
                 throw err;
             }
             const curTop = readPos();
@@ -2519,27 +2851,362 @@
             _perf.workZoneJumpStability.jumpPxSum += appliedJumpPx;
             if (appliedJumpPx >= WORK_ZONE_MOVE_JUMP_MAX_PX) _perf.workZoneJumpStability.jumpsAtMax++;
             jumpsTaken++;
+            // Tests a narrower, specific assumption — not "nothing about a
+            // move is predictable," but: immediately after setPos
+            // (synchronous, exact — current's own room right then is pure
+            // geometry, nothing async involved yet), is that same already-
+            // rendered slab's room still the same number once we're done
+            // *waiting* for the page to settle (new content mounting
+            // elsewhere, virtualization, etc.)? That's an assumption, not
+            // a guaranteed principle — measured directly
+            // here, every jump, so the aggregate stats either confirm or
+            // refute it with real numbers instead of a guess.
+            const roomRightAfterJump = measureRoom();
+            setStabilizationMarkerColor('#5ac8fa'); // light blue — exactly the real, unmodified waitForLayoutStable window, see its own comment
+            // Tests a specific theory: action buttons (copy/regenerate/etc.)
+            // under a message often mount later than the message text
+            // itself, and if that doesn't change scrollHeight (e.g. the
+            // turn already reserved the space), waitForLayoutStable's
+            // scrollHeight check would never even notice it happening —
+            // the same kind of blind spot already documented for
+            // pre-reserved canvas/textdoc height. Counting actual <button>
+            // elements (a stable tag, not a guess at ChatGPT's obfuscated
+            // class names) near current, before and after the wait, tests
+            // this directly instead of assuming it.
+            const turnContainerForButtons = current?.element?.closest('[data-turn-id-container]') || current?.deckElement || null;
+            const buttonsRightAfterJump = turnContainerForButtons ? turnContainerForButtons.querySelectorAll('button').length : null;
+            // Real outerHTML (not trimmedCaptureHtml's identity-tag-only
+            // version) of current's own turn container AND its immediate
+            // neighbors (deck containers are siblings in the DOM, so
+            // previous/nextElementSibling is enough — no full-document
+            // scan needed), at both measurement instants. Tests a theory
+            // that doesn't assume the cause lives in current's own content
+            // at all: the reason a slab's room moves during the wait might
+            // be something happening to the deck right above or below it
+            // (still mid-mount, still being virtualized), not anything
+            // about current itself — and might correlate with *position*
+            // in the viewport rather than which specific message it is.
+            // Captured for every jump (not just ones that already showed
+            // drift), up to WORK_ZONE_JUMP_SNAPSHOT_CAP, precisely so the
+            // non-drifting majority is in the same dataset as the
+            // drifting minority — a position correlation can't be checked
+            // against a sample that already excludes everything that
+            // didn't drift.
+            const precedentDeck = turnContainerForButtons?.previousElementSibling?.hasAttribute('data-turn-id-container')
+                ? turnContainerForButtons.previousElementSibling : null;
+            const subsequentDeck = turnContainerForButtons?.nextElementSibling?.hasAttribute('data-turn-id-container')
+                ? turnContainerForButtons.nextElementSibling : null;
+            // DOM-sibling order isn't the same as viewport position — the
+            // precedent/subsequent above answer "what's adjacent in the
+            // document," not "what's actually below current on screen."
+            // findDeckBelow answers the latter directly, by geometry: scan
+            // every deck currently in the DOM (not just siblings) and find
+            // the one whose own top edge sits at or below current's
+            // bottom edge, closest first. Tracked by turnId (not just
+            // captured) so its identity — and whether it's the *same* deck
+            // every run — can be checked across runs, the same way
+            // current's own turnId already is in roomDriftLog.
+            // Single scan per instant (queryDeckSequenceContainers does a
+            // real document.querySelectorAll + a rect check on every
+            // result) reused for above, below, AND a simple total count —
+            // not just "what's the nearest neighbor" but "how many decks
+            // are mounted in the whole document right now," to know
+            // whether this local block is most of what's in the DOM or a
+            // small fragment of something much larger.
+            const findDeckBelow = decks => {
+                if (!current?.geometryElement) return null;
+                const r = current.geometryElement.getBoundingClientRect();
+                let best = null, bestGap = Infinity;
+                for (const deckEl of decks) {
+                    const rect = deckEl.getBoundingClientRect();
+                    const gap = rect.top - r.bottom;
+                    if (gap >= 0 && gap < bestGap) { bestGap = gap; best = deckEl; }
+                }
+                return best;
+            };
+            // Mirror of findDeckBelow, but for what's actually relevant to
+            // "is the viewport itself covered": current's own rect spans
+            // from room down past clientH (it's taller than the
+            // viewport), so it already fully covers room..clientH on its
+            // own — anything below current is off-screen and can't be
+            // what's visible. The part of the viewport that's genuinely in
+            // question is *above* current: 0..room. findDeckAbove finds
+            // whatever deck's bottom edge is closest to (at or above)
+            // current's top, so that region's actual coverage (or lack of
+            // it) can be checked directly instead of assumed from the
+            // DOM-sibling precedent check (which mostly came back none,
+            // but that's adjacency in the document, not coverage on screen).
+            const findDeckAbove = decks => {
+                if (!current?.geometryElement) return null;
+                const r = current.geometryElement.getBoundingClientRect();
+                let best = null, bestGap = Infinity;
+                for (const deckEl of decks) {
+                    const rect = deckEl.getBoundingClientRect();
+                    const gap = r.top - rect.bottom;
+                    if (gap >= 0 && gap < bestGap) { bestGap = gap; best = deckEl; }
+                }
+                return best;
+            };
+            // The "covered area" question, directly: not just where
+            // current's leading edge (room) sits, but its actual rendered
+            // extent (top *and* bottom — its real height), the below
+            // deck's extent, and whether either leaves a genuine gap (no
+            // rendered content at all) against the other or against the
+            // viewport's own bottom edge. Relative to the container's own
+            // top (liveContainerTop), the same frame room already uses, so
+            // these numbers line up directly against room/clientH.
+            const rectRelativeToContainer = el => {
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                const ct = liveContainerTop();
+                return { top: rect.top - ct, bottom: rect.bottom - ct, height: rect.height };
+            };
+            const decksInDomRightAfterJump = queryDeckSequenceContainers();
+            const deckBelowRightAfterJump = findDeckBelow(decksInDomRightAfterJump);
+            const deckAboveRightAfterJump = findDeckAbove(decksInDomRightAfterJump);
+            const currentGeomRightAfterJump = rectRelativeToContainer(current?.geometryElement);
+            const belowGeomRightAfterJump = rectRelativeToContainer(deckBelowRightAfterJump);
+            const aboveGeomRightAfterJump = rectRelativeToContainer(deckAboveRightAfterJump);
+            const outerHtmlRightAfterJump = turnContainerForButtons?.outerHTML || null;
+            const precedentHtmlRightAfterJump = precedentDeck?.outerHTML || null;
+            const subsequentHtmlRightAfterJump = subsequentDeck?.outerHTML || null;
+            const belowHtmlRightAfterJump = deckBelowRightAfterJump?.outerHTML || null;
+            const belowTurnIdRightAfterJump = deckBelowRightAfterJump ? (deckSequenceId(deckBelowRightAfterJump) || '(no turn-id)') : '(none)';
+            const aboveTurnIdRightAfterJump = deckAboveRightAfterJump ? (deckSequenceId(deckAboveRightAfterJump) || '(no turn-id)') : '(none)';
             const jumpStartedAt = performance.now();
-            const stability = await waitForLayoutStable(container);
+            const stability = await waitForLayoutStable(container, current);
             _perf.workZoneJumpStability.jumpMsSum += performance.now() - jumpStartedAt;
+            const buttonsAfterWait = turnContainerForButtons ? turnContainerForButtons.querySelectorAll('button').length : null;
+            const outerHtmlAfterWait = turnContainerForButtons?.outerHTML || null;
+            const precedentHtmlAfterWait = precedentDeck?.outerHTML || null;
+            const subsequentHtmlAfterWait = subsequentDeck?.outerHTML || null;
+            const decksInDomAfterWait = queryDeckSequenceContainers();
+            const deckBelowAfterWait = findDeckBelow(decksInDomAfterWait);
+            const deckAboveAfterWait = findDeckAbove(decksInDomAfterWait);
+            const currentGeomAfterWait = rectRelativeToContainer(current?.geometryElement);
+            const belowGeomAfterWait = rectRelativeToContainer(deckBelowAfterWait);
+            const aboveGeomAfterWait = rectRelativeToContainer(deckAboveAfterWait);
+            const belowHtmlAfterWait = deckBelowAfterWait?.outerHTML || null;
+            const belowTurnIdAfterWait = deckBelowAfterWait ? (deckSequenceId(deckBelowAfterWait) || '(no turn-id)') : '(none)';
+            const aboveTurnIdAfterWait = deckAboveAfterWait ? (deckSequenceId(deckAboveAfterWait) || '(no turn-id)') : '(none)';
+            const belowChanged = belowTurnIdRightAfterJump !== belowTurnIdAfterWait || belowHtmlRightAfterJump !== belowHtmlAfterWait;
+            await nextAnimationFrame();
             room = measureRoom();
+            setStabilizationMarkerColor('#34c759'); // green — stabilization declared, one rendering cycle yielded before measuring room
+            // Gap to whatever's below (real content if a deck was found,
+            // otherwise the viewport's own bottom edge) — positive means
+            // genuinely uncovered space (no rendered content there at
+            // all), not just "not current," at each instant. current's own
+            // rect already spans from room past clientH (taller than the
+            // viewport), so room..clientH is always covered by current
+            // itself — this is mostly diagnostic context, not where a real
+            // gap could show up on screen.
+            const gapBelowRightAfterJump = belowGeomRightAfterJump
+                ? belowGeomRightAfterJump.top - (currentGeomRightAfterJump?.bottom ?? roomRightAfterJump)
+                : clientH - (currentGeomRightAfterJump?.bottom ?? roomRightAfterJump);
+            const gapBelowAfterWait = belowGeomAfterWait
+                ? belowGeomAfterWait.top - (currentGeomAfterWait?.bottom ?? room)
+                : clientH - (currentGeomAfterWait?.bottom ?? room);
+            // Gap *above* current, within 0..room — the part of the
+            // viewport actually in question (see findDeckAbove's comment):
+            // is this region genuinely covered by a real mounted deck, or
+            // empty? No deck found at all means the entire 0..room region
+            // is uncovered, not just "not current's own content."
+            const gapAboveRightAfterJump = aboveGeomRightAfterJump
+                ? roomRightAfterJump - aboveGeomRightAfterJump.bottom
+                : roomRightAfterJump;
+            const gapAboveAfterWait = aboveGeomAfterWait
+                ? room - aboveGeomAfterWait.bottom
+                : room;
+            const roomDriftDuringWait = room - roomRightAfterJump;
+            _perf.workZoneJumpStability.roomDriftSum += roomDriftDuringWait;
+            _perf.workZoneJumpStability.roomDriftAbsSum += Math.abs(roomDriftDuringWait);
+            _perf.workZoneJumpStability.roomDriftMaxAbs =
+                Math.max(_perf.workZoneJumpStability.roomDriftMaxAbs, Math.abs(roomDriftDuringWait));
+            // Every jump, not just outliers — capturing only the large
+            // drifts can't answer whether drift correlates with the size
+            // of roomRightAfterJump itself (e.g. "only large room drifts,
+            // small room holds steady"); that needs the full
+            // (size, drift) pairing to actually check, not a pre-filtered
+            // sample. Capped only as a safety net for very long runs, not
+            // as a deliberate sample size. role/turnId identify *what*
+            // current actually was at each measurement — same safe
+            // element-vs-synthetic-marker handling as currentNotePlaceholder
+            // — to test whether drift clusters around a particular content
+            // type (e.g. images/canvas, which can still have sub-elements
+            // settling after scrollHeight itself looks stable) rather than
+            // correlating with room's own size.
+            const currentRoleForDriftLog = current?.element
+                ? slabRole(current)
+                : (current?.deckElement?.getAttribute('data-turn') || current?.type || 'unknown');
+            const currentTurnIdForDriftLog = current?.element
+                ? slabTurnId(current)
+                : (deckSequenceId(current?.deckElement) || null);
+            if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
+                _perf.workZoneJumpStability.roomDriftLog.push(
+                    `rightAfterJump=${Math.round(roomRightAfterJump)}px, afterWait=${Math.round(room)}px, ` +
+                    `drift=${Math.round(roomDriftDuringWait)}px, role=${currentRoleForDriftLog}, ` +
+                    `turnId=${currentTurnIdForDriftLog || '(none)'}, buttons=${buttonsRightAfterJump ?? 'n/a'}->${buttonsAfterWait ?? 'n/a'}, ` +
+                    `belowTurnId=${belowTurnIdRightAfterJump}->${belowTurnIdAfterWait}, belowChanged=${belowChanged}, ` +
+                    `currentBottom=${Math.round(currentGeomRightAfterJump?.bottom ?? NaN)}->${Math.round(currentGeomAfterWait?.bottom ?? NaN)}px, ` +
+                    `gapBelowCurrent=${Math.round(gapBelowRightAfterJump)}->${Math.round(gapBelowAfterWait)}px, ` +
+                    `aboveTurnId=${aboveTurnIdRightAfterJump}->${aboveTurnIdAfterWait}, ` +
+                    `gapAboveCurrent(0..room, the part actually on screen)=${Math.round(gapAboveRightAfterJump)}->${Math.round(gapAboveAfterWait)}px, ` +
+                    `decksInWholeDom=${decksInDomRightAfterJump.length}->${decksInDomAfterWait.length}`
+                );
+            }
+            // Ungated by drift — every jump up to the cap, not just ones
+            // that already showed drift, so the non-drifting majority is
+            // in the same dataset as the drifting minority (see the
+            // comment above precedentDeck for why). Each entry bundles
+            // current + precedent + subsequent together (one entry per
+            // timing instant) rather than three separate ones, and labels
+            // room (the position) right in the heading, not just drift —
+            // both are needed to check a position-based theory, not only
+            // a content-based one.
+            if (turnContainerForButtons && _perf.workZoneJumpStability.fullSnapshotCount < WORK_ZONE_JUMP_SNAPSHOT_CAP) {
+                _perf.workZoneJumpStability.fullSnapshotCount++;
+                const snapshotTurnId = currentTurnIdForDriftLog || '(none)';
+                const bundle = (label, h) =>
+                    `<!-- room=${Math.round(h.room)}px, drift=${Math.round(roomDriftDuringWait)}px, turnId=${snapshotTurnId}, ` +
+                    `belowTurnId=${h.belowTurnId}, belowChangedFromOtherInstant=${belowChanged}, aboveTurnId=${h.aboveTurnId} -->\n` +
+                    `<!-- current rect: top=${Math.round(h.currentGeom?.top ?? NaN)}px bottom=${Math.round(h.currentGeom?.bottom ?? NaN)}px ` +
+                    `height=${Math.round(h.currentGeom?.height ?? NaN)}px (clientH=${Math.round(clientH)}px) -->\n` +
+                    `<!-- below rect: top=${Math.round(h.belowGeom?.top ?? NaN)}px bottom=${Math.round(h.belowGeom?.bottom ?? NaN)}px, ` +
+                    `gap to current's bottom (off-screen, real content vs viewport's own bottom edge) = ${Math.round(h.gapBelow)}px -->\n` +
+                    `<!-- above rect: top=${Math.round(h.aboveGeom?.top ?? NaN)}px bottom=${Math.round(h.aboveGeom?.bottom ?? NaN)}px, ` +
+                    `gap in 0..room (the part actually on screen above current) — positive means genuinely uncovered: ${Math.round(h.gapAbove)}px -->\n` +
+                    `<!-- precedent deck (DOM sibling): -->\n${h.precedentHtml ?? '<!-- (none) -->'}\n` +
+                    `<!-- current deck: -->\n${h.currentHtml ?? '<!-- (none) -->'}\n` +
+                    `<!-- subsequent deck (DOM sibling): -->\n${h.subsequentHtml ?? '<!-- (none) -->'}\n` +
+                    `<!-- deck geometrically below current (by position, not DOM order): -->\n${h.belowHtml ?? '<!-- (none) -->'}\n` +
+                    `<!-- deck geometrically above current (by position, not DOM order): -->\n${h.aboveHtml ?? '<!-- (none) -->'}`;
+                pushHtmlCaptures('jump-snapshot-right-after-jump', [{
+                    turnId: snapshotTurnId,
+                    role: currentRoleForDriftLog,
+                    html: bundle('right-after-jump', {
+                        room: roomRightAfterJump, currentHtml: outerHtmlRightAfterJump,
+                        precedentHtml: precedentHtmlRightAfterJump, subsequentHtml: subsequentHtmlRightAfterJump,
+                        belowHtml: belowHtmlRightAfterJump, belowTurnId: belowTurnIdRightAfterJump,
+                        aboveHtml: deckAboveRightAfterJump?.outerHTML || null, aboveTurnId: aboveTurnIdRightAfterJump,
+                        currentGeom: currentGeomRightAfterJump, belowGeom: belowGeomRightAfterJump, aboveGeom: aboveGeomRightAfterJump,
+                        gapBelow: gapBelowRightAfterJump, gapAbove: gapAboveRightAfterJump,
+                    }),
+                }]);
+                pushHtmlCaptures('jump-snapshot-after-wait', [{
+                    turnId: snapshotTurnId,
+                    role: currentRoleForDriftLog,
+                    html: bundle('after-wait', {
+                        room, currentHtml: outerHtmlAfterWait,
+                        precedentHtml: precedentHtmlAfterWait, subsequentHtml: subsequentHtmlAfterWait,
+                        belowHtml: belowHtmlAfterWait, belowTurnId: belowTurnIdAfterWait,
+                        aboveHtml: deckAboveAfterWait?.outerHTML || null, aboveTurnId: aboveTurnIdAfterWait,
+                        currentGeom: currentGeomAfterWait, belowGeom: belowGeomAfterWait, aboveGeom: aboveGeomAfterWait,
+                        gapBelow: gapBelowAfterWait, gapAbove: gapAboveAfterWait,
+                    }),
+                }]);
+            }
+            // There used to be a check here comparing the post-wait room to
+            // roomBeforeJump + appliedJumpPx and failing on a mismatch —
+            // removed, since predicting the outcome of our own scripted
+            // jump that way was never actually reliable (see
+            // roomDriftDuringWait above for the assumption that
+            // replaced it, and why it's measured instead of trusted). The
+            // loop below already doesn't care whether any one jump hit an
+            // expectation — it just keeps stepping, re-measuring room
+            // fresh, until advanceRoom is reached or time runs out.
+            // Detachment stays checked because it's a structural fact
+            // (current.geometryElement is or isn't in the document), not a
+            // comparison against a number we made up.
+            //
             // "Clean" does not mean "nothing changed." Mounting newly
             // revealed content is exactly the normal case we are pacing for.
             // A jump is clean if the page reached a stable state without
-            // hitting the per-jump cap and without seeing the stronger
-            // sandwiched-empty signal.
-            const cleanJump = stability && !stability.timedOut && !stability.sawSandwiched;
+            // hitting the per-jump cap, without seeing the stronger
+            // sandwiched-empty signal, and without current having been
+            // detached.
+            const cleanJump = stability && !stability.timedOut && !stability.sawSandwiched && !stability.detached;
             if (cleanJump) {
-                _workZoneCleanJumpStreak++;
-                if (_workZoneCleanJumpStreak >= WORK_ZONE_MOVE_JUMP_CLEAN_STREAK && _workZoneAdaptiveJumpPx < WORK_ZONE_MOVE_JUMP_MAX_PX) {
+                // Calibration state machine: jump size alone determines what
+                // happens next, so a clean jump advances one 30px state
+                // immediately — no streak gate.
+                if (_workZoneAdaptiveJumpPx < WORK_ZONE_MOVE_JUMP_MAX_PX) {
                     _workZoneAdaptiveJumpPx = Math.min(WORK_ZONE_MOVE_JUMP_MAX_PX, _workZoneAdaptiveJumpPx + WORK_ZONE_MOVE_JUMP_GROW_PX);
-                    _workZoneCleanJumpStreak = 0;
                     _perf.workZoneJumpStability.adaptiveIncreases++;
                 }
             } else {
-                _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
-                _workZoneCleanJumpStreak = 0;
-                _perf.workZoneJumpStability.adaptiveResets++;
+                // Fatal, no in-loop retry. If current detached, retreat the
+                // calibration state 4 steps (120px) from the size that just
+                // failed — floored at the base, not a full collapse — so a
+                // later fresh run starts smaller instead of repeating the
+                // one that just failed. If current is still connected, keep
+                // the calibration and let the panel offer Resume from this
+                // cursor instead.
+                //
+                // This is a minor convenience, not load-bearing: the actual
+                // fix is detecting the failure (above, via
+                // stability.detached/sawSandwiched/timedOut) fast and
+                // accurately. Without this retreat, a retry would just
+                // restart at the floor and slowly regrow instead of
+                // resuming near the size that failed — slower, never
+                // wrong. If this ever gets in the way of keeping the code
+                // simple, it can be deleted (along with run()'s matching
+                // "deliberately not reset" comment) with nothing lost but
+                // that bit of regrowth time.
+                const reasonParts = [];
+                if (stability?.detached) reasonParts.push('current detached (signature of a too-large jump)');
+                if (stability?.sawSandwiched) reasonParts.push('sandwiched-empty deck still present');
+                if (stability?.timedOut) {
+                    reasonParts.push(
+                        stability.hiddenRetried
+                            ? `per-jump stability timeout (tab was hidden during the wait; still timed out after a ` +
+                              `${WORK_ZONE_JUMP_HIDDEN_RETRY_MS / 1000}s retry)`
+                            : stability.wasHidden
+                            ? 'per-jump stability timeout (tab was hidden during the wait)'
+                            : 'per-jump stability timeout'
+                    );
+                }
+                if (!stability) reasonParts.push('stability check did not resolve');
+                // Only detachment is actually evidence of a too-large jump
+                // (a structural fact, not a comparison against a predicted
+                // number — see the comment above cleanJump for why that
+                // comparison was removed). sawSandwiched/timedOut alone,
+                // with current still connected, is consistent instead with
+                // the separate, already-documented sandwiched-empty-deck
+                // gap (see findSandwichedEmptySlabInViewport / the exported
+                // diag's "needs a readiness patch" note): ChatGPT hasn't
+                // finished rendering this content yet, independent of jump
+                // size. Confirmed live: a 540px jump (well under the old
+                // 600px cap) failed this way with geometryElement.isConnected
+                // still true — retreating the jump size would not have
+                // been the fix there. Don't claim a confidence the
+                // evidence doesn't support.
+                const detachedCause = !!stability?.detached;
+                const failedJumpPx = _workZoneAdaptiveJumpPx;
+                if (detachedCause) {
+                    _workZoneAdaptiveJumpPx = Math.max(
+                        WORK_ZONE_MOVE_JUMP_PX,
+                        _workZoneAdaptiveJumpPx - WORK_ZONE_MOVE_JUMP_RETREAT_STATES * WORK_ZONE_MOVE_JUMP_GROW_PX
+                    );
+                    _perf.workZoneJumpStability.adaptiveResets++;
+                }
+                pushHtmlCaptures('work-zone-jump-failed', capturedIntersectingDecksHtml(container));
+                const explanation = detachedCause
+                    ? `This looks like the jump itself pushing current too far behind the viewport for ChatGPT's ` +
+                      `renderer to keep up — clicking Restart retries at the smaller ${_workZoneAdaptiveJumpPx}px and is likely to get past it.`
+                    : `current is not detached, so this may not be a jump-size problem at all — it's consistent with ` +
+                      `the known sandwiched-empty-deck/content-readiness gap (ChatGPT hasn't finished rendering this ` +
+                      `content yet). The current slab is still connected, so Resume can continue from this cursor ` +
+                      `instead of rebuilding from the conversation edge.`;
+                const message =
+                    `Work-zone jump (${failedJumpPx}px) failed: ${reasonParts.join(', ') || 'unknown'} ` +
+                    `(${jumpsTaken} small step(s) taken this move, room=${Math.round(room)}px, required=${Math.round(extra)}px). ` +
+                    `${describeCurrentAttachment(current)}. ${explanation} ` +
+                    `See the separate .html export for the intersecting deck(s) captured at this moment.`;
+                const err = new Error(message);
+                err.placeholder = currentNotePlaceholder(current, message);
+                err.resumeFromCurrent = !detachedCause;
+                throw err;
             }
         }
         // Capture only when a move actually happened — most calls find
@@ -3694,23 +4361,49 @@
         };
     }
 
-    async function run(ui, stopBtn) {
+    async function run(ui, stopBtn, resumeState = null) {
+        const isResume = !!resumeState;
         stopActiveLifecycleObserver();
-        _resetPerf();
-        _pendingImageDownloads = [];
-        _imageCounter = 0;
-        _pendingCanvasDownloads = [];
-        _canvasCounter = 0;
-        _htmlCaptures = [];
-        _knownUnresolvableSandwichedTurnIds = new Set();
-        _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
-        _workZoneCleanJumpStreak = 0;
+        if (isResume && resumeState.perf) _perf = resumeState.perf;
+        else _resetPerf();
+        setStabilizationMarkerColor('#34c759'); // green from the very start, so the first jump's switch to light blue is visible as a real transition, not the dot just appearing
+        if (isResume) {
+            _pendingImageDownloads = resumeState.pendingImageDownloads || [];
+            _imageCounter = resumeState.imageCounter || 0;
+            _pendingCanvasDownloads = resumeState.pendingCanvasDownloads || [];
+            _canvasCounter = resumeState.canvasCounter || 0;
+            _htmlCaptures = resumeState.htmlCaptures || [];
+            _runTimestamp = resumeState.timestamp || Date.now();
+        } else {
+            _pendingImageDownloads = [];
+            _imageCounter = 0;
+            _pendingCanvasDownloads = [];
+            _canvasCounter = 0;
+            _htmlCaptures = [];
+            _runTimestamp = Date.now();
+        }
+        _knownUnresolvableSandwichedTurnIds = new Set(
+            isResume
+                ? (resumeState.knownUnresolvableSandwichedTurnIds || KNOWN_PERMANENTLY_BROKEN_TURN_IDS)
+                : KNOWN_PERMANENTLY_BROKEN_TURN_IDS
+        );
+        // Deliberately NOT reset here. If a previous detached-current jump
+        // failure retreated this to a smaller size before throwing (see
+        // maintainWorkZone), a later fresh run should keep that calibration
+        // instead of repeating the same size that just failed. It only ever
+        // starts at WORK_ZONE_MOVE_JUMP_PX because that's its declared
+        // initial value, for a genuinely first run since the page loaded.
+        //
+        // Minor convenience, not load-bearing — see the matching comment in
+        // maintainWorkZone's failure branch. Safe to delete (reverting to an
+        // unconditional reset here) if it's ever in the way; the worst case
+        // without it is a slower regrow from the floor on retry, never a
+        // correctness problem.
         _reportedAllowlistedSlabItems = new WeakSet();
         _reportedUnlistedSlabItems = new WeakSet();
         _watchedImageSrcHistory = new WeakSet();
         _watchedIntersectingHistory = new WeakSet();
-        _runTimestamp = Date.now();
-        _perf.runStartMs = performance.now();
+        if (!isResume || !_perf.runStartMs) _perf.runStartMs = performance.now();
         ui.total = getNavMenuItems().length;
         const container = findScrollContainer();
         _perf.containerTag     = container.tagName.toLowerCase();
@@ -3731,22 +4424,65 @@
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
 
-        const allPrompts = [];
+        const allPrompts = isResume ? resumeState.allPrompts : [];
         const checkedModelContainers = new WeakSet();
-        let lastEl = null;
+        let lastEl = resumeState?.lastEl || null;
         let stopReason = null; // non-null = stopped early; still export what we have
         // Cumulative across the whole run, unlike advancesWithoutProgress
         // (which resets on every real-progress event) — this is "how many
         // containers has the walk gone through in total," for the panel and
         // the snapshot table. Declared here (not next to its increment site)
         // so it's already in scope for the bootstrap's own status() call.
-        let totalContainerAdvances = 0;
+        let totalContainerAdvances = resumeState?.totalContainerAdvances || 0;
         // The total viewport-move count as of the last confirmed prompt —
         // comparing this against the current total when the *next* prompt
         // is confirmed is how "did a viewport move happen between these two
         // prompts" gets decided, for both the panel log and the split
         // gap-violation stats below.
-        let viewportMovesAtLastPrompt = 0;
+        let viewportMovesAtLastPrompt = resumeState?.viewportMovesAtLastPrompt || 0;
+        let readyContainer = resumeState?.readyContainer || null;
+        let current = resumeState?.current || SLAB_WALK_START;
+        let containerSlabRanges = resumeState?.containerSlabRanges || [];
+        // The edge of a deck nearest the already-explored side of the walk —
+        // i.e. where "light" first reaches it. direction=-1: walking upward,
+        // so a new deck's bottom edge is the one adjacent to the deck just
+        // finished; its top edge is the unexplored interior. Used by
+        // containerReach below to measure how far past that entry edge
+        // extraction actually finds a slab, as direct evidence for whether
+        // readiness covers the whole deck or only the part nearest the
+        // entry point.
+        const containerNearEdge = el =>
+            WALK_DIRECTION === -1 ? el.getBoundingClientRect().bottom : el.getBoundingClientRect().top;
+        let containerEntryY = resumeState?.containerEntryY ?? (readyContainer ? containerNearEdge(readyContainer) : null);
+        // Captured the instant a deck's own readiness gate (data-is-
+        // intersecting) resolves, before any further scrolling happens —
+        // lets an "Empty container" placeholder show whether the work zone
+        // moved again (and how many times) between that resolution and the
+        // moment the deck was searched and found empty, since a move in
+        // between could itself be what pushed ChatGPT to re-unmount the
+        // deck it had just mounted.
+        let deckEntryDiag = resumeState?.deckEntryDiag || null;
+        // Defensive cap: if ready decks keep yielding no extractable slab,
+        // that's not "the conversation is just long." Fail fast with the
+        // geometry that didn't match, rather than spin silently through every
+        // remaining deck.
+        let advancesWithoutProgress = resumeState?.advancesWithoutProgress || 0;
+        const MAX_ADVANCES_WITHOUT_PROGRESS = 50;
+        // Tracks how many consecutive advances stayed on the same
+        // data-turn-id before genuinely moving to a different one — a
+        // direct measure of how much duplicate-sibling traffic the turn-id
+        // dedup filter is absorbing, independent of whether the run
+        // ultimately succeeds or hits the advance cap.
+        let lastAdvanceTurnId = resumeState?.lastAdvanceTurnId || null;
+        let curTurnIdRun = resumeState?.curTurnIdRun || 0;
+        // className/attributes of every deck advanced through without a
+        // matching slab — rect coordinates alone don't say whether a long
+        // run of zero-height decks are genuine (if sparse) turn wrappers or
+        // some unrelated decorative/structural element that happens to
+        // satisfy findNextDeck's geometric strip test. Cleared whenever real
+        // progress resets advancesWithoutProgress, so a later failure's
+        // report isn't contaminated by an earlier, unrelated stretch.
+        let advanceChain = resumeState?.advanceChain || [];
 
         if (stopBtn) stopBtn.onclick = () => { ui.stopped = true; };
 
@@ -3841,138 +4577,104 @@
         //      once the scroll has genuinely stopped moving, that's a
         //      detection-logic bug to investigate, not something more
         //      waiting would fix. So this check has no retry at all.
-        const navItems = getNavMenuItems();
-        _perf.navItemCount = navItems.length;
-        if (navItems.length > 0) {
-            // aria-label is the one independent signal for what a dot
-            // actually points to — not inferred from a click's side effect,
-            // which can be confounded by a no-op click leaving the scroll
-            // wherever a previous run left it. Captured for both ends
-            // regardless of which one gets clicked, so a failure report can
-            // show whether the labels even distinguish position at all.
-            _perf.navFirstLabel = navItems[0].getAttribute('aria-label') || '(none)';
-            _perf.navLastLabel  = navItems[navItems.length - 1].getAttribute('aria-label') || '(none)';
-            const clickedIndex = WALK_DIRECTION === -1 ? navItems.length - 1 : 0;
-            const oppositeIndex = navItems.length - 1 - clickedIndex;
-            // Visit the opposite end first, and dwell there, before the real
-            // bootstrap click below. The page tends to load already settled
-            // near one edge (typically the bottom), so that edge's
-            // containers can still be fully rendered from page load itself —
-            // never having gone through a not-ready→ready transition at all
-            // — by the time the walk starts. That's the same "vacuous test"
-            // problem already seen in composite-fingerprint candidates with
-            // near-zero discovery-to-ready delay. Whatever mechanism decides
-            // to eagerly fill content near the viewport is presumably
-            // time-dependent, not just position-dependent — a quick
-            // click-away-and-back could land back at the target edge before
-            // that edge has actually been torn down, defeating the point.
-            // So this isn't a courtesy pause, it's the actual mechanism:
-            // speed here is the failure mode, not an inefficiency to trim.
-            //
-            // None of that risk exists when this run immediately followed a
-            // fresh full-page reload (ui.isAutoStart): nothing has rendered
-            // yet at all when the script starts watching, at either edge —
-            // the freshness this diversion manufactures artificially is
-            // already guaranteed for free by the reload itself. The risk is
-            // specifically about a page that's been open and settled for an
-            // arbitrary stretch before a manual Start Extraction click, so
-            // that's the only case this still needs to run for.
-            if (oppositeIndex !== clickedIndex && !ui.isAutoStart) {
-                _perf.navDiversionAttempted = true;
-                navItems[oppositeIndex].click();
-                try {
-                    await forceScrollToEdge(container, -WALK_DIRECTION, 10_000);
-                    _perf.navDiversionSettled = true;
-                } catch (e) {
-                    // Best-effort: if the opposite edge won't settle, proceed
-                    // to the real bootstrap anyway rather than failing the
-                    // whole run over a diversion that was never the actual goal.
-                }
-                await sleep(2000);
+        if (isResume) {
+            if (isCurrentDetached(resumeState.current)) {
+                throw new Error(`Cannot resume from current cursor: ${describeCurrentAttachment(resumeState.current)}.`);
             }
-            _perf.navClickedIndex = clickedIndex;
-            navItems[clickedIndex].click();
-        }
-        // The click alone isn't trusted to land us at the right edge and
-        // stay there (see forceScrollToEdge's comment) — it's still issued
-        // above in case it does something useful (e.g. registering the
-        // navigation with ChatGPT's own state), but the actual position is
-        // guaranteed here regardless of whether a nav dot existed at all.
-        await forceScrollToEdge(container, WALK_DIRECTION, 30_000);
-        // Recorded for every run, not just failures, so a successful run's
-        // diag block still shows where this actually landed.
-        _perf.navClickScrollTop = container === document.documentElement ? window.scrollY : container.scrollTop;
-        {
-            const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-            const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
-            const range = scrollH - clientH;
-            _perf.navClickScrollPct = range > 0 ? Math.round(100 * _perf.navClickScrollTop / range) : 100;
-            // forceScrollToEdge's own stability check only requires 3
-            // checks 150ms apart (450ms total) to agree with *whatever*
-            // scrollHeight currently is — it never confirms scrollHeight
-            // itself has stopped growing. A still-settling tail (e.g. a
-            // multi-message image-gen reply not yet fully measured into
-            // layout) could make it lock onto an edge that looks stable
-            // for that brief window but isn't actually the true end yet.
-            // Direct check: re-measure scrollHeight a few seconds later,
-            // with no further scrolling in between, and see if it moved.
-            _perf.scrollHeightGrowthCheck.before = scrollH;
-            await sleep(5000);
-            const scrollHAfter = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-            _perf.scrollHeightGrowthCheck.after = scrollHAfter;
-            _perf.scrollHeightGrowthCheck.grewBy = scrollHAfter - scrollH;
+            if (resumeState.readyContainer && !resumeState.readyContainer.isConnected) {
+                throw new Error('Cannot resume from current cursor: ready deck is detached.');
+            }
+            ui.log(`Resuming from current cursor — ${describeCurrentForStop(resumeState.current, resumeState.readyContainer)}`);
+        } else {
+            const navItems = getNavMenuItems();
+            _perf.navItemCount = navItems.length;
+            if (navItems.length > 0) {
+                // aria-label is the one independent signal for what a dot
+                // actually points to — not inferred from a click's side effect,
+                // which can be confounded by a no-op click leaving the scroll
+                // wherever a previous run left it. Captured for both ends
+                // regardless of which one gets clicked, so a failure report can
+                // show whether the labels even distinguish position at all.
+                _perf.navFirstLabel = navItems[0].getAttribute('aria-label') || '(none)';
+                _perf.navLastLabel  = navItems[navItems.length - 1].getAttribute('aria-label') || '(none)';
+                const clickedIndex = WALK_DIRECTION === -1 ? navItems.length - 1 : 0;
+                const oppositeIndex = navItems.length - 1 - clickedIndex;
+                // Visit the opposite end first, and dwell there, before the real
+                // bootstrap click below. The page tends to load already settled
+                // near one edge (typically the bottom), so that edge's
+                // containers can still be fully rendered from page load itself —
+                // never having gone through a not-ready→ready transition at all
+                // — by the time the walk starts. That's the same "vacuous test"
+                // problem already seen in composite-fingerprint candidates with
+                // near-zero discovery-to-ready delay. Whatever mechanism decides
+                // to eagerly fill content near the viewport is presumably
+                // time-dependent, not just position-dependent — a quick
+                // click-away-and-back could land back at the target edge before
+                // that edge has actually been torn down, defeating the point.
+                // So this isn't a courtesy pause, it's the actual mechanism:
+                // speed here is the failure mode, not an inefficiency to trim.
+                //
+                // None of that risk exists when this run immediately followed a
+                // fresh full-page reload (ui.isAutoStart): nothing has rendered
+                // yet at all when the script starts watching, at either edge —
+                // the freshness this diversion manufactures artificially is
+                // already guaranteed for free by the reload itself. The risk is
+                // specifically about a page that's been open and settled for an
+                // arbitrary stretch before a manual Start Extraction click, so
+                // that's the only case this still needs to run for.
+                if (oppositeIndex !== clickedIndex && !ui.isAutoStart) {
+                    _perf.navDiversionAttempted = true;
+                    navItems[oppositeIndex].click();
+                    try {
+                        await forceScrollToEdge(container, -WALK_DIRECTION, 10_000);
+                        _perf.navDiversionSettled = true;
+                    } catch (e) {
+                        // Best-effort: if the opposite edge won't settle, proceed
+                        // to the real bootstrap anyway rather than failing the
+                        // whole run over a diversion that was never the actual goal.
+                    }
+                    await sleep(2000);
+                }
+                _perf.navClickedIndex = clickedIndex;
+                navItems[clickedIndex].click();
+            }
+            // The click alone isn't trusted to land us at the right edge and
+            // stay there (see forceScrollToEdge's comment) — it's still issued
+            // above in case it does something useful (e.g. registering the
+            // navigation with ChatGPT's own state), but the actual position is
+            // guaranteed here regardless of whether a nav dot existed at all.
+            await forceScrollToEdge(container, WALK_DIRECTION, 30_000);
+            // Recorded for every run, not just failures, so a successful run's
+            // diag block still shows where this actually landed.
+            _perf.navClickScrollTop = container === document.documentElement ? window.scrollY : container.scrollTop;
+            {
+                const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
+                const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
+                const range = scrollH - clientH;
+                _perf.navClickScrollPct = range > 0 ? Math.round(100 * _perf.navClickScrollTop / range) : 100;
+                // forceScrollToEdge's own stability check only requires 3
+                // checks 150ms apart (450ms total) to agree with *whatever*
+                // scrollHeight currently is — it never confirms scrollHeight
+                // itself has stopped growing. A still-settling tail (e.g. a
+                // multi-message image-gen reply not yet fully measured into
+                // layout) could make it lock onto an edge that looks stable
+                // for that brief window but isn't actually the true end yet.
+                // Direct check: re-measure scrollHeight a few seconds later,
+                // with no further scrolling in between, and see if it moved.
+                _perf.scrollHeightGrowthCheck.before = scrollH;
+                await sleep(5000);
+                const scrollHAfter = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
+                _perf.scrollHeightGrowthCheck.after = scrollHAfter;
+                _perf.scrollHeightGrowthCheck.grewBy = scrollHAfter - scrollH;
+            }
         }
 
-        // No separate bootstrap: SLAB_WALK_START stands in for "current"
-        // before any real slab has been found, so the very first real slab
-        // is simply "the next one after that," found and entered exactly
-        // the same way every later one is. readyContainer starts as null for
-        // the same reason — there is no real deck yet, only the viewport
-        // edge the scroll above already landed on.
-        let readyContainer = null;
-        let current = SLAB_WALK_START;
-        let containerSlabRanges = [];
-        // The edge of a deck nearest the already-explored side of the walk —
-        // i.e. where "light" first reaches it. direction=-1: walking upward,
-        // so a new deck's bottom edge is the one adjacent to the deck just
-        // finished; its top edge is the unexplored interior. Used by
-        // containerReach below to measure how far past that entry edge
-        // extraction actually finds a slab, as direct evidence for whether
-        // readiness covers the whole deck or only the part nearest the
-        // entry point.
-        const containerNearEdge = el =>
-            WALK_DIRECTION === -1 ? el.getBoundingClientRect().bottom : el.getBoundingClientRect().top;
-        let containerEntryY = null;
-        // Captured the instant a deck's own readiness gate (data-is-
-        // intersecting) resolves, before any further scrolling happens —
-        // lets an "Empty container" placeholder show whether the work zone
-        // moved again (and how many times) between that resolution and the
-        // moment the deck was searched and found empty, since a move in
-        // between could itself be what pushed ChatGPT to re-unmount the
-        // deck it had just mounted.
-        let deckEntryDiag = null;
-
-        // Defensive cap: if ready decks keep yielding no extractable slab,
-        // that's not "the conversation is just long." Fail fast with the
-        // geometry that didn't match, rather than spin silently through every
-        // remaining deck.
-        let advancesWithoutProgress = 0;
-        const MAX_ADVANCES_WITHOUT_PROGRESS = 50;
-        // Tracks how many consecutive advances stayed on the same
-        // data-turn-id before genuinely moving to a different one — a
-        // direct measure of how much duplicate-sibling traffic the turn-id
-        // dedup filter is absorbing, independent of whether the run
-        // ultimately succeeds or hits the advance cap.
-        let lastAdvanceTurnId = null;
-        let curTurnIdRun = 0;
-        // className/attributes of every deck advanced through without a
-        // matching slab — rect coordinates alone don't say whether a long
-        // run of zero-height decks are genuine (if sparse) turn wrappers or
-        // some unrelated decorative/structural element that happens to
-        // satisfy findNextDeck's geometric strip test. Cleared whenever real
-        // progress resets advancesWithoutProgress, so a later failure's
-        // report isn't contaminated by an earlier, unrelated stretch.
-        let advanceChain = [];
+        // No separate bootstrap for a fresh run: SLAB_WALK_START stands in
+        // for "current" before any real slab has been found, so the first
+        // real slab is simply "the next one after that." On resume, current
+        // and readyContainer were restored before the try block so the catch
+        // can save them again if this segment also stops.
+        startBackgroundPositionSampler(() => current, container); // see its own comment — never awaited, can't affect timing
         const describeTurnContainer = el => {
             const r = el.getBoundingClientRect();
             const attrs = [...el.attributes]
@@ -4348,9 +5050,45 @@
         }
         } catch (e) {
             stopReason = e.message;
-            if (e.placeholder) insertMsg(e.placeholder);
+            const canResumeFromCurrent =
+                e.resumeFromCurrent &&
+                current &&
+                !isCurrentDetached(current) &&
+                (!readyContainer || readyContainer.isConnected);
+            if (canResumeFromCurrent) {
+                _resumeState = {
+                    current,
+                    readyContainer,
+                    allPrompts,
+                    containerSlabRanges,
+                    containerEntryY,
+                    deckEntryDiag,
+                    totalContainerAdvances,
+                    viewportMovesAtLastPrompt,
+                    advancesWithoutProgress,
+                    lastAdvanceTurnId,
+                    curTurnIdRun,
+                    advanceChain,
+                    lastEl,
+                    pendingImageDownloads: _pendingImageDownloads,
+                    imageCounter: _imageCounter,
+                    pendingCanvasDownloads: _pendingCanvasDownloads,
+                    canvasCounter: _canvasCounter,
+                    htmlCaptures: _htmlCaptures,
+                    timestamp: _runTimestamp,
+                    knownUnresolvableSandwichedTurnIds: [..._knownUnresolvableSandwichedTurnIds],
+                    perf: _perf,
+                };
+                ui.log('Resume available from current cursor; no missing-slab note inserted yet.');
+            } else {
+                _resumeState = null;
+                if (e.placeholder) insertMsg(e.placeholder);
+            }
         }
+        if (!stopReason) _resumeState = null;
         stopActiveLifecycleObserver();
+        stopBackgroundPositionSampler();
+        removeStabilizationMarker();
         document.removeEventListener('visibilitychange', onVisibilityChange);
         if (_perf.readyContainerModel.delayedRechecksResolved < _perf.readyContainerModel.delayedRechecksScheduled) {
             await sleep(550);
@@ -4423,6 +5161,14 @@
             `minFloorApplied=${_perf.workZoneJumpStability.minFloorApplied}, ` +
             `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, ` +
             `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}`
+        );
+        ui.log(
+            `Pure-timeout hidden-tab retries: retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
+            `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}`
+        );
+        ui.log(
+            `Room drift during wait: avgAbs=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.roomDriftAbsSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
+            `netSum=${Math.round(_perf.workZoneJumpStability.roomDriftSum)}px, maxAbs=${Math.round(_perf.workZoneJumpStability.roomDriftMaxAbs)}px`
         );
         ui.log(
             `Sandwiched-empty-slab readiness failure signal: seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, ` +
@@ -4523,17 +5269,15 @@
         const jumpsEl = Object.assign(document.createElement('div'), { innerText: 'Work-zone jumps : —' });
         statusEl.append(elapsedEl, promptsEl, msgsEl, containersEl, viewportsEl, jumpsEl);
 
-        const logEl = document.createElement('div');
-        Object.assign(logEl.style, {
-            marginTop: '8px', maxHeight: '160px', overflowY: 'auto',
-            background: '#181825', padding: '6px', borderRadius: '4px',
-            fontSize: '11px', color: '#dde1f4',
-        });
-
         const note = Object.assign(document.createElement('div'), {
             innerText: `Scroll to the ${WALK_DIRECTION === -1 ? 'BOTTOM' : 'TOP'} of the chat before starting.`,
         });
-        Object.assign(note.style, { marginTop: '8px', color: '#f9e2af', fontSize: '11px' });
+        Object.assign(note.style, {
+            marginTop: '10px',
+            color: '#f9e2af',
+            fontSize: '13px',
+            lineHeight: '1.35',
+        });
 
         const diagCheck = Object.assign(document.createElement('input'), {
             type: 'checkbox', id: 'extractor-diag-check',
@@ -4587,7 +5331,7 @@
         btnRow.append(btn, stopBtn, exportBtn);
 
         const body = document.createElement('div');
-        body.append(logEl, statusEl, note, diagRow, btnRow);
+        body.append(statusEl, diagRow, note, btnRow);
 
         panel.append(titleRow, body);
 
@@ -4658,26 +5402,20 @@
                 msgsEl.innerText       = `All msgs : ${msgCount}`;
                 containersEl.innerText = `Containers advanced : ${containerCount}`;
                 viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
-                jumpsEl.innerText      = `Work-zone jumps : ${jumpCount}`;
+                const avgJumpPx = jumpCount ? Math.round(_perf.workZoneJumpStability.jumpPxSum / jumpCount) : 0;
+                jumpsEl.innerText      = `Work-zone jumps : ${jumpCount} (${avgJumpPx}px/jump)`;
                 updateElapsed();
                 console.log(`[Extractor] STATUS: prompts ${fmt(promptCount)} | msgs ${msgCount} | ` +
-                    `containers ${containerCount} | viewport moves ${viewportCount} | work-zone jumps ${jumpCount}`);
+                    `containers ${containerCount} | viewport moves ${viewportCount} | work-zone jumps ${jumpCount} (${avgJumpPx}px/jump)`);
             },
             log(msg) {
                 updateElapsed();
-                const line = Object.assign(document.createElement('div'), {
-                    innerText: `> ${msg}`,
-                });
-                line.style.whiteSpace = 'pre-wrap'; // diagnosis messages can carry embedded newlines (e.g. the advance-chain summary)
-                logEl.appendChild(line);
-                logEl.scrollTop = logEl.scrollHeight;
                 console.log(`[Extractor] ${msg}`);
             },
         };
 
         const showRunningState = () => {
             ui.stopped = false;
-            logEl.innerHTML = '';
             elapsedEl.innerText = 'Elapsed : 0:00';
             stopElapsedTimer();
             elapsedTimer = setInterval(updateElapsed, 1000);
@@ -4688,6 +5426,18 @@
             exportBtn.style.display = 'none';
         };
 
+        const setIdleNote = (label, stopped) => {
+            if (label === 'Resume from current') {
+                note.innerText = 'Resume continues from the saved current slab. The adaptive jump size is not reduced for this non-detached stop.';
+            } else if (label === 'Retry') {
+                note.innerText = 'Retry starts a fresh attempt. If current detached, the adaptive jump size was already reduced before stopping.';
+            } else if (stopped) {
+                note.innerText = 'Restart starts again from the conversation edge. Export is available for the partial or completed result.';
+            } else {
+                note.innerText = `Scroll to the ${WALK_DIRECTION === -1 ? 'BOTTOM' : 'TOP'} of the chat before starting.`;
+            }
+        };
+
         const showIdleState = (label, stopped) => {
             updateElapsed();
             stopElapsedTimer();
@@ -4696,14 +5446,18 @@
             btn.disabled = false;
             Object.assign(btn.style, { background: '#89b4fa', color: '#11111b' });
             btn.innerText = label;
+            setIdleNote(label, stopped);
             if (stopped) note.style.display = '';
         };
 
         btn.onclick = async () => {
+            const resumeState = _resumeState;
+            _resumeState = null;
             showRunningState();
             try {
-                await run(ui, stopBtn);
-                showIdleState('Restart', ui.stopped || !!_savedState?.stopReason);
+                await run(ui, stopBtn, resumeState);
+                showIdleState(_resumeState ? 'Resume from current' : 'Restart',
+                    ui.stopped || !!_savedState?.stopReason || !!_resumeState);
             } catch (err) {
                 stopBtn.style.display = 'none';
                 ui.log(`ERROR: ${err.message}`);
