@@ -69,35 +69,48 @@ observation may now occur.
 Readiness observations are fallible. They are evidence, not proof. A readiness
 observation can time out, be too weak, or be invalidated by later diagnostics.
 
-## Interventions and Work-Zone Movement
+# Work-Zone Movements
 
-An intervention is an action that changes what the environment boundary can
-expose. It is neither a structural expectation nor a readiness observation.
+The Supplier does not keep the entire conversation in stock. New
+supplies become available only as ChatGPT's rendering systems extend the
+current work zone.
 
-The main intervention is work-zone movement. The work zone is the part of the
-page that has been brought close enough to the viewport for ChatGPT's rendering
-machinery to expose useful DOM evidence.
+The work zone corresponds to the visible viewport. In the foreman
+analogy, it is the portion of the walkway where the Supplier's workers
+are currently active.
 
-The extractor assumes that ChatGPT's rendering workers are not reliable under a
-single large scripted jump of the work zone. ChatGPT's rendering pipeline
-appears to be designed around ordinary incremental scrolling: each newly
-exposed region gets a chance to mount, measure, and trigger its own readiness
-work before the next region is exposed. A large scripted jump can land the
-viewport inside non-rendered territory, leaving both ChatGPT's virtualizer and
-the extractor with an incomplete observable surface.
+The Supplier's workers are concerned with the detailed structure of
+supplies rather than with slabs as traversal units. A slab may fit
+entirely within one work zone or may extend across many successive work
+zones. Even while the foreman remains on the same slab, the workers may
+still be preparing later portions of that slab.
 
-This applies specifically to the extractor's ordinary scripted scrolling
-(`scrollTop` / `scrollTo`). It should not be confused with ChatGPT or browser
-navigation paths such as clicking a conversation navigation item or using the
-scrollbar. Those actions may use different positioning or reconstruction
-behavior. They are different environment operations, not merely the same
-work-zone movement with a larger distance.
+For the workers to operate predictably, each new work zone must remain within a surrounding safe part of the walkway extending a few hundred pixels on each side of that work zone.
 
-For that reason, work-zone movement is modeled as a sequence of small jumps.
-After each jump, the extractor waits for local browser/layout stability before
-taking the next measurements. Browser/layout stability is necessary but not
-sufficient: diagnostics such as a sandwiched-empty deck mean the browser frame
-has settled while ChatGPT-level readiness has not.
+Within this safe part, the workers can
+reliably prepare the detailed structure required by the current and
+upcoming supplies.
+
+Consequently, the foreman advances the work zone in small jumps. After
+each jump, it waits until the newly reached safe part has been prepared
+before making the next jump. These small jumps exist solely to satisfy
+the operating constraints of the Supplier's workers. Their purpose is
+not to expose a new slab. A small jump may reveal no new slab at all.
+
+A small jump does not necessarily make a new slab available. Some slabs extend across many successive work zones, so several small jumps may occur while the foreman is still working with the same slab.
+
+For this reason, small jumps are not considered traversal events. The foreman groups them into a single large work-zone movement, which ends only when the work zone has advanced as far as possible while the current slab still intersects it. 
+
+A large work-zone movement begins when traversal cannot continue without
+advancing the work zone. The foreman then performs successive small
+jumps, waiting after each one for the newly reached safe part to become
+ready. The movement ends only when the work zone has advanced as far as
+possible while the current slab still intersects it.
+
+Only after the large work-zone movement is complete does normal slab
+traversal resume. The intermediate jumps are not traversal events in
+their own right; they are merely the mechanism by which the Supplier's
+workers progressively prepare the walkway ahead of the foreman.
 
 ## Current DOM Adapter
 
