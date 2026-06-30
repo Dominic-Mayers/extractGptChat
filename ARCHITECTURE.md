@@ -27,8 +27,9 @@ To work with this incomplete inventory, the traversal logic relies on two kinds 
   ready for the next stage of work now.
 - **Work Zone Movements**, which actively change the situation so that more supplies may become observable.
 
-The traversal logic interprets this information when deciding how to continue. Structural and readiness observations are used top-dowmn, whereas work zone movements have an effect bottom-up.  Adapters may perform local translation and observation work, but traversal
-decisions belong to the traversal logic, not to the raw DOM.
+Structural and readiness observations guide traversal from higher-level structures such as decks toward progressively finer structures such as slabs and their contents. Work-zone movements act in the opposite direction: they perturb the low-level rendering machinery beneath those structures, allowing their effects to propagate upward until new structural and readiness observations become available.
+
+The traversal logic interprets this information when deciding how to continue. Adapters may perform local translation and observation work, but traversal decisions belong to the traversal logic, not to the raw DOM.
 
 ## Structural Observations
 
