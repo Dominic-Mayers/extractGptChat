@@ -112,6 +112,9 @@
                 examples: [],
             },
             intermediateDeckAdvances: 0,
+            lifecycle: {
+                autoResumesFromCurrent: 0,
+            },
             // Informational only — see maintainWorkZone: the room outcome
             // of the one move issued is no longer a gate, just observed.
             workZoneRoomShortfall: { count: 0, examples: [] },
@@ -659,6 +662,7 @@
             const exported = countPrompts(prompts);
             const tocStatus = expected === 0 ? 'not visible' : expected === exported ? 'OK' : 'MISMATCH';
             const issueLines = [];
+            if (tocStatus === 'MISMATCH') issueLines.push(`toc-mismatch=${exported}/${expected}`);
             if (_perf.extractionFailures.count > 0) issueLines.push(`extraction-empty=${_perf.extractionFailures.count}`);
             if (_perf.containerCoverage.gaps > 0) issueLines.push(`coverage-gaps=${_perf.containerCoverage.gaps}`);
             if (_perf.containerCoverage.zeroSlabDecks > 0) issueLines.push(`zero-slab-decks=${_perf.containerCoverage.zeroSlabDecks}`);
@@ -677,6 +681,7 @@
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
                 + `    Exported ${exported}${expected ? `/${expected}` : ''} user prompts (${prompts.length} slabs/notes). TOC=${tocStatus}.\n`
+                + `    Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}\n`
                 + `\n`
                 + `    ── diag (v4.159) ──\n`
                 + `    Missing-slab signals: ${issueLines.length ? issueLines.join(', ') : 'none'}\n`
@@ -2033,15 +2038,14 @@
     // create. 1.0 would put current's leading edge exactly on the new work
     // zone's edge (no overlap at all, current effectively out of view) — not
     // a real option, since current needs to stay genuinely inside the new
-    // viewport, not just at its boundary. The default reproduces the
-    // original design's behavior exactly ("a minimum number of maximal
-    // jumps"): advance close to a full work zone's worth, leaving just
-    // WORK_ZONE_MARGIN_FRACTION of current still inside view. maintainWorkZone
-    // takes this as an overridable parameter (not just a constant) so
+    // viewport, not just at its boundary. The default keeps the move more
+    // conservative: advance until current has about half a viewport of room
+    // ahead, unless the explicit slab lookahead minimum needs more.
+    // maintainWorkZone takes this as an overridable parameter (not just a constant) so
     // different advance strategies — this maximal one, a minimal
     // "just enough room past the trigger margin" one, or anything between —
     // can be experimented with from call sites without touching this function.
-    const WORK_ZONE_ADVANCE_FRACTION = 1 - WORK_ZONE_MARGIN_FRACTION;
+    const WORK_ZONE_ADVANCE_FRACTION = 0.5;
 
     // A single large, blind scrollTop jump has no guarantee ChatGPT's own
     // virtualizer reacts to it — ordinary incremental scrolling (wheel,
@@ -2796,10 +2800,11 @@
             const curTop = readPos();
             const max = liveScrollMax(); // re-read live every step — the document's own scrollable range can shift mid-run, same as everything else
             // The calibrated jump size is the requested intervention size:
-            // once calibration has reached 900px, a jump should really be
-            // 900px whenever applying it would still leave current before
-            // the work-zone target (room < advanceRoom, normally 0.9 *
-            // viewport height). Only the final approach to advanceRoom is
+            // once calibration has reached the configured maximum, a jump
+            // should really use that calibrated size whenever applying it
+            // would still leave current before the work-zone target
+            // (room < advanceRoom, normally half the viewport height). Only
+            // the final approach to advanceRoom is
             // clamped. This keeps the calibration semantics honest: a high
             // max tests high jumps, while geometry only prevents crossing
             // the explicit "current must remain inside the work zone"
@@ -2818,6 +2823,7 @@
             // timeout with room stuck at exactly 0 across 101 jumps).
             //
             const remainingToAdvanceRoom = advanceRoom - room;
+            if (remainingToAdvanceRoom < WORK_ZONE_TINY_TARGET_CLAMP_PX && room > extra) break; // already past minimum — skip the sub-pixel final approach
             const calibratedJumpPx = _workZoneAdaptiveJumpPx;
             const safeJumpPx = room + calibratedJumpPx < advanceRoom
                 ? calibratedJumpPx
@@ -4773,15 +4779,15 @@
         // attempting the search and reading an 'end-of-deck' result back.
         while (!ui.stopped && !stopReason) {
             // ── ensure work-zone room ahead of current slab ──
-            // maintainWorkZone now either returns roomSatisfied:true, returns
-            // a clamped boundaryReached result, or throws on a genuine
-            // deviation — never roomSatisfied:false without boundaryReached,
-            // so there's nothing left to retry here.
+            // maintainWorkZone reports the outcome of the intervention, not
+            // the end of traversal. If the physical scroll boundary is reached,
+            // no further jump can create more room, but structural selection
+            // may still find the next visible deck/slab.
             const zoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
             if (zoneStatus.jumpsTaken > 0) {
                 ui.log(`  work-zone move: ${zoneStatus.jumpsTaken} step(s), outcome=${zoneStatus.outcome}`);
             }
-            if (!zoneStatus.roomSatisfied) {
+            if (!zoneStatus.roomSatisfied && !zoneStatus.boundaryReached) {
                 if (ui.total > 0 && countPrompts(allPrompts) < ui.total) {
                     const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
                     stopReason = `Reached the supplied ${boundaryLabel} with only ${countPrompts(allPrompts)}/${ui.total} ` +
@@ -4789,6 +4795,8 @@
                         `earlier slab extraction likely missed prompt(s). ${describeCurrentForStop(current, readyContainer)}`;
                 }
                 break;
+            } else if (!zoneStatus.roomSatisfied) {
+                ui.log(`  scroll boundary reached during work-zone move; continuing with deck/slab geometry search`);
             }
 
             if (readyContainer) checkReadyContainerModel(readyContainer, checkedModelContainers);
@@ -4833,7 +4841,7 @@
                     if (exitZoneStatus.jumpsTaken > 0) {
                         ui.log(`  work-zone move (deck exit): ${exitZoneStatus.jumpsTaken} step(s), outcome=${exitZoneStatus.outcome}`);
                     }
-                    if (!exitZoneStatus.roomSatisfied) {
+                    if (!exitZoneStatus.roomSatisfied && !exitZoneStatus.boundaryReached) {
                         if (ui.total > 0 && countPrompts(allPrompts) < ui.total) {
                             const boundaryLabel = WALK_DIRECTION === -1 ? 'start' : 'end';
                             stopReason = `Reached the supplied ${boundaryLabel} with only ${countPrompts(allPrompts)}/${ui.total} ` +
@@ -4841,6 +4849,8 @@
                                 `earlier slab extraction likely missed prompt(s). ${describeCurrentForStop(current, readyContainer)}`;
                         }
                         break;
+                    } else if (!exitZoneStatus.roomSatisfied) {
+                        ui.log(`  scroll boundary reached at deck exit; searching for adjacent deck`);
                     }
                 }
                 let nextDeck = readyContainer
@@ -5116,6 +5126,7 @@
         ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
         ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`${countPrompts(allPrompts)} prompts saved (${allPrompts.length} msgs total).`);
+        ui.log(`Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}`);
         ui.log(
             `Ready-container nearby message slabs outside deck: ${_perf.readyContainerProbeMisses.count} overlapping/near ` +
             `(overlapping=${_perf.readyContainerProbeMisses.overlapping}, near-only=${_perf.readyContainerProbeMisses.nearOnly}, ` +
@@ -5498,11 +5509,19 @@
             _pendingAutoRestart = false;
             showRunningState();
             try {
+                let autoResumeCount = 0;
+                let runPass = 0;
                 do {
+                    if (resumeState && runPass > 0) {
+                        _perf.lifecycle.autoResumesFromCurrent++;
+                        ui.log(`Auto-resuming from current cursor (${_perf.lifecycle.autoResumesFromCurrent}).`);
+                    }
                     await run(ui, stopBtn, resumeState);
+                    runPass++;
                     resumeState = _resumeState;
                     _resumeState = null;
-                } while (!ui.stopped && (resumeState || _pendingAutoRestart));
+                    if (resumeState) autoResumeCount++;
+                } while (!ui.stopped && (_pendingAutoRestart || (resumeState && autoResumeCount <= 1)));
                 showIdleState(resumeState ? 'Resume from current' : 'Restart',
                     ui.stopped || !!_savedState?.stopReason || !!resumeState);
             } catch (err) {
