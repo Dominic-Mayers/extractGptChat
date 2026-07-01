@@ -72,6 +72,7 @@
             containerReach: { count: 0, sum: 0, max: 0, maxWinner: null },
             sleepSlip: { count: 0, sum: 0, max: 0 },
             tabHidden: { wasHidden: false, hideCount: 0 },
+            expectedUserPrompts: 0,
             contentChangedAfterExtraction: { count: 0, examples: [] },
             postReadyMutations: { count: 0, examples: [] },
             preReadyMutations: {
@@ -274,6 +275,19 @@
 
     function countPrompts(prompts) {
         return prompts.filter(pr => pr.role === 'user').length;
+    }
+
+    function formatUserMsgSummary(count, total) {
+        return total
+            ? `${count}/${total} (${Math.round(count * 100 / total)}%)`
+            : `${count}`;
+    }
+
+    function rememberExpectedUserPrompts(total) {
+        if (total > 0) {
+            _perf.expectedUserPrompts = Math.max(_perf.expectedUserPrompts || 0, total);
+        }
+        return _perf.expectedUserPrompts || 0;
     }
 
     // ChatGPT's generated-image URLs (backend-api/estuary/content?...&sig=...)
@@ -668,9 +682,10 @@
             const _ms    = performance.now() - _perf.runStartMs;
             const _sleep = _ms - _perf.htmlToMarkdownMs;
             const promptDots = getNavMenuItems();
-            const expected = promptDots.length;
+            const expected = rememberExpectedUserPrompts(promptDots.length);
             const exported = countPrompts(prompts);
             const tocStatus = expected === 0 ? 'not visible' : expected === exported ? 'OK' : 'MISMATCH';
+            const userMsgSummary = formatUserMsgSummary(exported, expected);
             const issueLines = [];
             if (tocStatus === 'MISMATCH') issueLines.push(`toc-mismatch=${exported}/${expected}`);
             if (_perf.extractionFailures.count > 0) issueLines.push(`extraction-empty=${_perf.extractionFailures.count}`);
@@ -690,6 +705,7 @@
             md += `    ── perf (v4.159) ──\n`
                 + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
                 + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
+                + `    User msgs: ${userMsgSummary}\n`
                 + `    Exported ${exported}${expected ? `/${expected}` : ''} user prompts (${prompts.length} slabs/notes). TOC=${tocStatus}.\n`
                 + `    Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}\n`
                 + `\n`
@@ -719,6 +735,8 @@
                   + `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, `
                   + `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}\n`
                 + `    Requested jump sizes: ${formatRequestedJumpBuckets()}\n`
+                + `    Clamped jumps: ${_perf.workZoneJumpStability.targetClampedJumps} total ` +
+                  `(avg ${_perf.workZoneJumpStability.targetClampedJumps ? Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps) : 0}px)\n`
                 + `    Pure-timeout hidden-tab retries (see WORK_ZONE_JUMP_HIDDEN_RETRY_MS — timed out, not sandwiched, ` +
                   `not detached, tab was hidden during the wait): retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
                   `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}\n`
@@ -2100,7 +2118,23 @@
     // maintainWorkZone's cleanJump for where this is actually used.
     let _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
 
+    function ensureRequestedJumpBucket(size) {
+        return _perf.workZoneJumpStability.requestedJumpBuckets[size] ||
+            (_perf.workZoneJumpStability.requestedJumpBuckets[size] = {
+                jumps: 0,
+                clamped: 0,
+                clampedPxSum: 0,
+            });
+    }
+
+    function ensureRequestedJumpBucketLadder() {
+        for (let size = WORK_ZONE_MOVE_JUMP_PX; size <= WORK_ZONE_MOVE_JUMP_MAX_PX; size += WORK_ZONE_MOVE_JUMP_GROW_PX) {
+            ensureRequestedJumpBucket(size);
+        }
+    }
+
     function requestedJumpBucketEntries() {
+        ensureRequestedJumpBucketLadder();
         return Object.entries(_perf.workZoneJumpStability.requestedJumpBuckets)
             .map(([size, stats]) => [Number(size), stats])
             .sort(([a], [b]) => a - b);
@@ -2108,9 +2142,14 @@
 
     function formatRequestedJumpBuckets(separator = ' | ') {
         const entries = requestedJumpBucketEntries();
-        if (entries.length === 0) return `${WORK_ZONE_MOVE_JUMP_PX}px jumps : —`;
+        if (entries.length === 0) return `${WORK_ZONE_MOVE_JUMP_PX}px : 0 full / 0 clamped (avg 0px)`;
         return entries
-            .map(([size, stats]) => `${size}px jumps : ${stats.jumps} jumps / ${stats.moves} moves`)
+            .map(([size, stats]) => {
+                const clampedAvgPx = stats.clamped
+                    ? Math.round(stats.clampedPxSum / stats.clamped)
+                    : 0;
+                return `${size}px : ${stats.jumps} full / ${stats.clamped} clamped (avg ${clampedAvgPx}px)`;
+            })
             .join(separator);
     }
 
@@ -2876,17 +2915,12 @@
                 _perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence = moveSequence;
                 _perf.workZoneJumpStability.calibratedJumpCurrentMoves++;
             }
-            const requestedBucket =
-                _perf.workZoneJumpStability.requestedJumpBuckets[calibratedJumpPx] ||
-                (_perf.workZoneJumpStability.requestedJumpBuckets[calibratedJumpPx] = {
-                    jumps: 0,
-                    moves: 0,
-                    lastMoveSequence: null,
-                });
-            requestedBucket.jumps++;
-            if (requestedBucket.lastMoveSequence !== moveSequence) {
-                requestedBucket.lastMoveSequence = moveSequence;
-                requestedBucket.moves++;
+            const requestedBucket = ensureRequestedJumpBucket(calibratedJumpPx);
+            if (targetClamped) {
+                requestedBucket.clamped++;
+                requestedBucket.clampedPxSum += safeJumpPx;
+            } else {
+                requestedBucket.jumps++;
             }
             setPos(nextPos);
             if (targetClamped) {
@@ -4462,7 +4496,7 @@
         _watchedImageSrcHistory = new WeakSet();
         _watchedIntersectingHistory = new WeakSet();
         if (!isResume || !_perf.runStartMs) _perf.runStartMs = performance.now();
-        ui.total = getNavMenuItems().length;
+        ui.total = rememberExpectedUserPrompts(getNavMenuItems().length);
         const container = findScrollContainer();
         _perf.containerTag     = container.tagName.toLowerCase();
         _perf.containerScrollH = container.scrollHeight;
@@ -5229,6 +5263,10 @@
         );
         ui.log(`Requested jump sizes: ${formatRequestedJumpBuckets()}`);
         ui.log(
+            `Clamped jumps: ${_perf.workZoneJumpStability.targetClampedJumps} total ` +
+            `(avg ${_perf.workZoneJumpStability.targetClampedJumps ? Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps) : 0}px)`
+        );
+        ui.log(
             `Pure-timeout hidden-tab retries: retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
             `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}`
         );
@@ -5333,7 +5371,7 @@
         const containersEl = Object.assign(document.createElement('div'), { innerText: 'Containers advanced : —' });
         const viewportsEl = Object.assign(document.createElement('div'), { innerText: 'Viewport moves : —' });
         const currentJumpEl = Object.assign(document.createElement('div'), {
-            innerText: `Requested jumps : ${WORK_ZONE_MOVE_JUMP_PX}px jumps : —`,
+            innerText: `Requested jumps : ${WORK_ZONE_MOVE_JUMP_PX}px : 0 full / 0 clamped (avg 0px)`,
         });
         const clampedJumpEl = Object.assign(document.createElement('div'), { innerText: 'Clamped jumps : —' });
         Object.assign(clampedJumpEl.style, {
@@ -5471,10 +5509,9 @@
                 // this.total is the nav-dot count — a count of prompts, not
                 // messages — so only the prompt line has a meaningful
                 // percentage to show against it.
-                const fmt = n => this.total
-                    ? `${n} / ${this.total} (${Math.round(100 * n / this.total)}%)`
-                    : `${n}`;
-                promptsEl.innerText    = `User msgs : ${fmt(promptCount)}`;
+                this.total = rememberExpectedUserPrompts(this.total || getNavMenuItems().length);
+                const userMsgSummary = formatUserMsgSummary(promptCount, this.total);
+                promptsEl.innerText    = `User msgs: ${userMsgSummary}`;
                 msgsEl.innerText       = `All msgs : ${msgCount}`;
                 containersEl.innerText = `Containers advanced : ${containerCount}`;
                 viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
@@ -5482,8 +5519,8 @@
                 const requestedJumpStats = formatRequestedJumpBuckets('\n');
                 const clampedJumpStats = _perf.workZoneJumpStability.targetClampedJumps === 0
                     ? '—'
-                    : `Avg ${Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps)}px / ` +
-                      `${_perf.workZoneJumpStability.targetClampedJumps} total`;
+                    : `${_perf.workZoneJumpStability.targetClampedJumps} total ` +
+                      `(avg ${Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps)}px)`;
                 currentJumpEl.innerText = `Requested jumps :\n${requestedJumpStats}`;
                 clampedJumpEl.innerText = `Clamped jumps : ${clampedJumpStats}`;
                 clampedJumpEl.style.background =
@@ -5492,7 +5529,7 @@
                         : 'rgba(137, 180, 250, 0.14)';
                 jumpsEl.innerText      = `Total jumps : ${jumpCount} (Avg: ${avgJumpPx}px/jump)`;
                 updateElapsed();
-                console.log(`[Extractor] STATUS: prompts ${fmt(promptCount)} | msgs ${msgCount} | ` +
+                console.log(`[Extractor] STATUS: user msgs ${userMsgSummary} | msgs ${msgCount} | ` +
                     `containers ${containerCount} | viewport moves ${viewportCount} | ` +
                     `requested jumps ${formatRequestedJumpBuckets()} | ` +
                     `clamped jumps ${clampedJumpStats} | total jumps ${jumpCount} (Avg: ${avgJumpPx}px/jump)`);
