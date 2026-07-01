@@ -1,3 +1,12 @@
+// ==UserScript==
+// @name         ChatGPT Chat Extractor
+// @namespace    http://tampermonkey.net/
+// @version      4.159
+// @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
+// @author       Claude
+// @match        https://chatgpt.com/*
+// @grant        GM_registerMenuCommand
+// ==/UserScript==
 (function () {
     'use strict';
 
@@ -138,6 +147,7 @@
                 lastTargetClampedJumpPx: null, lastTargetClampedJumpRank: null,
                 calibratedJumpCurrentJumps: 0, calibratedJumpCurrentMoves: 0,
                 calibratedJumpMoveSequence: 0, calibratedJumpCurrentLastMoveSequence: null,
+                requestedJumpBuckets: {},
                 targetClampedJumpPxSum: 0,
                 jumpPxSum: 0, jumpMsSum: 0, jumpsAtMax: 0, adaptiveIncreases: 0, adaptiveResets: 0,
                 // How often the final target clamp was smaller than the old
@@ -708,6 +718,7 @@
                   + `subMinTargetClamps=${_perf.workZoneJumpStability.subMinTargetClamps}, `
                   + `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, `
                   + `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}\n`
+                + `    Requested jump sizes: ${formatRequestedJumpBuckets()}\n`
                 + `    Pure-timeout hidden-tab retries (see WORK_ZONE_JUMP_HIDDEN_RETRY_MS — timed out, not sandwiched, ` +
                   `not detached, tab was hidden during the wait): retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
                   `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}\n`
@@ -2067,7 +2078,7 @@
     // smaller by the time the user manually retries via the panel's Restart
     // button.
     const WORK_ZONE_MOVE_JUMP_PX = 360;
-    const WORK_ZONE_MOVE_JUMP_MAX_PX =600;
+    const WORK_ZONE_MOVE_JUMP_MAX_PX =720;
     const WORK_ZONE_MOVE_JUMP_GROW_PX = 60;
     const WORK_ZONE_MOVE_JUMP_RETREAT_STATES = 2;
     // Diagnostic threshold for tiny final target clamps. The jump logic no
@@ -2088,6 +2099,20 @@
     // not), not a comparison against a number we made up. See
     // maintainWorkZone's cleanJump for where this is actually used.
     let _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
+
+    function requestedJumpBucketEntries() {
+        return Object.entries(_perf.workZoneJumpStability.requestedJumpBuckets)
+            .map(([size, stats]) => [Number(size), stats])
+            .sort(([a], [b]) => a - b);
+    }
+
+    function formatRequestedJumpBuckets(separator = ' | ') {
+        const entries = requestedJumpBucketEntries();
+        if (entries.length === 0) return `${WORK_ZONE_MOVE_JUMP_PX}px jumps : —`;
+        return entries
+            .map(([size, stats]) => `${size}px jumps : ${stats.jumps} jumps / ${stats.moves} moves`)
+            .join(separator);
+    }
 
     // Visual aid for video-recording a real run, nothing more — a small,
     // fixed-position dot, persistent for the whole run (created once,
@@ -2850,6 +2875,18 @@
             if (_perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence !== moveSequence) {
                 _perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence = moveSequence;
                 _perf.workZoneJumpStability.calibratedJumpCurrentMoves++;
+            }
+            const requestedBucket =
+                _perf.workZoneJumpStability.requestedJumpBuckets[calibratedJumpPx] ||
+                (_perf.workZoneJumpStability.requestedJumpBuckets[calibratedJumpPx] = {
+                    jumps: 0,
+                    moves: 0,
+                    lastMoveSequence: null,
+                });
+            requestedBucket.jumps++;
+            if (requestedBucket.lastMoveSequence !== moveSequence) {
+                requestedBucket.lastMoveSequence = moveSequence;
+                requestedBucket.moves++;
             }
             setPos(nextPos);
             if (targetClamped) {
@@ -5190,6 +5227,7 @@
             `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, ` +
             `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}`
         );
+        ui.log(`Requested jump sizes: ${formatRequestedJumpBuckets()}`);
         ui.log(
             `Pure-timeout hidden-tab retries: retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
             `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}`
@@ -5295,7 +5333,7 @@
         const containersEl = Object.assign(document.createElement('div'), { innerText: 'Containers advanced : —' });
         const viewportsEl = Object.assign(document.createElement('div'), { innerText: 'Viewport moves : —' });
         const currentJumpEl = Object.assign(document.createElement('div'), {
-            innerText: `${WORK_ZONE_MOVE_JUMP_PX}px jumps : —`,
+            innerText: `Requested jumps : ${WORK_ZONE_MOVE_JUMP_PX}px jumps : —`,
         });
         const clampedJumpEl = Object.assign(document.createElement('div'), { innerText: 'Clamped jumps : —' });
         Object.assign(clampedJumpEl.style, {
@@ -5441,14 +5479,12 @@
                 containersEl.innerText = `Containers advanced : ${containerCount}`;
                 viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
                 const avgJumpPx = jumpCount ? Math.round(_perf.workZoneJumpStability.jumpPxSum / jumpCount) : 0;
-                const calibratedJumpStats =
-                    `${_perf.workZoneJumpStability.calibratedJumpCurrentJumps} jumps / ` +
-                    `${_perf.workZoneJumpStability.calibratedJumpCurrentMoves} moves`;
+                const requestedJumpStats = formatRequestedJumpBuckets('\n');
                 const clampedJumpStats = _perf.workZoneJumpStability.targetClampedJumps === 0
                     ? '—'
                     : `Avg ${Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps)}px / ` +
                       `${_perf.workZoneJumpStability.targetClampedJumps} total`;
-                currentJumpEl.innerText = `${_workZoneAdaptiveJumpPx}px jumps : ${calibratedJumpStats}`;
+                currentJumpEl.innerText = `Requested jumps :\n${requestedJumpStats}`;
                 clampedJumpEl.innerText = `Clamped jumps : ${clampedJumpStats}`;
                 clampedJumpEl.style.background =
                     _perf.workZoneJumpStability.targetClampedJumps === 0
@@ -5458,7 +5494,7 @@
                 updateElapsed();
                 console.log(`[Extractor] STATUS: prompts ${fmt(promptCount)} | msgs ${msgCount} | ` +
                     `containers ${containerCount} | viewport moves ${viewportCount} | ` +
-                    `jumps ${_workZoneAdaptiveJumpPx}px: ${calibratedJumpStats} | ` +
+                    `requested jumps ${formatRequestedJumpBuckets()} | ` +
                     `clamped jumps ${clampedJumpStats} | total jumps ${jumpCount} (Avg: ${avgJumpPx}px/jump)`);
             },
             log(msg) {
