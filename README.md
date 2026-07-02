@@ -26,7 +26,7 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
 
 1. Install the [Tampermonkey](https://www.tampermonkey.net/) browser extension.
 2. Create a new userscript in Tampermonkey.
-3. Paste the contents of `build/extractChatGpt.js`.
+3. Paste the contents of `extractChatGpt.js`.
 4. Save the script.
 5. Open or reload `https://chatgpt.com`.
 
