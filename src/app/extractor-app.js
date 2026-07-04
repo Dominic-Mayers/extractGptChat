@@ -634,7 +634,7 @@ export function installExtractorApp() {
         return uploads.join('\n') + '\n\n' + body.replace(/^\n+/, '').trimStart();
     }
     
-    async function exportMarkdown(ui, prompts, includeDiag = false, stopped = false, exportTimestamp = Date.now(), stopReason = null) {
+    async function exportMarkdown(ui, prompts, exportTimestamp = Date.now()) {
         const questions = countPrompts(prompts);
         const date  = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
         const title = getChatTitle();
@@ -644,10 +644,6 @@ export function installExtractorApp() {
         // same run must keep reusing the same timestamp, since any images
         // already downloaded for this run have it baked into their
         // filenames already on disk.
-    
-        // Count prompt navigation dots for the diagnostic (dot count vs exported count).
-        const promptDots = getNavMenuItems();
-    
         let md = `# ${title}\n_${questions} user prompts — ${date}_\n\n`;
     
         const userPrompts = prompts.filter(pr => pr.role === 'user');
@@ -673,202 +669,6 @@ export function installExtractorApp() {
             const text  = pr.role === 'user' ? hoistUploads(pr.text) : pr.text;
             const anchor = pr.role === 'user' && pr.msgId ? `<a id="msg-${pr.msgId}"></a>\n\n` : '';
             md += `${anchor}${label}\n\n${text}\n\n---\n\n`;
-        }
-        if (includeDiag && _perf.runStartMs > 0) {
-            const _ms    = performance.now() - _perf.runStartMs;
-            const _sleep = _ms - _perf.htmlToMarkdownMs;
-            const promptDots = getNavMenuItems();
-            const expected = rememberExpectedUserPrompts(promptDots.length);
-            const exported = countPrompts(prompts);
-            const tocStatus = expected === 0 ? 'not visible' : expected === exported ? 'OK' : 'MISMATCH';
-            const userMsgSummary = formatUserMsgSummary(exported, expected);
-            const issueLines = [];
-            if (tocStatus === 'MISMATCH') issueLines.push(`toc-mismatch=${exported}/${expected}`);
-            if (_perf.extractionFailures.count > 0) issueLines.push(`extraction-empty=${_perf.extractionFailures.count}`);
-            if (_perf.containerCoverage.gaps > 0) issueLines.push(`coverage-gaps=${_perf.containerCoverage.gaps}`);
-            if (_perf.containerCoverage.zeroSlabDecks > 0) issueLines.push(`zero-slab-decks=${_perf.containerCoverage.zeroSlabDecks}`);
-            if (_perf.slabFiltering.unlisted > 0) issueLines.push(`unlisted-stack-items=${_perf.slabFiltering.unlisted}`);
-            if (_perf.readyContainerModel.unknownSlabItems > 0) issueLines.push(`unknown-slab-items=${_perf.readyContainerModel.unknownSlabItems}`);
-            if (_perf.workZoneJumpStability.sandwichedEmptySeen > 0) {
-                issueLines.push(`SANDWICHED-EMPTY-SLAB=${_perf.workZoneJumpStability.sandwichedEmptySeen}`);
-            }
-            const sandwichedWarning = _perf.workZoneJumpStability.sandwichedEmptySeen > 0
-                ? `    ⚠ SANDWICHED EMPTY SLAB DETECTED: a deck with no selectable slab was visible between ` +
-                  `neighboring real-slab decks during work-zone stepping. This means browser/layout stability alone ` +
-                  `did not prove ChatGPT-level slab readiness; the jump + stability approach needs a readiness patch.\n`
-                : '';
-    
-            md += `    ── perf (v4.161) ──\n`
-                + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
-                + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
-                + `    User msgs: ${userMsgSummary}\n`
-                + `    Exported ${exported}${expected ? `/${expected}` : ''} user prompts (${prompts.length} slabs/notes). TOC=${tocStatus}.\n`
-                + (stopReason ? `    Stop reason: ${stopReason}\n` : '')
-                + `    Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}\n`
-                + `\n`
-                + `    ── diag (v4.161) ──\n`
-                + `    Missing-slab signals: ${issueLines.length ? issueLines.join(', ') : 'none'}\n`
-                + sandwichedWarning
-                + `    Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, already=${_perf.slabDiscoveryWait.alreadyReady}, `
-                  + `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, timed-out=${_perf.slabDiscoveryWait.timedOut}, `
-                  + `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms\n`
-                + `    Non-message slabs: images extracted=${_perf.imageOnlyTurns.extracted}, ` +
-                  `canvas extracted=${_perf.canvasBlocks.extracted}, canvas markdown-empty=${_perf.canvasBlocks.markdownEmpty}\n`
-                + `    Geometry/model: deck-gap-violations=${_perf.containerGapViolations}, `
-                  + `container-coverage-gaps=${_perf.containerCoverage.gaps}, slab-adjacency-violations=${_perf.slabAdjacency.violations}, `
-                  + `model message-gaps=${_perf.readyContainerModel.messageGapViolations}, unknown slab items=${_perf.readyContainerModel.unknownSlabItems}\n`
-                + `    Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}` +
-                  (_perf.workZoneRoomShortfall.examples.length
-                      ? `\n      ${_perf.workZoneRoomShortfall.examples.join('\n      ')}`
-                      : '') + `\n`
-                + `    Work-zone jump pacing: jumps=${_perf.workZoneJumpStability.jumps}, stability-checks=${_perf.workZoneJumpStability.steps}, waited=${_perf.workZoneJumpStability.waitedFrames}, `
-                  + `capped-out=${_perf.workZoneJumpStability.timedOut}, maxFramesWaited=${_perf.workZoneJumpStability.maxFramesWaited}, `
-                  + `avgJump=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpPxSum / _perf.workZoneJumpStability.jumps) : 0}px, `
-                  + `avgJumpTime=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpMsSum / _perf.workZoneJumpStability.jumps) : 0}ms, `
-                  + `avgTimePer120px=${_perf.workZoneJumpStability.jumpPxSum ? Math.round(_perf.workZoneJumpStability.jumpMsSum / (_perf.workZoneJumpStability.jumpPxSum / 120)) : 0}ms, `
-                  + `maxJump=${_perf.workZoneJumpStability.maxJumpPx}px, maxCalibratedJump=${_perf.workZoneJumpStability.maxCalibratedJumpPx}px, `
-                  + `jumpsAtMax=${_perf.workZoneJumpStability.jumpsAtMax}, targetClamped=${_perf.workZoneJumpStability.targetClampedJumps}, `
-                  + `subMinTargetClamps=${_perf.workZoneJumpStability.subMinTargetClamps}, `
-                  + `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, `
-                  + `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}\n`
-                + `    Requested jump sizes: ${formatRequestedJumpBuckets()}\n`
-                + `    Clamped jumps: ${_perf.workZoneJumpStability.targetClampedJumps} total ` +
-                  `(avg ${_perf.workZoneJumpStability.targetClampedJumps ? Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps) : 0}px)\n`
-                + `    Pure-timeout hidden-tab retries (see WORK_ZONE_JUMP_HIDDEN_RETRY_MS — timed out, not sandwiched, ` +
-                  `not detached, tab was hidden during the wait): retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
-                  `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}\n`
-                + `    Room drift during wait (does an already-rendered slab's distance from the viewport edge hold ` +
-                  `steady between right-after-the-jump and after waitForLayoutStable resolves? See maintainWorkZone): ` +
-                  `avgAbs=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.roomDriftAbsSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
-                  `netSum=${Math.round(_perf.workZoneJumpStability.roomDriftSum)}px, maxAbs=${Math.round(_perf.workZoneJumpStability.roomDriftMaxAbs)}px` +
-                  (_perf.workZoneJumpStability.roomDriftLog.length
-                      ? `\n      ${_perf.workZoneJumpStability.roomDriftLog.join('\n      ')}`
-                      : '') + `\n`
-                + `    Sandwiched-empty-slab readiness failure signal (see findSandwichedEmptySlabInViewport): ` +
-                  `seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}` +
-                  (_perf.workZoneJumpStability.sandwichedEmptyExamples.length
-                      ? `\n      ${_perf.workZoneJumpStability.sandwichedEmptyExamples.join('\n      ')}`
-                      : '') + `\n`
-                + `    Timer slip: samples=${_perf.sleepSlip.count}, avg=${_perf.sleepSlip.count ? Math.round(_perf.sleepSlip.sum / _perf.sleepSlip.count) : 0}ms, `
-                  + `max=${Math.round(_perf.sleepSlip.max)}ms; tab hidden ${_perf.tabHidden.hideCount} time(s)\n`
-                + `    Note: detailed missing slabs are inserted inline in the transcript near where they were detected.\n`;
-    
-            if (_perf.snapshots.length > 0) {
-                const snaps = _perf.snapshots;
-    
-                // Select one representative snapshot per 10% position in the
-                // recorded chronological sequence — not per 10% of q (prompt
-                // count). Bucketing by q breaks down the moment q stalls: a
-                // run that confirms only a handful of prompts before getting
-                // stuck (common under contention) has every later, time-
-                // triggered snapshot compute to the same pct=100% relative to
-                // the final q, so the very first one to reach it greedily
-                // fills all remaining rows and every subsequent snapshot —
-                // exactly the new ones the time-based ticker exists to
-                // capture — gets silently discarded. Indexing by position
-                // instead guarantees bp=0 is always the first snapshot,
-                // bp=100 is always the last, and the rows in between are
-                // spread evenly across real elapsed time regardless of
-                // whether q ever moves.
-                const BKPTS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-                const displaySnaps = BKPTS.map(bp => ({
-                    snap: snaps[Math.min(snaps.length - 1, Math.round(bp / 100 * (snaps.length - 1)))],
-                    bp,
-                }));
-    
-                const IND = '    ';
-                const hdrs = ['bp', 'dur', 'all', 'user', 'cont', 'view', 'size', '↑', '↓'];
-                const caps = [10, 18, 11, 9, 9, 9, 8, 4, 4];
-                // bp/dur/all/user/cont/view form the left half, size/↑/↓ the
-                // right half — generalized (not hardcoded indices) since
-                // adding cont/view/user changed the split from 3+3 to 6+3.
-                const LEFT_COLS = 6;
-    
-                const clip = (s, w) => {
-                    s = String(s);
-                    return s.length <= w ? s : s.slice(0, Math.max(0, w - 1)) + '…';
-                };
-                const cell = (s, w, left = false) => {
-                    s = clip(s, w);
-                    return left ? s.padEnd(w) : s.padStart(w);
-                };
-                const border = (l, m, r, w) =>
-                    IND + l + w.map(n => '─'.repeat(n)).join(m) + r + '\n';
-                const row = (xs, w) =>
-                    IND + '│' + xs.map((x, i) => cell(x, w[i], i >= 1 && i < LEFT_COLS)).join('│') + '│\n';
-    
-                const fQ = (q, d) => `${q}(+${d})`;
-                const fT = (s, ds) => {
-                    const fmt = t => {
-                        const h = Math.floor(t / 3600);
-                        const m = Math.floor((t % 3600) / 60);
-                        const r = t % 60;
-                        if (h > 0) return `${h}h${String(m).padStart(2,'0')}m${String(r).padStart(2,'0')}s`;
-                        if (m > 0) return `${m}m${String(r).padStart(2,'0')}s`;
-                        return `${r}s`;
-                    };
-                    return `${fmt(s)}(+${fmt(ds)})`;
-                };
-    
-                const rows = [];
-                for (let i = 0; i < displaySnaps.length; i++) {
-                    const { snap, bp } = displaySnaps[i];
-                    const prev = i > 0 ? displaySnaps[i - 1].snap : null;
-                    const cumTs  = Math.round(snap.t / 1000);
-                    const prevTs = prev ? Math.round(prev.t / 1000) : 0;
-                    const incM   = prev ? snap.m - prev.m : snap.m;
-                    const incQ   = prev ? snap.q - prev.q : snap.q;
-                    const incC   = prev ? snap.c - prev.c : snap.c;
-                    const incV   = prev ? snap.v - prev.v : snap.v;
-                    rows.push([
-                        `${bp}%`,
-                        fT(cumTs, cumTs - prevTs),
-                        fQ(snap.m, incM),
-                        fQ(snap.q, incQ),
-                        fQ(snap.c, incC),
-                        fQ(snap.v, incV),
-                        String(snap.d),
-                        String(snap.uBefore),
-                        String(snap.uAfter),
-                    ]);
-                }
-    
-                const widths = hdrs.map((h, i) =>
-                    Math.min(caps[i], Math.max(h.length, ...rows.map(r => r[i].length)))
-                );
-                const sumWidths = (from, to) => widths.slice(from, to).reduce((a, b) => a + b, 0);
-                // colW = leftSum+3; need colW >= 29 for legend items → leftSum >= 26
-                const leftSum = sumWidths(0, LEFT_COLS);
-                if (leftSum < 26) widths[1] += 26 - leftSum;
-                const innerW = widths.reduce((a, b) => a + b, 0) + widths.length - 1;
-                const spanBorder  = (l, r) => IND + l + '─'.repeat(innerW) + r + '\n';
-                const spanContent = text  => IND + '│' + clip(text.padEnd(innerW), innerW) + '│\n';
-                const legendItems = [
-                    'bp=timeline position', 'dur=elapsed(+Δ)',  'all=all messages', 'user=user messages',
-                    'cont=containers advanced', 'view=viewport moves',  'size=DOM elements',
-                    '↑=user msgs above', '↓=user msgs below',
-                ];
-                const colW = Math.floor(innerW / 2);
-                const legendRow = (l, r) => {
-                    const left  = clip((l || '').padEnd(colW), colW);
-                    const right = clip((r || '').padEnd(innerW - colW), innerW - colW);
-                    return IND + '│' + left + right + '│\n';
-                };
-                let out = spanBorder('┌', '┐');
-                out += spanContent('Prompt discovery snapshots (▲ up pass)');
-                out += spanContent('');
-                const half = Math.ceil(legendItems.length / 2);
-                for (let i = 0; i < half; i++)
-                    out += legendRow(legendItems[i], legendItems[i + half]);
-                out += border('├', '┬', '┤', widths);
-                out += row(hdrs, widths);
-                out += border('├', '┼', '┤', widths);
-                for (let i = 0; i < rows.length; i++) {
-                    out += row(rows[i], widths);
-                }
-                out += border('└', '┴', '┘', widths);
-                md += out;
-            }
         }
         if (_pendingImageDownloads.length > 0) {
             // Fetched from inside this page's own session (chatgpt.com), not
@@ -1118,10 +918,9 @@ export function installExtractorApp() {
         return candidates.reduce((a, b) => better(b, a) ? b : a);
     }
     
-    // Outer deck rectangles are expected to be close, but this is diagnostic
-    // evidence, not a traversal stop condition. A small CSS/layout gap is not
-    // the absence of a next deck; the loop should stop only when no next deck
-    // is found.
+    // Outer deck rectangles are expected to be close. A small CSS/layout gap is
+    // not the absence of a next deck; the loop should stop only when no next
+    // deck is found.
     const DECK_ADJACENCY_TOLERANCE = 2;
     
     // Selected slabs need a looser rule. Tool/control elements are
@@ -1148,12 +947,7 @@ export function installExtractorApp() {
         _perf.maxContainerGap = Math.max(_perf.maxContainerGap, Math.abs(gap));
         if (Math.abs(gap) <= DECK_ADJACENCY_TOLERANCE) return gap;
         _perf.containerGapViolations++;
-        console.warn(
-            `[Extractor] Deck adjacency diagnostic: facing edges differ by ${Math.round(gap)}px ` +
-            `(allowed ±${DECK_ADJACENCY_TOLERANCE}px). ` +
-            `Current deck=${deckSequenceId(olderDeck) || '(none)'}, ` +
-            `next deck=${deckSequenceId(newerDeck) || '(none)'}.`
-        );
+        return gap;
     }
     
     function checkSlabAdjacency(currentSlab, nextSlab) {
@@ -1170,13 +964,6 @@ export function installExtractorApp() {
         }
         if (gap <= SLAB_ADJACENCY_MAX_GAP && gap >= -SLAB_ADJACENCY_OVERLAP_TOLERANCE) return gap;
         _perf.slabAdjacency.violations++;
-        console.warn(
-            `[Extractor] Slab adjacency diagnostic between ${currentSlab.type} and ${nextSlab.type}: ` +
-            `${gap >= 0 ? `${Math.round(gap)}px gap` : `${Math.round(-gap)}px overlap`} ` +
-            `(allowed gap ≤${SLAB_ADJACENCY_MAX_GAP}px, overlap ≤${SLAB_ADJACENCY_OVERLAP_TOLERANCE}px). ` +
-            `Current turn=${slabTurnId(currentSlab) || '(none)'} msg=${slabMessageId(currentSlab) || '(none)'}; ` +
-            `next turn=${slabTurnId(nextSlab) || '(none)'} msg=${slabMessageId(nextSlab) || '(none)'}.`
-        );
         return gap;
     }
     
@@ -1344,7 +1131,7 @@ export function installExtractorApp() {
             role: deckEl.getAttribute('data-turn') || 'unknown',
             text: `*[Empty container — no slab could be detected for this turn (turnId=` +
                 `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure or an ` +
-                `extractor bug; see the exported diagnostics. ${describeMovesSinceEntry(entryDiag)}, ` +
+                `extractor bug. ${describeMovesSinceEntry(entryDiag)}, ` +
                 `${describeIntersectingHistory(deckEl)}]*\n\n` +
                 `${captureElementHtmlReference('empty-container-coverage', deckEl, deckEl.getAttribute('data-turn') || 'unknown', deckSequenceId(deckEl))}\n\n`,
             plainText: '[Empty container]',
@@ -1353,8 +1140,8 @@ export function installExtractorApp() {
         };
     }
     
-    // Empirically measured floors (Compatibility Check panel, "Shortest
-    // user/assistant message height"): 44px / 32px on a live conversation.
+    // Empirically measured floors from a live conversation: 44px / 32px for
+    // shortest user/assistant message heights.
     // smallExtra must stay under the smaller of the two (the next prompt
     // could be either role) so the probe point can never overshoot past the
     // immediately-adjacent message into the one before it.
@@ -2673,12 +2460,6 @@ export function installExtractorApp() {
         if (!result.timedOut || result.sawSandwiched || result.detached) return { ...result, hiddenRetried: false };
         if (!result.wasHidden) return { ...result, hiddenRetried: false }; // no explanatory sign — nothing to gain by waiting again
         _perf.workZoneJumpStability.pureTimeoutHiddenRetries++;
-        console.warn(
-            `[Extractor] work-zone stability wait timed out while the tab was hidden, with current still connected ` +
-            `and no sandwiched-empty deck present — retrying once with the deadline extended to ` +
-            `${WORK_ZONE_JUMP_HIDDEN_RETRY_MS / 1000}s, since requestAnimationFrame throttling while backgrounded ` +
-            `can fully explain a short wait never seeing a settled frame.`
-        );
         const retried = await attemptLayoutStable(container, current, WORK_ZONE_JUMP_HIDDEN_RETRY_MS);
         if (retried.timedOut && !retried.sawSandwiched && !retried.detached) {
             _perf.workZoneJumpStability.pureTimeoutHiddenExhausted++;
@@ -3380,8 +3161,7 @@ export function installExtractorApp() {
     
     // Mechanism A — is the deck found by findNextDeck actually loaded?
     // ChatGPT's own lazy placeholder wrapper, [data-turn-id-container],
-    // reports data-is-intersecting="false" while blank — the same
-    // fingerprint the Compatibility Check panel inspects. Resolution is
+    // reports data-is-intersecting="false" while blank. Resolution is
     // intersection-driven, so only move the viewport if it's still blank
     // (moving it is purely to trigger that), then wait for it to clear.
     // Same 30s-then-fail discipline as everywhere else: trust the source,
@@ -3913,7 +3693,6 @@ export function installExtractorApp() {
         if (_perf.slabFiltering.examples.length < 20) {
             _perf.slabFiltering.examples.push(description);
         }
-        console.warn(`[Extractor] ${description}`, el);
     }
     
     function inspectUnselectedStackItems(selectedCandidates, acceptsRect) {
@@ -4175,7 +3954,7 @@ export function installExtractorApp() {
             const detail = stackItems.length === 0
                 ? ''
                 : ` ${stackItems.length} direct-stack item(s) existed, but none matched a valid slab selector` +
-                  (unlisted.length ? ` (${unlisted.length} unlisted); see diagnostics.` : '.');
+                  (unlisted.length ? ` (${unlisted.length} unlisted).` : '.');
             return {
                 kind: 'note',
                 slab: {
@@ -4190,7 +3969,7 @@ export function installExtractorApp() {
                         role: deckEl.getAttribute('data-turn') || 'unknown',
                         text: `*[Empty container — no slab could be detected for this turn (turnId=` +
                             `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure ` +
-                            `or an extractor bug; see the exported diagnostics.${detail} ` +
+                            `or an extractor bug.${detail} ` +
                             `${describeMovesSinceEntry(entryDiag)}, ${describeIntersectingHistory(deckEl)}]*\n\n` +
                             `${captureElementHtmlReference('empty-container-selection', deckEl, deckEl.getAttribute('data-turn') || 'unknown', deckSequenceId(deckEl))}\n\n`,
                         plainText: '[Empty container]',
@@ -4659,8 +4438,7 @@ export function installExtractorApp() {
         // ── Land on the prompt at the walk's starting edge via the
         // matching nav dot — the last dot (bottom) for an upward walk, the
         // first dot (top) for a downward one. Needed because a second run in
-        // the same page load (Restart, or switching between this and the
-        // Compatibility Check panel) would otherwise bootstrap from wherever
+        // the same page load would otherwise bootstrap from wherever
         // the *previous* run's walk left the scroll position, instead of the
         // actual edge this run needs to start from.
         // Two genuinely different things can go wrong here, and they call
@@ -5220,136 +4998,11 @@ export function installExtractorApp() {
             await sleep(550);
         }
     
-        const _totalMs = performance.now() - _perf.runStartMs;
-        const _sleepMs = _totalMs - _perf.htmlToMarkdownMs;
-        ui.log('── perf (v4.161) ──');
-        ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
-        ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`${countPrompts(allPrompts)} prompts saved (${allPrompts.length} msgs total).`);
-        ui.log(`Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}`);
-        ui.log(
-            `Ready-container nearby message slabs outside deck: ${_perf.readyContainerProbeMisses.count} overlapping/near ` +
-            `(overlapping=${_perf.readyContainerProbeMisses.overlapping}, near-only=${_perf.readyContainerProbeMisses.nearOnly}, ` +
-            `above=${_perf.readyContainerProbeMisses.above}, below=${_perf.readyContainerProbeMisses.below})`
-        );
-        ui.log(
-            `Ready-container model: ${_perf.readyContainerModel.checked} checked, ` +
-            `containment=${_perf.readyContainerModel.containmentViolations}, ` +
-            `overlap-nonmember=${_perf.readyContainerModel.overlappingNonMembers}, ` +
-            `dom-only=${_perf.readyContainerModel.domOnlyMembers}, ` +
-            `probe-only=${_perf.readyContainerModel.probeOnlyMembers}, ` +
-            `message-gaps=${_perf.readyContainerModel.messageGapViolations}, ` +
-            `maxMessageGap=${Math.round(_perf.readyContainerModel.maxMessageGap)}px, ` +
-            `message-insets=${_perf.readyContainerModel.topEdgeViolations + _perf.readyContainerModel.bottomEdgeViolations} ` +
-            `(top=${_perf.readyContainerModel.topEdgeViolations}, bottom=${_perf.readyContainerModel.bottomEdgeViolations}, ` +
-            `maxTop=${Math.round(_perf.readyContainerModel.maxTopEdgeGap)}px, ` +
-            `maxBottom=${Math.round(_perf.readyContainerModel.maxBottomEdgeGap)}px, ` +
-            `maxBottomMsg=${_perf.readyContainerModel.maxBottomEdgeWinner?.msgId || '(none)'}), ` +
-            `slabs=${_perf.readyContainerModel.slabItemsChecked}/${_perf.readyContainerModel.slabStacksChecked}, ` +
-            `unknownSlabs=${_perf.readyContainerModel.unknownSlabItems}, ` +
-            `slabGaps=${_perf.readyContainerModel.slabGapViolations}, ` +
-            `maxSlabGap=${Math.round(_perf.readyContainerModel.maxSlabGap)}px, ` +
-            `rechecks=${_perf.readyContainerModel.delayedRechecksResolved}/${_perf.readyContainerModel.delayedRechecksScheduled}, ` +
-            `changed=${_perf.readyContainerModel.delayedRechecksChanged}`
-        );
-        ui.log(
-            `Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, ` +
-            `already=${_perf.slabDiscoveryWait.alreadyReady}, ` +
-            `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, ` +
-            `timed-out=${_perf.slabDiscoveryWait.timedOut}, ` +
-            `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms`
-        );
-        ui.log(
-            `Image src history watches: ${_perf.imageSrcHistory.watches.length}, ` +
-            `multi-value=${_perf.imageSrcHistory.watches.filter(w => w.values.length > 1).length} ` +
-            `(>1 distinct value seen — full sequence in the exported diagnostics)`
-        );
-        ui.log(
-            `Filtered direct-stack items: allowlisted=${_perf.slabFiltering.allowlisted}, ` +
-            `unlisted-reported=${_perf.slabFiltering.unlisted}, ` +
-            `rules=${FILTERED_SLAB_RULES.map(rule => rule.name).join(', ') || '(none)'}` +
-            (_perf.slabFiltering.unlisted > 0
-                ? ` — inspect exported diagnostics for exact elements`
-                : '')
-        );
-        ui.log(
-            `Intermediate deck advances: ${_perf.intermediateDeckAdvances}`
-        );
-        ui.log(
-            `Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}`
-        );
-        ui.log(
-            `Work-zone jump pacing: jumps=${_perf.workZoneJumpStability.jumps}, stability-checks=${_perf.workZoneJumpStability.steps}, waited=${_perf.workZoneJumpStability.waitedFrames}, ` +
-            `capped-out=${_perf.workZoneJumpStability.timedOut}, maxFramesWaited=${_perf.workZoneJumpStability.maxFramesWaited}, ` +
-            `avgJump=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpPxSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
-            `avgJumpTime=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpMsSum / _perf.workZoneJumpStability.jumps) : 0}ms, ` +
-            `avgTimePer120px=${_perf.workZoneJumpStability.jumpPxSum ? Math.round(_perf.workZoneJumpStability.jumpMsSum / (_perf.workZoneJumpStability.jumpPxSum / 120)) : 0}ms, ` +
-            `maxJump=${_perf.workZoneJumpStability.maxJumpPx}px, maxCalibratedJump=${_perf.workZoneJumpStability.maxCalibratedJumpPx}px, ` +
-            `jumpsAtMax=${_perf.workZoneJumpStability.jumpsAtMax}, targetClamped=${_perf.workZoneJumpStability.targetClampedJumps}, ` +
-            `subMinTargetClamps=${_perf.workZoneJumpStability.subMinTargetClamps}, ` +
-            `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, ` +
-            `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}`
-        );
-        ui.log(`Requested jump sizes: ${formatRequestedJumpBuckets()}`);
-        ui.log(
-            `Clamped jumps: ${_perf.workZoneJumpStability.targetClampedJumps} total ` +
-            `(avg ${_perf.workZoneJumpStability.targetClampedJumps ? Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps) : 0}px)`
-        );
-        ui.log(
-            `Pure-timeout hidden-tab retries: retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
-            `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}`
-        );
-        ui.log(
-            `Room drift during wait: avgAbs=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.roomDriftAbsSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
-            `netSum=${Math.round(_perf.workZoneJumpStability.roomDriftSum)}px, maxAbs=${Math.round(_perf.workZoneJumpStability.roomDriftMaxAbs)}px`
-        );
-        ui.log(
-            `Sandwiched-empty-slab readiness failure signal: seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, ` +
-            `capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}`
-        );
-        if (_perf.workZoneJumpStability.sandwichedEmptySeen > 0) {
-            ui.log(
-                `⚠ SANDWICHED EMPTY SLAB DETECTED — browser/layout stability was not enough to prove ChatGPT-level readiness; ` +
-                `the jump + stability approach needs a readiness patch.`
-            );
-        }
-        ui.log(
-            `Container coverage: ${_perf.containerCoverage.checks} checked, ${_perf.containerCoverage.gaps} gap(s), ` +
-            `${_perf.containerCoverage.zeroSlabDecks} zero-slab deck(s) (placeholder inserted, not fatal — see exported diagnostics)`
-        );
-        ui.log(
-            `Slab adjacency: checked=${_perf.slabAdjacency.checked}, ` +
-            `maxGap=${Math.round(_perf.slabAdjacency.maxGap)}px, ` +
-            `maxOverlap=${Math.round(_perf.slabAdjacency.maxOverlap)}px, ` +
-            `violations=${_perf.slabAdjacency.violations}`
-        );
-        if (_perf.readyContainerModel.exampleMsgIds.length > 0) {
-            const infoByMsgId = new Map();
-            let previousUserMsgId = null;
-            allPrompts.forEach((p, i) => {
-                if (p.msgId && !infoByMsgId.has(p.msgId)) {
-                    infoByMsgId.set(p.msgId, {
-                        rank: i + 1,
-                        role: p.role,
-                        previousUserMsgId,
-                    });
-                }
-                if (p.role === 'user' && p.msgId) previousUserMsgId = p.msgId;
-            });
-            ui.log(
-                'Ready-container model ranks: ' +
-                _perf.readyContainerModel.exampleMsgIds.slice(0, 5).map(({ label, msgId }) => {
-                    const info = infoByMsgId.get(msgId);
-                    return info
-                        ? `${label}=#${info.rank}/${info.role}/prevUser:${info.previousUserMsgId ? `msg-${info.previousUserMsgId}` : 'none'}`
-                        : `${label}=?`;
-                }).join(', ')
-            );
-        }
-        if (stopReason) ui.log(`Stopped early — diagnosis: ${stopReason}`);
+        if (stopReason) ui.log(`Stopped early: ${stopReason}`);
         // stopReason travels with the saved state (not just ui.stopped, which
         // only tracks the manual Stop button) so the caller can tell a clean
-        // finish apart from an early, diagnosed stop and still offer export
+        // finish apart from an early stop and still offer export
         // either way.
         _savedState = { allPrompts, stopped: ui.stopped, stopReason, timestamp: _runTimestamp };
     }
@@ -5375,7 +5028,7 @@ export function installExtractorApp() {
         });
     
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v4.161',
+            innerText: 'ChatGPT Extractor v4.162',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
     
@@ -5397,20 +5050,7 @@ export function installExtractorApp() {
         const elapsedEl = Object.assign(document.createElement('div'), { innerText: 'Elapsed : —' });
         const promptsEl = Object.assign(document.createElement('div'), { innerText: 'User msgs : —' });
         const msgsEl = Object.assign(document.createElement('div'), { innerText: 'All msgs : —' });
-        const containersEl = Object.assign(document.createElement('div'), { innerText: 'Containers advanced : —' });
-        const viewportsEl = Object.assign(document.createElement('div'), { innerText: 'Viewport moves : —' });
-        const currentJumpEl = Object.assign(document.createElement('div'), {
-            innerText: `Requested jumps : ${WORK_ZONE_MOVE_JUMP_PX}px : 0 full / 0 clamped (avg 0px)`,
-        });
-        const clampedJumpEl = Object.assign(document.createElement('div'), { innerText: 'Clamped jumps : —' });
-        Object.assign(clampedJumpEl.style, {
-            borderRadius: '4px',
-            padding: '1px 4px',
-            marginLeft: '-4px',
-            marginRight: '-4px',
-        });
-        const jumpsEl = Object.assign(document.createElement('div'), { innerText: 'Total jumps : —' });
-        statusEl.append(elapsedEl, promptsEl, msgsEl, containersEl, viewportsEl, currentJumpEl, clampedJumpEl, jumpsEl);
+        statusEl.append(elapsedEl, promptsEl, msgsEl);
     
         const note = Object.assign(document.createElement('div'), {
             innerText: `Scroll to the ${WALK_DIRECTION === -1 ? 'BOTTOM' : 'TOP'} of the chat before starting.`,
@@ -5421,20 +5061,6 @@ export function installExtractorApp() {
             fontSize: '13px',
             lineHeight: '1.35',
         });
-    
-        const diagCheck = Object.assign(document.createElement('input'), {
-            type: 'checkbox', id: 'extractor-diag-check',
-        });
-        const diagLabel = Object.assign(document.createElement('label'), {
-            htmlFor: 'extractor-diag-check', innerText: 'Include diagnostics in export',
-        });
-        Object.assign(diagLabel.style, { cursor: 'pointer' });
-        const diagRow = document.createElement('div');
-        Object.assign(diagRow.style, {
-            display: 'flex', alignItems: 'center', gap: '6px',
-            marginTop: '8px', fontSize: '11px', color: '#dde1f4',
-        });
-        diagRow.append(diagCheck, diagLabel);
     
         const btnRow = document.createElement('div');
         Object.assign(btnRow.style, { display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' });
@@ -5474,7 +5100,7 @@ export function installExtractorApp() {
         btnRow.append(btn, stopBtn, exportBtn);
     
         const body = document.createElement('div');
-        body.append(statusEl, diagRow, note, btnRow);
+        body.append(statusEl, note, btnRow);
     
         panel.append(titleRow, body);
     
@@ -5494,13 +5120,6 @@ export function installExtractorApp() {
         const _autoStartOnce = sessionStorage.getItem(AUTO_START_ONCE_KEY) === '1';
         if (_autoStartOnce) sessionStorage.removeItem(AUTO_START_ONCE_KEY); // consume now — only this load gets it
         console.log('[Extractor] one-shot auto-start consumed at this load =', _autoStartOnce);
-        // Reload-and-auto-start is specifically the unattended path — nobody
-        // is sitting at the checkbox to remember to tick it before Export
-        // runs. Defaulting it on only here (not for a normal manual start,
-        // where the checkbox keeps its plain unchecked default) means an
-        // auto-started run never silently loses its diag block the way a
-        // forgotten manual click just did.
-        if (_autoStartOnce) diagCheck.checked = true;
         GM_registerMenuCommand('Reload and Auto-Start (this load only)', () => {
             sessionStorage.setItem(AUTO_START_ONCE_KEY, '1');
             location.reload();
@@ -5532,9 +5151,8 @@ export function installExtractorApp() {
         const ui = {
             stopped: false,
             total: 0,
-            get includeDiag() { return diagCheck.checked; },
             isAutoStart: _autoStartOnce,
-            status(promptCount, msgCount, containerCount, viewportCount, jumpCount = _perf.workZoneJumpStability.jumps) {
+            status(promptCount, msgCount) {
                 // this.total is the nav-dot count — a count of prompts, not
                 // messages — so only the prompt line has a meaningful
                 // percentage to show against it.
@@ -5542,26 +5160,8 @@ export function installExtractorApp() {
                 const userMsgSummary = formatUserMsgSummary(promptCount, this.total);
                 promptsEl.innerText    = `User msgs: ${userMsgSummary}`;
                 msgsEl.innerText       = `All msgs : ${msgCount}`;
-                containersEl.innerText = `Containers advanced : ${containerCount}`;
-                viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
-                const avgJumpPx = jumpCount ? Math.round(_perf.workZoneJumpStability.jumpPxSum / jumpCount) : 0;
-                const requestedJumpStats = formatRequestedJumpBuckets('\n');
-                const clampedJumpStats = _perf.workZoneJumpStability.targetClampedJumps === 0
-                    ? '—'
-                    : `${_perf.workZoneJumpStability.targetClampedJumps} total ` +
-                      `(avg ${Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps)}px)`;
-                currentJumpEl.innerText = `Requested jumps :\n${requestedJumpStats}`;
-                clampedJumpEl.innerText = `Clamped jumps : ${clampedJumpStats}`;
-                clampedJumpEl.style.background =
-                    _perf.workZoneJumpStability.targetClampedJumps === 0
-                        ? 'transparent'
-                        : 'rgba(137, 180, 250, 0.14)';
-                jumpsEl.innerText      = `Total jumps : ${jumpCount} (Avg: ${avgJumpPx}px/jump)`;
                 updateElapsed();
-                console.log(`[Extractor] STATUS: user msgs ${userMsgSummary} | msgs ${msgCount} | ` +
-                    `containers ${containerCount} | viewport moves ${viewportCount} | ` +
-                    `requested jumps ${formatRequestedJumpBuckets()} | ` +
-                    `clamped jumps ${clampedJumpStats} | total jumps ${jumpCount} (Avg: ${avgJumpPx}px/jump)`);
+                console.log(`[Extractor] STATUS: user msgs ${userMsgSummary} | msgs ${msgCount}`);
             },
             log(msg) {
                 updateElapsed();
@@ -5647,294 +5247,4 @@ export function installExtractorApp() {
     
     buildUI();
     
-    // ════════════════════════════════════════════════════════════════
-    // COMPATIBILITY CHECK
-    // ════════════════════════════════════════════════════════════════
-    
-    const _MARKUP_CHECKS = [
-        { label: 'Ordered list',   pat: /^\d+\. /m,             prompt: 'List the three primary colors as a numbered list.' },
-        { label: 'Unordered list', pat: /^- /m,                 prompt: 'List three types of fruit using bullet points.' },
-        { label: 'Code block',     pat: /^```/m,                prompt: 'Write a Python function that returns the square of a number, with a docstring.' },
-        { label: 'Inline code',    pat: /`[^`\n]+`/,            prompt: 'In one sentence, refer to the variable `count` using inline code.' },
-        { label: 'Bold',           pat: /\*\*[^*\n]+\*\*/,     prompt: 'Write one sentence where the word "important" appears in bold.' },
-        { label: 'Italic',         pat: /(?<!\*)\*[^*\s][^*\n]*\*(?!\*)/,  prompt: 'Write one sentence where the word "gently" appears in italic.' },
-        { label: 'Table',          pat: /\| ?-+ ?\|/,           prompt: 'Make a table with columns Name and Score, and two data rows.' },
-        { label: 'Blockquote',     pat: /^> /m,                 prompt: 'Write this sentence as a blockquote: To be or not to be.' },
-        { label: 'Heading',        pat: /^#{1,6} /m,            prompt: 'Write a level-2 heading "Results" followed by one sentence.' },
-    ];
-    
-    function buildDiagUI() {
-        const DIAG_ID = 'chatgpt-extractor-diag';
-        const existing = document.getElementById(DIAG_ID);
-        if (existing) { existing.remove(); return; }
-    
-        const panel = document.createElement('div');
-        panel.id = DIAG_ID;
-        Object.assign(panel.style, {
-            position: 'fixed', top: '20px', left: `${Math.max(0, window.innerWidth - 780)}px`, zIndex: '99999',
-            padding: '14px', background: '#1e1e2e', color: '#cdd6f4',
-            border: '2px solid #a6e3a1', borderRadius: '8px',
-            fontFamily: 'monospace', fontSize: '11px', width: '400px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.5)', lineHeight: '1.5',
-            maxHeight: '85vh', overflowY: 'auto',
-        });
-    
-        const titleRow = document.createElement('div');
-        Object.assign(titleRow.style, {
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginBottom: '10px', cursor: 'move', userSelect: 'none',
-        });
-        const title = Object.assign(document.createElement('div'), { innerText: 'Compatibility Check' });
-        Object.assign(title.style, { fontWeight: 'bold', color: '#a6e3a1', fontSize: '13px' });
-        const closeBtn = Object.assign(document.createElement('button'), { innerText: '×' });
-        Object.assign(closeBtn.style, { background: 'none', border: 'none', color: '#a6e3a1', cursor: 'pointer', fontSize: '16px', fontFamily: 'monospace', padding: '0' });
-        closeBtn.onclick = () => panel.remove();
-        titleRow.append(title, closeBtn);
-    
-        { // drag
-            let ox = 0, oy = 0;
-            const onMove = e => {
-                panel.style.left = `${e.clientX - ox}px`;
-                panel.style.top  = `${e.clientY - oy}px`;
-            };
-            const onUp = () => document.removeEventListener('mousemove', onMove);
-            titleRow.addEventListener('mousedown', e => {
-                if (e.target === closeBtn) return;
-                const r = panel.getBoundingClientRect();
-                ox = e.clientX - r.left; oy = e.clientY - r.top;
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp, { once: true });
-                e.preventDefault();
-            });
-        }
-    
-        // ── Structural section ────────────────────────────────────
-        const structHead = Object.assign(document.createElement('div'), { innerText: '── Structural ──' });
-        Object.assign(structHead.style, { color: '#89b4fa', marginBottom: '6px' });
-    
-        const structLog = document.createElement('div');
-        Object.assign(structLog.style, { marginBottom: '10px' });
-    
-        const addLine = (log, ok, label, detail) => {
-            const icon  = ok === null ? '[?]' : ok ? '[✓]' : '[✗]';
-            const color = ok === null ? '#585b70' : ok ? '#a6e3a1' : '#f38ba8';
-            const row = document.createElement('div');
-            row.innerHTML = `<span style="color:${color};font-weight:bold">${icon}</span> ${label}`;
-            log.appendChild(row);
-            if (detail) {
-                const det = document.createElement('div');
-                det.innerText = '    ' + detail;
-                Object.assign(det.style, { color: '#6c7086', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: '2px' });
-                log.appendChild(det);
-            }
-        };
-    
-        const runStructural = () => {
-            structLog.innerHTML = '';
-    
-            const container = findScrollContainer();
-            const fallback = container === document.documentElement;
-            addLine(structLog, !fallback, 'Scroll container',
-                fallback ? 'FALLBACK: using <html> — container detection may be wrong'
-                         : `<${container.tagName.toLowerCase()}> scrollH=${container.scrollHeight} clientH=${container.clientHeight}`);
-    
-            const strip = [...document.querySelectorAll('div')]
-                .find(d => d.className.includes('w-9') && d.className.includes('max-h-[50lvh]') && d.className.includes('no-scrollbar'));
-            addLine(structLog, !!strip, 'Nav menu container (primary selector)',
-                strip ? 'div.w-9.max-h-[50lvh].no-scrollbar' : 'NOT FOUND — using button-class fallback');
-    
-            const navItems = getNavMenuItems();
-            addLine(structLog, navItems.length > 0, 'Navigation menu items',
-                navItems.length > 0 ? `${navItems.length} found` : 'NOT FOUND — navigation impossible');
-            if (navItems.length > 0) {
-                const label = navItems[0].getAttribute('aria-label');
-                addLine(structLog, !!label, 'First nav item aria-label',
-                    label ? label : 'MISSING — cannot identify first user prompt');
-            }
-    
-            const msgs = document.querySelectorAll('[data-message-author-role]');
-            addLine(structLog, msgs.length > 0, '[data-message-author-role]',
-                msgs.length > 0 ? `${msgs.length} in DOM` : 'MISSING — cannot extract messages');
-    
-            const msgIds = document.querySelectorAll('[data-message-id]');
-            addLine(structLog, msgIds.length > 0, '[data-message-id]',
-                msgIds.length > 0 ? `${msgIds.length} in DOM` : 'MISSING — export TOC will have no anchors');
-    
-            // Shortest currently-mounted message height per role — the
-            // empirical floor for calibrating the chain-walk's "small extra"
-            // probe offset (must stay under this so the probe never
-            // overshoots past the immediately-adjacent message). Filtered to
-            // height>0 since a virtualized-away element reports a zero rect,
-            // which would otherwise look like a (false) shortest match.
-            for (const role of ['user', 'assistant']) {
-                const heights = [...document.querySelectorAll(`[data-message-author-role="${role}"]`)]
-                    .map(el => el.getBoundingClientRect().height)
-                    .filter(h => h > 0);
-                const min = heights.length ? Math.min(...heights) : null;
-                addLine(structLog, min !== null, `Shortest ${role} message height`,
-                    min !== null
-                        ? `${Math.round(min)}px (n=${heights.length} mounted)`
-                        : 'No mounted messages of this role to measure — scroll near some and re-check');
-            }
-    
-            const allPH   = [...document.querySelectorAll('[data-turn-id-container]')];
-            const blankPH = [...document.querySelectorAll('[data-turn-id-container][data-is-intersecting="false"]')];
-            if (allPH.length === 0) {
-                addLine(structLog, null, '[data-turn-id-container] (lazy placeholder)',
-                    'None in DOM — scroll to the middle of a long conversation and re-check');
-            } else {
-                const p = allPH[0];
-                const hasAttr = p.hasAttribute('data-is-intersecting');
-                const cssVar  = getComputedStyle(p).getPropertyValue('--last-known-height').trim();
-                addLine(structLog, hasAttr, '[data-turn-id-container] (lazy placeholder)',
-                    [
-                        `${allPH.length} total, ${blankPH.length} unloaded (blank)`,
-                        hasAttr ? 'data-is-intersecting ✓' : 'data-is-intersecting MISSING ← blank detection broken',
-                        p.className ? `class: "${p.className.slice(0, 70)}"` : 'class: (empty)',
-                        cssVar ? `--last-known-height: ${cssVar}` : '--last-known-height: not set',
-                    ].join('\n    ')
-                );
-    
-                // A live snapshot of duplicate-*sibling* severity — the same
-                // data-turn-id on multiple elements that are NOT ancestor/
-                // descendant of each other. Nested wrappers for one message
-                // (~2 containers each, already known and expected) share a
-                // turn-id too but aren't the problem; only counting groups
-                // that survive the same containment check findNextDeck uses
-                // avoids flagging that normal case as if it were the bug.
-                const turnIdGroups = new Map();
-                for (const el of allPH) {
-                    const id = el.getAttribute('data-turn-id');
-                    if (!id) continue;
-                    if (!turnIdGroups.has(id)) turnIdGroups.set(id, []);
-                    turnIdGroups.get(id).push(el);
-                }
-                let dupGroupCount = 0, maxDup = 0;
-                for (const [, els] of turnIdGroups) {
-                    // Count elements with no containment relationship to any
-                    // earlier element sharing this turn-id — survivors are
-                    // genuine siblings, not nested wrappers of one another.
-                    const unrelated = els.filter((el, i) => els.slice(0, i).every(prev => !prev.contains(el) && !el.contains(prev)));
-                    if (unrelated.length > 1) { dupGroupCount++; maxDup = Math.max(maxDup, unrelated.length); }
-                }
-                addLine(structLog, dupGroupCount === 0, 'Duplicate data-turn-id siblings',
-                    dupGroupCount === 0
-                        ? `${turnIdGroups.size} distinct turn-id(s), no sibling duplicates right now`
-                        : `${dupGroupCount}/${turnIdGroups.size} turn-id(s) have sibling duplicates, largest group has ${maxDup} element(s)`
-                );
-            }
-        };
-    
-        const recheckBtn = Object.assign(document.createElement('button'), { innerText: 'Re-check' });
-        Object.assign(recheckBtn.style, {
-            padding: '3px 8px', background: '#313244', color: '#cdd6f4',
-            border: '1px solid #585b70', borderRadius: '4px', cursor: 'pointer',
-            fontFamily: 'monospace', fontSize: '10px', marginBottom: '10px',
-        });
-        recheckBtn.onclick = runStructural;
-    
-        // ── Markup fidelity section ───────────────────────────────
-        const markupHead = Object.assign(document.createElement('div'), { innerText: '── Markup Fidelity ──' });
-        Object.assign(markupHead.style, { color: '#89b4fa', marginBottom: '6px' });
-    
-        const intro = Object.assign(document.createElement('div'), {
-            innerText: 'Start a new conversation and send these prompts one by one. After extraction, click Check:',
-        });
-        Object.assign(intro.style, { color: '#bac2de', marginBottom: '8px', lineHeight: '1.4' });
-    
-        const mkCopyBtn = (text) => {
-            const b = Object.assign(document.createElement('button'), { innerText: 'Copy' });
-            Object.assign(b.style, {
-                padding: '2px 7px', background: '#313244', color: '#cdd6f4',
-                border: '1px solid #585b70', borderRadius: '3px', cursor: 'pointer',
-                fontFamily: 'monospace', fontSize: '10px', flexShrink: '0',
-            });
-            b.onclick = () => {
-                navigator.clipboard.writeText(text);
-                b.innerText = '✓';
-                setTimeout(() => { b.innerText = 'Copy'; }, 1500);
-            };
-            return b;
-        };
-    
-        const promptsContainer = document.createElement('div');
-        Object.assign(promptsContainer.style, { marginBottom: '10px' });
-        for (let i = 0; i < _MARKUP_CHECKS.length; i++) {
-            const { label, prompt } = _MARKUP_CHECKS[i];
-            const row = document.createElement('div');
-            Object.assign(row.style, {
-                display: 'flex', alignItems: 'baseline', gap: '6px',
-                marginBottom: '4px', background: '#181825',
-                padding: '5px 7px', borderRadius: '4px',
-            });
-            const num = Object.assign(document.createElement('span'), { innerText: `${i + 1}.` });
-            Object.assign(num.style, { color: '#6c7086', flexShrink: '0', minWidth: '14px' });
-            const txt = Object.assign(document.createElement('span'), { innerText: prompt });
-            Object.assign(txt.style, { flex: '1', lineHeight: '1.4' });
-            row.append(num, txt, mkCopyBtn(prompt));
-            promptsContainer.appendChild(row);
-        }
-    
-        const checkBtn = Object.assign(document.createElement('button'), { innerText: 'Extract & Check' });
-        Object.assign(checkBtn.style, {
-            padding: '5px 12px', background: '#a6e3a1', color: '#11111b',
-            border: 'none', borderRadius: '4px', cursor: 'pointer',
-            fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', marginBottom: '8px',
-        });
-    
-        const markupLog = document.createElement('div');
-    
-        checkBtn.onclick = async () => {
-            markupLog.innerHTML = '';
-            checkBtn.disabled = true;
-            checkBtn.innerText = 'Extracting…';
-    
-            const addLog = (msg, color = '#6c7086') => {
-                const line = document.createElement('div');
-                line.innerText = msg;
-                Object.assign(line.style, { color, fontSize: '10px', whiteSpace: 'pre-wrap' });
-                markupLog.appendChild(line);
-            };
-    
-            const diagUi = {
-                stopped: false, total: 0,
-                phase(n, label) { addLog(`Phase ${n} — ${label}`, '#89b4fa'); },
-                status() {},
-                log(msg) { addLog(`> ${msg}`); },
-            };
-    
-            try {
-                await run(diagUi, null);
-            } catch (e) {
-                addLog(`Error: ${e.message}`, '#f38ba8');
-                checkBtn.disabled = false;
-                checkBtn.innerText = 'Extract & Check';
-                return;
-            }
-    
-            if (_savedState?.stopReason) addLog(`Stopped early — diagnosis: ${_savedState.stopReason}`, '#f9e2af');
-    
-            const sep = document.createElement('div');
-            sep.innerText = '──';
-            Object.assign(sep.style, { color: '#585b70', margin: '4px 0' });
-            markupLog.appendChild(sep);
-    
-            const text = (_savedState?.allPrompts ?? []).filter(pr => pr.role === 'assistant').map(pr => pr.text).join('\n');
-            if (!text) {
-                addLog('Extraction produced no assistant content.', '#f38ba8');
-            } else {
-                for (const { label, pat } of _MARKUP_CHECKS)
-                    addLine(markupLog, pat.test(text), label, null);
-            }
-    
-            checkBtn.disabled = false;
-            checkBtn.innerText = 'Extract & Check';
-        };
-    
-        panel.append(titleRow, structHead, structLog, recheckBtn, markupHead, intro, promptsContainer, checkBtn, markupLog);
-        document.body.appendChild(panel);
-        runStructural();
-    }
-    
-    GM_registerMenuCommand('Compatibility Check', buildDiagUI);
 }
