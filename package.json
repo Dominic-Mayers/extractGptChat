@@ -1,0 +1,11 @@
+{
+  "name": "extract-gpt-chat",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-userscript.js",
+    "check": "node --check extractChatGpt.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
