@@ -10,7 +10,7 @@ export function attachExportListener({
         if (!savedState) return;
         button.disabled = true;
         button.innerText = 'Exporting...';
-        await exportMarkdown(ui, savedState.allPrompts, ui.includeDiag, savedState.stopped, savedState.timestamp, savedState.stopReason);
+        await exportMarkdown(ui, savedState.allPrompts, savedState.timestamp);
         const count = countPrompts(savedState.allPrompts);
         ui.log(`Exported ${count} prompts (${savedState.allPrompts.length} msgs).`);
         button.disabled = false;
