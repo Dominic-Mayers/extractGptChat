@@ -1725,13 +1725,17 @@ export function installExtractorApp() {
         // body reads as the architecture. No algorithmic change — every line
         // inside each wrapper is the existing code, just named and grouped.
 
-        // Returns the safe jump in px, or null to signal "already past the
-        // trigger minimum — skip the sub-pixel final approach."
-        function clampJump(room) {
-            // The calibrated jump is used in full whenever it would still
-            // leave current before advanceRoom. Only the final approach is
-            // clamped, to keep current genuinely inside the viewport.
-            // Without this boundary a grown jump can take current fully
+        // Returns the jump in px to execute, or null when no executable jump
+        // exists (either the remaining distance is below the minimum the
+        // browser/ChatGPT can reliably act on, or the geometric clamp would
+        // produce a movement too small to make progress). The "no jump"
+        // decision is an orchestration policy: null tells moveWorkZone to
+        // stop, not a geometric fact about the limits of the viewport.
+        function normalizeJump(room) {
+            // Clamp to advanceRoom: the calibrated jump is used in full
+            // whenever it would still leave current before advanceRoom. Only
+            // the final approach is clamped, to keep current genuinely inside
+            // the viewport. Without this a grown jump can take current fully
             // behind the viewport in one leap, causing detachment (observed:
             // 30 s timeout with room stuck at 0 across 101 jumps).
             const remainingToAdvanceRoom = advanceRoom - room;
@@ -1807,7 +1811,7 @@ export function installExtractorApp() {
                 throw err;
             }
 
-            const safeJumpPx = clampJump(room);
+            const safeJumpPx = normalizeJump(room);
             if (safeJumpPx === null) break;
 
             const { hitBoundary } = performJump(safeJumpPx);
