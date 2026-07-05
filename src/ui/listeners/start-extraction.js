@@ -10,7 +10,6 @@ export function attachStartExtractionListener({
     getPendingAutoRestart,
     setPendingAutoRestart,
     getSavedState,
-    incrementAutoResumeCount,
 }) {
     button.onclick = async () => {
         let resumeState = getResumeState();
@@ -22,8 +21,7 @@ export function attachStartExtractionListener({
             let runPass = 0;
             do {
                 if (resumeState && runPass > 0) {
-                    const count = incrementAutoResumeCount();
-                    ui.log(`Auto-resuming from current cursor (${count}).`);
+                    ui.log('Auto-resuming from current cursor.');
                 }
                 await run(ui, stopButton, resumeState);
                 runPass++;
