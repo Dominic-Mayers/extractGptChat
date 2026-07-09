@@ -1,209 +1,239 @@
-# Context for Refactoring the ChatGPT Extractor
+# Context for conversation
+
+This is not updated to match newly written code in src/dev. The newly written code is source of truth. This is only a source of truth to plan new code. The code in src/app is used to learn about chatGpt structure and behavior and borrow some related code.
 
 ## Objective
 
-The objective is **not** to redesign the extractor. The objective is to recover the architecture already present in the implementation by extracting well-defined conceptual functions from the existing code.
+We are refactoring a ChatGPT conversation extractor. The objective is to redesign it while making use of knowledge learned in the existing code.
 
-The methodology is archaeological rather than architectural:
+## Current understanding
 
-1. Identify a conceptual function in the algorithm.
-2. Locate its counterpart in the existing implementation.
-3. Extract only that function with minimal modification.
-4. Repeat.
-
-Do not invent new abstractions unless the existing code requires them.
-
----
-
-# Lexicon
-
-Use the project's TECHNICAL_LEXICON.md consistently.
-
-In particular:
-
-* **Slab**: one extractable content unit.
-* **Deck**: one rendered ChatGPT turn containing one or more slabs.
-* **Ready deck**: a deck whose DOM has become available.
-* **Current slab**: traversal cursor.
-* **Ready slab**: slab whose content is ready to extract.
-* **Room**: viewport space ahead of the current slab.
-* **Work zone**: the rendered region in which extraction can safely proceed.
-* **Safe area**: the region inside which the work zone may be translated by jumps.
-* **Jump**: one small viewport movement.
-* **Viewport move**: a sequence of jumps whose purpose is to activate rendering.
-* **Detached current**: current slab removed from the live DOM.
-* **Sandwiched empty deck**: transient rendering anomaly indicating rendering is still incomplete.
-
-Always distinguish **geometry** from **structure**.
-
-Geometry concerns:
+Geometry:
 
 * room
 * jumps
 * viewport
 * work zone
-* safe area
 
-Structure concerns:
+Structure:
 
 * decks
 * slabs
 * readiness
-* fingerprints
 * extraction
 
----
+The boundary between the two is **deck readiness**.
 
-# Basic conceptual functions
-
-The architecture is expressed in terms of the following basic functions.
-
-```text
-nextDeck(room)
-
-waitDeckReady(deck)
-
-closestSlab(room, deck)
-
-slabType(slab)
-
-clampJump(room, calibratedJump)
-
-performJump(jump)
-
-waitLayoutStable()
-
-measureRoom(current)
-
-waitSlabReady(type, slab)
-
-extractSlab(type, slab)
-
-exportMarkdown()
-```
-
-These functions define the conceptual architecture. The refactoring consists of locating their counterparts in the current code.
+Once a deck is ready, slab geometry is assumed stable.
 
 ---
 
-# Viewport movement
+## Main orchestration
 
-Viewport movement is a higher-level operation.
-
-It is entered only when
-
-```text
-room < 240
-```
-
-Its purpose is **not** to advance traversal.
-
-Its purpose is to activate rendering while keeping the current slab inside the safe area.
-
-Conceptually:
+The traversal currently being designed, which is the source of truth (unless superceded by newly written code), is
 
 ```text
 repeat
 
-    jump = clampJump(room, calibratedJump)
+    if (current && room < MIN_ROOM )
+
+        room = await moveWorkZone(current);
+
+
+    if (needsNextDeck(room, deckTop)) {
+
+        deck = await nextReadyDeck(deckTop);
+        if (deck == null) {break;}
+        deckTop = deck.getBoundingClientRect().top;
+    }
+
+    slab = nextSlab(current, deck)
+
+    type = slabType(slab)
+
+    waitSlabReady(type, slab)
+
+    extractSlab(type, slab)
+
+    current = slab
+
+until no next ready deck
+
+exportMarkdown()
+```
+
+For the moment we removed
+
+```text
+waitSlabReady()
+extractSlab()
+```
+
+to simplify development.
+
+---
+
+## moveWorkZone(current, calibratedJump)
+
+This function will eventually be implemented entirely from scratch.
+
+Its structure is
+
+```text
+room = measureRoom(current)
+
+while (room < viewportHeight - SLAB_ADJACENCY_MAX_GAP - MAX_DRIFT && 
+       scrollY > MAX_DRIFT)
+
+    jump = normalizeJump(CALIBRATED_JUMP)
 
     performJump(jump)
 
     waitLayoutStable()
 
     room = measureRoom(current)
-
-until room >= r × viewportHeight
 ```
 
 where
 
 ```text
-r ≈ 0.9
+normalizeJump()
 ```
 
-A jump immediately produces
+is a wrapper over
 
 ```text
-room := room + jump
+clampJump() 
+
+    jump = min(
+        CALIBRATED_JUMP, // normal case
+        scrollY,  // the jump reaches the extremity of the document
+        MAX_ROOM_RATIO * viewportHeight - room // current is kept visible in the viewport
+    )
+
 ```
 
-In general, the specific  rendering by chatGPT  doesn't change room, because it is not expected by the user, but there is no guarantee. 
+in case the clamped value is too small for technical reasons.
+---
 
-Therefore `measureRoom(current)` recomputes the true geometric state after stabilization.
+## nextSlab()
+
+We decided that this function is almost independent from the rest.
+
+Its structure is
+
+```text
+nextSlab(current, deck)
+
+    area = areaAhead(current, maxGap)
+
+    slabs = getSlabsIn(deck)
+
+    candidates = intersectingSlabs(area, slabs)
+
+    return closestSlab(current, candidates)
+```
+
+The search area extends only
+
+```text
+SLAB_ADJACENCY_MAX_GAP
+```
+
+beyond the current slab.
+
+It is **not** based on room.
 
 ---
 
-# Layout stabilization
+## getSlabsIn(deck)
 
-`waitLayoutStable()` waits for layout stabilization while enforcing two invariants.
+This function is structural.
 
-Invariant 1:
+It corresponds almost directly to
 
-* no unresolved sandwiched empty deck
+```text
+querySelectedSlabCandidates()
+```
 
-This condition is potentially recoverable.
+from the existing implementation.
 
-Continue waiting (subject to timeout).
+It performs selector-based structural observations.
 
-Invariant 2:
+It returns
 
-* current slab is not detached and is still visible in the work zone.
+* message slabs
+* image slabs
+* canvas slabs
 
-This condition is fatal.
+and, importantly,
 
-These two situations must not be treated as the same kind of failure.
+a **genuinely empty ready deck contributes one empty slab**.
+
+We concluded that this is **not** a traversal policy.
+
+It is a structural observation.
+
+The absence of selected content is itself evidence that the deck contains an empty slab.
+
+This depends critically on the precondition
+
+```text
+deck is ready
+```
+
+Without deck readiness we could not distinguish
+
+* genuine empty deck
+
+from
+
+* rendering still in progress.
+
+This is not specific to empty decks.
+
+Every structural observation relies on deck readiness.
 
 ---
 
-# Main orchestration
+## closestSlab()
 
-The main orchestration is
+This is now purely geometric.
+
+Because
 
 ```text
-moveWorkZone()
-
-if needsNextDeck()
-
-    deck = nextDeck(room)
-
-    waitDeckReady(deck)
-
-slab = closestSlab(room, deck)
-
-type = slabType(slab)
-
-waitSlabReady(type, slab)
-
-extractSlab(type, slab)
+intersectingSlabs()
 ```
 
-Extraction proceeds one slab at a time.
+already restricts the search,
 
-Viewport movement proceeds one jump at a time.
+`closestSlab()` merely chooses the nearest candidate geometrically.
 
-These are two different scales of the algorithm.
+However,
 
-A viewport move generally performs many jumps before returning to slab traversal.
+before implementing it,
+
+we want to inspect the existing functions
+
+```text
+closestCandidateAhead()
+
+slabDistanceAhead()
+```
+
+to preserve any subtle tie-breaking behavior.
 
 ---
 
-# End of traversal
+## Important architectural conclusion
 
-The traversal ends when
+We realized that
 
-```text
-needsNextDeck()
-```
+**deck readiness is the interface contract between structure and geometry.**
 
-is true but no next deck exists.
+It guarantees that
 
-Reaching the viewport extremity (`scrollY == 0` for upward traversal) is not the termination condition. It is an expected geometric consequence of a successful run.
-
-Finally,
-
-```text
-exportMarkdown()
-```
-
-writes the extracted conversation.
+* selectors are meaningful,
+* slab geometry is stable,
+* empty decks are distinguishable from incomplete rendering.

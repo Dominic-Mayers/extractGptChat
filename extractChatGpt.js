@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      4.162
+// @version      4.163
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1086,7 +1086,7 @@ ${captureElementHtmlReference("empty-container-coverage", deckEl, deckEl.getAttr
         }
       }
     }
-    async function maintainWorkZone(container, current, minimumRoomAhead = 0, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
+    async function maintainWorkZone(container, current, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
       if (current.type === "start") return { roomSatisfied: true, boundaryReached: false, room: Infinity, required: 0 };
       const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
       const setPos = (v) => {
@@ -1094,7 +1094,7 @@ ${captureElementHtmlReference("empty-container-coverage", deckEl, deckEl.getAttr
         else container.scrollTop = v;
         _lastIntentionalScrollPos = v;
       };
-      const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
+      const clientH = container === document.documentElement ? document.documentElement.clientHeight : container.clientHeight;
       const liveContainerTop = () => container === document.documentElement ? 0 : container.getBoundingClientRect().top;
       const measureRoom = () => {
         const containerTop = liveContainerTop();
@@ -1105,7 +1105,7 @@ ${captureElementHtmlReference("empty-container-coverage", deckEl, deckEl.getAttr
         const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
         return Math.max(0, scrollH - clientH);
       };
-      const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, minimumRoomAhead);
+      const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, SLAB_LOOKAHEAD_PX);
       let room = measureRoom();
       if (room > extra) return { roomSatisfied: true, boundaryReached: false, room, required: extra };
       const advanceRoom = Math.min(clientH - 1, Math.max(extra, clientH * advanceFraction));
@@ -1115,42 +1115,55 @@ ${captureElementHtmlReference("empty-container-coverage", deckEl, deckEl.getAttr
       let boundaryReached = false;
       let jumpsTaken = 0;
       let outcome = "advance-complete";
+      function normalizeJump(room2) {
+        const remainingToAdvanceRoom = advanceRoom - room2;
+        if (remainingToAdvanceRoom < WORK_ZONE_TINY_TARGET_CLAMP_PX && room2 > extra) return null;
+        return room2 + _workZoneAdaptiveJumpPx < advanceRoom ? _workZoneAdaptiveJumpPx : remainingToAdvanceRoom;
+      }
+      function performJump(safeJumpPx) {
+        const curTop = readPos();
+        const max = liveScrollMax();
+        const intendedPos = curTop + jumpSign * safeJumpPx;
+        const hitScrollBoundary = jumpSign < 0 ? intendedPos <= 0 : intendedPos >= max;
+        const nextPos = Math.max(0, Math.min(max, intendedPos));
+        if (nextPos === curTop) {
+          return { hitBoundary: true };
+        }
+        if (hitScrollBoundary) boundaryReached = true;
+        setPos(nextPos);
+        jumpsTaken++;
+        return { hitBoundary: false };
+      }
+      async function waitLayoutStable() {
+        setStabilizationMarkerColor("#5ac8fa");
+        const stability = await waitForLayoutStable(container, current);
+        await nextAnimationFrame();
+        setStabilizationMarkerColor("#34c759");
+        return stability;
+      }
       while (room < advanceRoom) {
-        if (room > extra && Date.now() > deadline) {
+        if (room > extra) {
           outcome = "satisfied-timeout";
           break;
         }
         if (room <= extra && Date.now() > deadline) {
           const waitedMs = Math.round(performance.now() - startedAt);
-          pushHtmlCaptures("work-zone-fatal-timeout", capturedIntersectingDecksHtml(container));
           const message = `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1e3}s stepping toward work-zone room ahead of current (${jumpsTaken} small step(s) taken, room=${Math.round(room)}px, required=${Math.round(extra)}px, boundaryReached=${boundaryReached}). ${describeCurrentAttachment(current)}. See the separate .html export for the intersecting deck(s) captured at this moment.`;
           const err = new Error(message);
           err.placeholder = currentNotePlaceholder(current, message);
           err.resumeFromCurrent = !isCurrentDetached(current);
           throw err;
         }
-        const curTop = readPos();
-        const max = liveScrollMax();
-        const remainingToAdvanceRoom = advanceRoom - room;
-        if (remainingToAdvanceRoom < WORK_ZONE_TINY_TARGET_CLAMP_PX && room > extra) break;
-        const calibratedJumpPx = _workZoneAdaptiveJumpPx;
-        const safeJumpPx = room + calibratedJumpPx < advanceRoom ? calibratedJumpPx : remainingToAdvanceRoom;
-        const intendedPos = curTop + jumpSign * safeJumpPx;
-        const hitScrollBoundary = jumpSign < 0 ? intendedPos <= 0 : intendedPos >= max;
-        const nextPos = Math.max(0, Math.min(max, intendedPos));
-        if (nextPos === curTop) {
+        const safeJumpPx = normalizeJump(room);
+        if (safeJumpPx === null) break;
+        const { hitBoundary } = performJump(safeJumpPx);
+        if (hitBoundary) {
           boundaryReached = true;
           outcome = "boundary";
           break;
         }
-        if (hitScrollBoundary) boundaryReached = true;
-        setPos(nextPos);
-        jumpsTaken++;
-        setStabilizationMarkerColor("#5ac8fa");
-        const stability = await waitForLayoutStable(container, current);
-        await nextAnimationFrame();
+        const stability = await waitLayoutStable();
         room = measureRoom();
-        setStabilizationMarkerColor("#34c759");
         if (boundaryReached) {
           outcome = "boundary";
           break;
@@ -1737,7 +1750,7 @@ ${captureElementHtmlReference("empty-slab-fingerprint-timeout", next.element, sl
           ui.status(countPrompts(allPrompts), allPrompts.length);
         };
         while (!ui.stopped && !stopReason) {
-          const zoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+          const zoneStatus = await maintainWorkZone(container, current);
           if (zoneStatus.jumpsTaken > 0) {
             ui.log(`  work-zone move: ${zoneStatus.jumpsTaken} step(s), outcome=${zoneStatus.outcome}`);
           }
@@ -1769,7 +1782,7 @@ ${captureElementHtmlReference("empty-slab-fingerprint-timeout", next.element, sl
               const placeholder = finishDeckCoverage(readyContainer, containerSlabRanges, current);
               if (placeholder) insertMsg(placeholder);
               current = makeDeckExitCurrent(readyContainer);
-              const exitZoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+              const exitZoneStatus = await maintainWorkZone(container, current);
               reachedDocumentBoundaryForNextDeck = exitZoneStatus.boundaryReached;
               if (exitZoneStatus.jumpsTaken > 0) {
                 ui.log(`  work-zone move (deck exit): ${exitZoneStatus.jumpsTaken} step(s), outcome=${exitZoneStatus.outcome}`);
@@ -1969,7 +1982,7 @@ ${chainSummary}`;
         marginBottom: "6px"
       });
       const title = Object.assign(document.createElement("div"), {
-        innerText: "ChatGPT Extractor v4.162"
+        innerText: "ChatGPT Extractor v4.163"
       });
       Object.assign(title.style, { fontWeight: "bold", color: "#89b4fa" });
       const toggleBtn = Object.assign(document.createElement("button"), { innerText: "\xD7" });

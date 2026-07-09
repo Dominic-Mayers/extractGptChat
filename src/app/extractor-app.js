@@ -532,7 +532,7 @@ export function installExtractorApp() {
             // deck's full content can run to several KB on its own
             // (confirmed live). The 'room-drift-right-after-jump' /
             // 'room-drift-after-wait' labels are the deliberate exception —
-            // real, untrimmed outerHTML (see maintainWorkZone), because the
+            // real, untrimmed outerHTML (see maintainWork-Zone), because the
             // whole point there is diffing the actual DOM at two specific
             // instants, which trimmedCaptureHtml's identity-tag-only output
             // can't show. Plain string concatenation, not appended via DOM
@@ -1103,7 +1103,7 @@ export function installExtractorApp() {
     // viewport, not just at its boundary. The default keeps the move more
     // conservative: advance until current has about half a viewport of room
     // ahead, unless the explicit slab lookahead minimum needs more.
-    // maintainWorkZone takes this as an overridable parameter (not just a constant) so
+    // maintainWork-Zone takes this as an overridable parameter (not just a constant) so
     // different advance strategies — this maximal one, a minimal
     // "just enough room past the trigger margin" one, or anything between —
     // can be experimented with from call sites without touching this function.
@@ -1123,7 +1123,7 @@ export function installExtractorApp() {
     // advances one state immediately — no streak requirement, the jump size
     // alone is the calibration state and fully determines what happens
     // next. A failed jump is fatal (no automatic retry — see
-    // maintainWorkZone) but first retreats WORK_ZONE_MOVE_JUMP_RETREAT_STATES
+    // maintainWork-Zone) but first retreats WORK_ZONE_MOVE_JUMP_RETREAT_STATES
     // states (2 × 60px = 120px) rather than collapsing all the way back to
     // the floor, floored at WORK_ZONE_MOVE_JUMP_PX, so the size is already
     // smaller by the time the user manually retries via the panel's Restart
@@ -1148,7 +1148,7 @@ export function installExtractorApp() {
     // fault. current.geometryElement getting detached (all-zero rect)
     // stays checked — that's a structural fact (is it in the document or
     // not), not a comparison against a number we made up. See
-    // maintainWorkZone's cleanJump for where this is actually used.
+    // maintainWork-Zone's cleanJump for where this is actually used.
     let _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
     
     // Visual aid for video-recording a real run, nothing more — a small,
@@ -1189,7 +1189,7 @@ export function installExtractorApp() {
         }
     }
     
-    // Set by every setPos (maintainWorkZone and forceScrollToEdge) right
+    // Set by every setPos (maintainWork-Zone and forceScrollToEdge) right
     // when we ourselves assign scrollTop/scrollY — the one fact the
     // background sampler below needs to tell "we just moved this" apart
     // from "something else moved it." null until the very first scripted
@@ -1218,7 +1218,7 @@ export function installExtractorApp() {
         _samplerRunning = false;
     }
     
-    // maintainWorkZone's per-step pacing gate (see waitForLayoutStable):
+    // maintainWork-Zone's per-step pacing gate (see waitForLayoutStable):
     // how many consecutive animation frames scrollHeight must hold still
     // for before the next step is allowed to fire, and the hard cap on how
     // long any single step will wait for that before giving up and moving
@@ -1234,7 +1234,7 @@ export function installExtractorApp() {
     const WORK_ZONE_JUMP_STABLE_MAX_MS = 1500;
     // Retrying a *short* wait several times (the first version of this)
     // turned out to be the wrong shape for the problem. The reason isn't
-    // just "give it more chances" — it's that maintainWorkZone's whole
+    // just "give it more chances" — it's that maintainWork-Zone's whole
     // stepping model depends on knowing the real, settled room value
     // before it can decide anything about the next step: if the viewport
     // (or content around current) genuinely drifted while we weren't
@@ -1262,7 +1262,7 @@ export function installExtractorApp() {
     // other such signs turn up later.
     const WORK_ZONE_JUMP_HIDDEN_RETRY_MS = SLAB_FINISH_TIMEOUT_MS; // reuse the existing "give it a real, generous chance" duration rather than invent a new one
     // Safety net for the per-jump current+precedent+subsequent outerHTML
-    // capture in maintainWorkZone — bounds the .html export's size on a
+    // capture in maintainWork-Zone — bounds the .html export's size on a
     // long/complete run, not a deliberate sample size. Each jump captured
     // is 2 entries (right-after-jump, after-wait), each bundling up to 3
     // real deck snapshots, so this is already generous before the export
@@ -1403,7 +1403,7 @@ export function installExtractorApp() {
     // (see memory: the v4.142/v4.143 incident) is not reliable. The actual
     // identity of whatever's intersecting the viewport right after a
     // move's last step is real, checkable evidence instead — captured once
-    // per completed maintainWorkZone call (not per step) and fed to
+    // per completed maintainWork-Zone call (not per step) and fed to
     // pushHtmlCaptures below, which is what actually accumulates it for the
     // separate .html export — this function just collects, it doesn't
     // format or store.
@@ -1465,7 +1465,7 @@ export function installExtractorApp() {
         return false; // nothing real to check against (e.g. SLAB_WALK_START) — never reaches the work-zone loop anyway
     }
     
-    // Per-step pacing signal for maintainWorkZone's stepping loop: waits for
+    // Per-step pacing signal for maintainWork-Zone's stepping loop: waits for
     // the container's scrollHeight to stop changing across a few consecutive animation
     // frames, AND for no sandwiched-empty-slab to be present (see
     // findSandwichedEmptySlabInViewport just above — this is the part that
@@ -1641,35 +1641,7 @@ export function installExtractorApp() {
         }
     }
     
-    // Checked once per slab-selection attempt, before any search runs —
-    // the decision lives at the slab level, not tied to any particular
-    // deck's own readiness fingerprint. current's leading edge (the side
-    // facing unexplored territory) only ever advances, one slab at a time;
-    // the work zone's own leading edge stays exactly where it is until
-    // this moves it. So current's advance is guaranteed to eventually
-    // close the gap down to the margin — that moment is what triggers a
-    // move, never a deck's fingerprint. *Whether* to move (room <= extra)
-    // is unchanged from the original design. *How far* it tries to advance
-    // is the advanceFraction parameter (see WORK_ZONE_ADVANCE_FRACTION) —
-    // independent of the trigger margin and deliberately overridable, so
-    // call sites can experiment with maximal-jump vs just-enough-room
-    // advance strategies without touching this function.
-    //
-    // There used to be a separate "move to a precomputed target, then
-    // separately wait/poll for room" two-phase design (moveWorkZoneTo +
-    // a doubleRAF-paced settle loop — see memory). That fell apart on a
-    // real run: a precomputed target/scrollMax snapshot can go stale
-    // during the time spent reaching and then waiting on it (layout above
-    // current shifting by 1000+px mid-wait, see memory), and the doubleRAF
-    // settle phase had zero stability awareness of its own — it just
-    // polled a number with no way to tell "still genuinely converging"
-    // from "stuck." This version is one continuous loop instead: take one
-    // small step toward more room, wait for it via the same
-    // waitForLayoutStable used everywhere else (browser+ChatGPT-stability,
-    // not just a frame count), re-measure room live, and decide whether to
-    // take another step — never computing a destination in advance, never
-    // trusting any position/height snapshot beyond the instant it was read.
-    async function maintainWorkZone(container, current, minimumRoomAhead = 0, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
+    async function maintainWorkZone(container, current, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
         if (current.type === 'start') return { roomSatisfied: true, boundaryReached: false, room: Infinity, required: 0 }; // no deck/slab reference yet
         const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
         const setPos = v => {
@@ -1677,19 +1649,7 @@ export function installExtractorApp() {
             else container.scrollTop = v;
             _lastIntentionalScrollPos = v;
         };
-        const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
-        // Room ahead of current, read fresh from the live DOM every single
-        // time this is called — never cached, never reused across a step.
-        // This used to read containerTop once, outside this function, and
-        // reuse that snapshot for every jump in the whole call — directly
-        // contradicting this comment's own claim. If container isn't
-        // document.documentElement (findScrollContainer can return a
-        // nested scrollable div), its own position on the page is exactly
-        // as capable of drifting mid-call (a header, banner, or the
-        // composer box changing height) as anything else here. Reading it
-        // fresh on every call closes that gap; if container really is
-        // document.documentElement this costs nothing extra and always
-        // yields exactly 0.
+        const clientH = container === document.documentElement ? document.documentElement.clientHeight  : container.clientHeight;
         const liveContainerTop = () => container === document.documentElement ? 0 : container.getBoundingClientRect().top;
         const measureRoom = () => {
             const containerTop = liveContainerTop();
@@ -1700,18 +1660,9 @@ export function installExtractorApp() {
             const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
             return Math.max(0, scrollH - clientH);
         };
-        const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, minimumRoomAhead);
+        const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, SLAB_LOOKAHEAD_PX);
         let room = measureRoom();
         if (room > extra) return { roomSatisfied: true, boundaryReached: false, room, required: extra }; // still plenty of light ahead of current
-        // advanceRoom is aspirational, not a destination to walk straight
-        // to and stop at: how much fresh room past current we'd like to
-        // end up with if nothing stops us, floored at `extra` (a step that
-        // didn't even clear the trigger margin wouldn't be worth taking)
-        // and capped just short of clientH (current must stay genuinely
-        // inside the viewport, not sit exactly on its edge). The loop below
-        // keeps stepping toward this, but is content to stop as soon as
-        // `extra` is cleared if it runs out of patience or room first —
-        // exactly the same bar the original design judged success against.
         const advanceRoom = Math.min(clientH - 1, Math.max(extra, clientH * advanceFraction));
         const jumpSign = WALK_DIRECTION === -1 ? -1 : 1; // direction of scrollTop change that increases room
         const startedAt = performance.now();
@@ -1720,24 +1671,7 @@ export function installExtractorApp() {
         let jumpsTaken = 0;
         let outcome = 'advance-complete'; // overwritten below if the loop exits any other way
 
-        // ── moveWorkZone geometric sub-functions ─────────────────────────
-        // Phase 1: thin wrappers over the existing jump geometry so the loop
-        // body reads as the architecture. No algorithmic change — every line
-        // inside each wrapper is the existing code, just named and grouped.
-
-        // Returns the jump in px to execute, or null when no executable jump
-        // exists (either the remaining distance is below the minimum the
-        // browser/ChatGPT can reliably act on, or the geometric clamp would
-        // produce a movement too small to make progress). The "no jump"
-        // decision is an orchestration policy: null tells moveWorkZone to
-        // stop, not a geometric fact about the limits of the viewport.
         function normalizeJump(room) {
-            // Clamp to advanceRoom: the calibrated jump is used in full
-            // whenever it would still leave current before advanceRoom. Only
-            // the final approach is clamped, to keep current genuinely inside
-            // the viewport. Without this a grown jump can take current fully
-            // behind the viewport in one leap, causing detachment (observed:
-            // 30 s timeout with room stuck at 0 across 101 jumps).
             const remainingToAdvanceRoom = advanceRoom - room;
             if (remainingToAdvanceRoom < WORK_ZONE_TINY_TARGET_CLAMP_PX && room > extra) return null;
             return room + _workZoneAdaptiveJumpPx < advanceRoom
@@ -1745,9 +1679,6 @@ export function installExtractorApp() {
                 : remainingToAdvanceRoom;
         }
 
-        // Performs the scroll jump. Returns { hitBoundary: true } when the
-        // viewport is already at the document edge and can't move further;
-        // sets boundaryReached (closure) when the jump reaches that edge.
         function performJump(safeJumpPx) {
             const curTop = readPos();
             const max = liveScrollMax(); // re-read live — scrollable range can shift mid-run
@@ -1775,31 +1706,10 @@ export function installExtractorApp() {
             return stability;
         }
 
-        // ── moveWorkZone loop ─────────────────────────────────────────────
-        // No automatic retry here. A failure ends this run and surfaces one
-        // complete diagnostic. Detached current is decisive evidence that
-        // the jump was too aggressive, so it retreats the adaptive jump size
-        // before stopping. Non-detached failures keep the live cursor and
-        // offer a panel Resume instead of rebuilding from the conversation
-        // edge or silently retrying inside this loop.
         while (room < advanceRoom) {
-            if (room > extra && Date.now() > deadline) { outcome = 'satisfied-timeout'; break; } // good enough already, not worth chasing the aspirational extra any further
+            if (room > extra ) { outcome = 'satisfied-timeout'; break; } // good enough already, not worth chasing the aspirational extra any further
             if (room <= extra && Date.now() > deadline) {
                 const waitedMs = Math.round(performance.now() - startedAt);
-                // Numeric geometry (room/scrollMax deltas) isn't trustworthy
-                // diagnostic evidence on its own — any number of unrelated
-                // DOM changes could produce the same numbers (see memory).
-                // The outerHTML of whatever's actually intersecting the
-                // viewport right now is real, checkable ground truth
-                // instead — captured to the separate .html export (not
-                // inlined into this message) so the markdown stays clean.
-                pushHtmlCaptures('work-zone-fatal-timeout', capturedIntersectingDecksHtml(container));
-                // Not retreating the jump size here: the overall deadline is
-                // a cumulative-time signal, not one correlated specifically
-                // with the jump size just used (unlike timedOut/
-                // sawSandwiched/detached, each checked once per jump — see
-                // cleanJump below), so there's no evidence here that a
-                // smaller size would even help next time.
                 const message =
                     `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s stepping toward work-zone room ahead of current ` +
                     `(${jumpsTaken} small step(s) taken, room=${Math.round(room)}px, required=${Math.round(extra)}px, ` +
@@ -1824,39 +1734,12 @@ export function installExtractorApp() {
                 outcome = 'boundary';
                 break;
             }
-            // "Clean" does not mean "nothing changed." Mounting newly
-            // revealed content is exactly the normal case we are pacing for.
-            // A jump is clean if the page reached a stable state without
-            // hitting the per-jump cap, without seeing the stronger
-            // sandwiched-empty signal, and without current having been
-            // detached.
             const cleanJump = stability && !stability.timedOut && !stability.sawSandwiched && !stability.detached;
             if (cleanJump) {
-                // Calibration state machine: jump size alone determines what
-                // happens next, so a clean jump advances one 60px state
-                // immediately — no streak gate.
                 if (_workZoneAdaptiveJumpPx < WORK_ZONE_MOVE_JUMP_MAX_PX) {
                     _workZoneAdaptiveJumpPx = Math.min(WORK_ZONE_MOVE_JUMP_MAX_PX, _workZoneAdaptiveJumpPx + WORK_ZONE_MOVE_JUMP_GROW_PX);
                 }
             } else {
-                // Fatal, no in-loop retry. If current detached, retreat the
-                // calibration state 2 steps (120px) from the size that just
-                // failed — floored at the base, not a full collapse — so a
-                // later fresh run starts smaller instead of repeating the
-                // one that just failed. If current is still connected, keep
-                // the calibration and let the panel offer Resume from this
-                // cursor instead.
-                //
-                // This is a minor convenience, not load-bearing: the actual
-                // fix is detecting the failure (above, via
-                // stability.detached/sawSandwiched/timedOut) fast and
-                // accurately. Without this retreat, a retry would just
-                // restart at the floor and slowly regrow instead of
-                // resuming near the size that failed — slower, never
-                // wrong. If this ever gets in the way of keeping the code
-                // simple, it can be deleted (along with run()'s matching
-                // "deliberately not reset" comment) with nothing lost but
-                // that bit of regrowth time.
                 const reasonParts = [];
                 if (stability?.detached) reasonParts.push('current detached (signature of a too-large jump)');
                 if (stability?.sawSandwiched) reasonParts.push('sandwiched-empty deck still present');
@@ -1871,20 +1754,6 @@ export function installExtractorApp() {
                     );
                 }
                 if (!stability) reasonParts.push('stability check did not resolve');
-                // Only detachment is actually evidence of a too-large jump
-                // (a structural fact, not a comparison against a predicted
-                // number — see the comment above cleanJump for why that
-                // comparison was removed). sawSandwiched/timedOut alone,
-                // with current still connected, is consistent instead with
-                // the separate, already-documented sandwiched-empty-deck
-                // gap (see findSandwichedEmptySlabInViewport / the exported
-                // diag's "needs a readiness patch" note): ChatGPT hasn't
-                // finished rendering this content yet, independent of jump
-                // size. Confirmed live: a 540px jump (well under the old
-                // 600px cap) failed this way with geometryElement.isConnected
-                // still true — retreating the jump size would not have
-                // been the fix there. Don't claim a confidence the
-                // evidence doesn't support.
                 const detachedCause = !!stability?.detached;
                 const failedJumpPx = _workZoneAdaptiveJumpPx;
                 if (detachedCause) {
@@ -1913,13 +1782,6 @@ export function installExtractorApp() {
                 throw err;
             }
         }
-        // Capture only when a move actually happened — most calls find
-        // room > extra immediately above and return before this point.
-        // Goes to the separate .html export (pushHtmlCaptures), not the
-        // markdown — the markdown stays clean text, the real captured
-        // markup lives in its own file. jumpsTaken/outcome are still
-        // returned so the caller can log them live without needing the
-        // capture itself.
         if (jumpsTaken > 0) {
             pushHtmlCaptures('work-zone-move', capturedIntersectingDecksHtml(container));
         }
@@ -2611,13 +2473,13 @@ export function installExtractorApp() {
         );
         // Deliberately NOT reset here. If a previous detached-current jump
         // failure retreated this to a smaller size before throwing (see
-        // maintainWorkZone), a later fresh run should keep that calibration
+        // maintainWork-Zone), a later fresh run should keep that calibration
         // instead of repeating the same size that just failed. It only ever
         // starts at WORK_ZONE_MOVE_JUMP_PX because that's its declared
         // initial value, for a genuinely first run since the page loaded.
         //
         // Minor convenience, not load-bearing — see the matching comment in
-        // maintainWorkZone's failure branch. Safe to delete (reverting to an
+        // maintainWork-Zone's failure branch. Safe to delete (reverting to an
         // unconditional reset here) if it's ever in the way; the worst case
         // without it is a slower regrow from the floor on retry, never a
         // correctness problem.
@@ -2852,11 +2714,11 @@ export function installExtractorApp() {
         // attempting the search and reading an 'end-of-deck' result back.
         while (!ui.stopped && !stopReason) {
             // ── ensure work-zone room ahead of current slab ──
-            // maintainWorkZone reports the outcome of the intervention, not
+            // maintainWork-Zone reports the outcome of the intervention, not
             // the end of traversal. If the physical scroll boundary is reached,
             // no further jump can create more room, but structural selection
             // may still find the next visible deck/slab.
-            const zoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+            const zoneStatus = await maintainWorkZone(container, current);
             if (zoneStatus.jumpsTaken > 0) {
                 ui.log(`  work-zone move: ${zoneStatus.jumpsTaken} step(s), outcome=${zoneStatus.outcome}`);
             }
@@ -2908,7 +2770,7 @@ export function installExtractorApp() {
                     const placeholder = finishDeckCoverage(readyContainer, containerSlabRanges, current);
                     if (placeholder) insertMsg(placeholder);
                     current = makeDeckExitCurrent(readyContainer);
-                    const exitZoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+                    const exitZoneStatus = await maintainWorkZone(container, current);
                     reachedDocumentBoundaryForNextDeck = exitZoneStatus.boundaryReached;
                     if (exitZoneStatus.jumpsTaken > 0) {
                         ui.log(`  work-zone move (deck exit): ${exitZoneStatus.jumpsTaken} step(s), outcome=${exitZoneStatus.outcome}`);
@@ -3183,7 +3045,7 @@ export function installExtractorApp() {
         });
     
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v4.162',
+            innerText: 'ChatGPT Extractor v4.163',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
     
