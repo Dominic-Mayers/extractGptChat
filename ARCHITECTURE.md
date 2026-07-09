@@ -7,6 +7,8 @@ A walkway analogy is offered as a guide. In that analogy, a foreman builds a
 walkway from slabs while a supplier exposes the materials, measurements, and
 notes currently available on the work site. The technical architecture borrows some of its vocabulary from the analogy: **slabs**, **decks**, and **work zone**.
 
+The extractor relies on many assmptions which are partially described in ASSUMPTIONS.md.
+
 ## Supplier / Environment Boundary
 
 The Supplier is the analogy name for the **environment boundary**: the adapter

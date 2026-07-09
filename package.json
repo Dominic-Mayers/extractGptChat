@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build-userscript.js",
+    "build:dev": "node scripts/build-dev-userscript.js",
     "check": "node --check extractChatGpt.js"
   },
   "devDependencies": {
