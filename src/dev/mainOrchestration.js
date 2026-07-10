@@ -19,8 +19,13 @@ import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants.js";
+import { resetStop, isStopRequested } from "./stopControl.js";
 
 export async function traverseConversation() {
+
+    // A stale request from a previous, already-finished run must not
+    // abort this new one before it starts.
+    resetStop();
 
     const container = findScrollContainer();
 
@@ -58,6 +63,14 @@ export async function traverseConversation() {
     // Main traversal.
     //
     while (true) {
+
+        if (isStopRequested()) {
+            console.log(
+                `[traverseConversation] stopped by user request after ${deckCount} deck(s), ` +
+                `${slabCount} slab(s). scrollY=${containerScrollY(container)}.`
+            );
+            return;
+        }
 
         //
         // See Assumption A4 (Extremity rendering).
