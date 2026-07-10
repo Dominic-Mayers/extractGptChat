@@ -71,8 +71,8 @@ export function getSlabsIn(deck) {
         slabs.push(makeSlab(message, "message"));
     }
 
-    // Image slabs — see ASSUMPTIONS.md A11 (still open for img).
-    for (const image of deck.querySelectorAll("img")) {
+    // Image slabs — see ASSUMPTIONS.md A11.
+    for (const image of deck.querySelectorAll('.group\\/imagegen-image')) {
         slabs.push(makeSlab(image, "image"));
     }
 

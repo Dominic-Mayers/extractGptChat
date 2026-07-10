@@ -134,6 +134,16 @@ necessary: a bare `canvas` tag can match an inner, still-rendering element
 the deck itself is ready and produces large, unexplained drift while it's
 `current`.
 
-Open question, unresolved: image slabs still use the bare `img` tag rather
-than the existing implementation's narrower `.group/imagegen-image`. Same
-class of risk, not yet confirmed one way or the other.
+Image slabs use `.group\/imagegen-image`, not bare `img`, for the same reason:
+`src/app/extractor-app.js`'s equivalent slab-identification sites
+(`firstCapturedSlab`, `hasRealSlab`, the extraction-time image lookup) all
+use this narrower selector, never bare `img` — the one place bare `img`
+appears there (`classifySlabItem`) is unreachable diagnostic code, not a
+precedent from a working code path. A generic `img` selector risks matching
+elements the narrower class excludes (avatar icons, multiple `<img>` tags
+per imagegen block, a still-loading placeholder image), any of which could
+carry unstable geometry the same way the canvas case did. Traversal runs
+through image-containing conversations passed with the bare `img` selector,
+but that only rules out failures coarse enough to trip `MAX_SLAB_GAP` or
+`MAX_DRIFT` in the cases actually exercised — it doesn't make the looser
+selector correct by construction the way the narrower one is.
