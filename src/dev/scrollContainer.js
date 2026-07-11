@@ -52,20 +52,20 @@ export function scrollHeight(container) {
         : container.scrollHeight;
 }
 
-export function containerClientHeight(container) {
+export function clientHeight(container) {
 
     return container === document.documentElement
         ? document.documentElement.clientHeight
         : container.clientHeight;
 }
 
-export function containerScrollBy(container, top) {
+export function scrollBy(container, top) {
 
     const target = container === document.documentElement ? window : container;
     target.scrollBy({ top, behavior: "instant" });
 }
 
-export function containerScrollTo(container, top) {
+export function scrollTo(container, top) {
 
     const target = container === document.documentElement ? window : container;
     target.scrollTo({ top, behavior: "instant" });

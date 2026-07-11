@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      0.61
+// @version      0.62
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -212,20 +212,20 @@
     }
     return document.documentElement;
   }
-  function containerScrollY(container) {
+  function scrollY(container) {
     return container === document.documentElement ? window.scrollY : container.scrollTop;
   }
-  function containerScrollHeight(container) {
+  function scrollHeight(container) {
     return container === document.documentElement ? document.body.scrollHeight : container.scrollHeight;
   }
-  function containerClientHeight(container) {
+  function clientHeight(container) {
     return container === document.documentElement ? document.documentElement.clientHeight : container.clientHeight;
   }
-  function containerScrollBy(container, top) {
+  function scrollBy(container, top) {
     const target = container === document.documentElement ? window : container;
     target.scrollBy({ top, behavior: "instant" });
   }
-  function containerScrollTo(container, top) {
+  function scrollTo(container, top) {
     const target = container === document.documentElement ? window : container;
     target.scrollTo({ top, behavior: "instant" });
   }
@@ -238,96 +238,11 @@
   function resetStop() {
     stopRequested = false;
   }
-  function isStopRequested() {
+  function isEarlyStopRequestedByUser() {
     return stopRequested;
   }
 
-  // src/dev/moveWorkZone.js
-  async function moveWorkZone(current, container, direction = -1) {
-    let room = measureRoom(current, container, direction);
-    let extremityReached = isAtExtremity(0, container, direction);
-    let slabIntersectionAtMinimum = room >= containerClientHeight(container) - MIN_INTERSECT;
-    while (!slabIntersectionAtMinimum && !extremityReached) {
-      if (isStopRequested()) {
-        return { room, extremityReached };
-      }
-      const previousRoom = room;
-      const scrollYBefore = containerScrollY(container);
-      const scrollHeightBefore = containerScrollHeight(container);
-      const heightBefore = current.getBoundingClientRect().height;
-      const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
-      const intendedRoom = previousRoom + jump;
-      slabIntersectionAtMinimum = intendedRoom >= containerClientHeight(container) - MIN_INTERSECT;
-      extremityReached = isAtExtremity(jump, container, direction);
-      console.log(
-        `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, jump=${Math.round(jump)}, intendedRoom=${Math.round(intendedRoom)}, scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, current.height=${Math.round(heightBefore)}, extremityReached=${extremityReached}`
-      );
-      const jumpStartTime = performance.now();
-      performJump(jump, container, direction);
-      const scrollYImmediatelyAfterJump = containerScrollY(container);
-      console.log(
-        `[moveWorkZone] immediately after performJump: scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYImmediatelyAfterJump)} (expected ${Math.round(scrollYBefore + jump * direction)})`
-      );
-      let stableAfterFrames;
-      try {
-        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom });
-      } catch (err) {
-        const connected = "isConnected" in current ? current.isConnected : null;
-        const containerConnected = "isConnected" in container ? container.isConnected : null;
-        const freshContainer = findScrollContainer();
-        const containerIsStale = freshContainer !== container;
-        const childCount = container.childElementCount;
-        const effectiveOverflowAnchor = getComputedStyle(container).overflowAnchor;
-        const roomNow = measureRoom(current, container, direction);
-        throw new Error(
-          `moveWorkZone jump did not stabilize within tolerance: direction=${direction}, previousRoom=${previousRoom}, jump=${jump}, intendedRoom=${intendedRoom}, room=${roomNow}, scrollY=${containerScrollY(container)}, scrollHeight ${scrollHeightBefore} -> ${containerScrollHeight(container)}, current.isConnected=${connected}, container.isConnected=${containerConnected}, containerIsStale=${containerIsStale}, container.childElementCount=${childCount}, container effectiveOverflowAnchor=${effectiveOverflowAnchor}` + (connected === false ? " (current was unmounted \u2014 use the restart-synchronization menu action, not a retry of this cursor)" : containerIsStale ? " (container is stale \u2014 findScrollContainer() now returns a different element)" : containerConnected === false ? " (container is stale \u2014 the scroll ancestor was replaced mid-traversal)" : " (both still connected and container is current \u2014 this is not an unmount, needs investigation)") + `. ${err.message}`
-        );
-      }
-      room = measureRoom(current, container, direction);
-      const scrollYAfter = containerScrollY(container);
-      const scrollHeightAfter = containerScrollHeight(container);
-      const heightAfter = current.getBoundingClientRect().height;
-      const drift = room - intendedRoom;
-      const elapsedMs = performance.now() - jumpStartTime;
-      console.log(
-        `[moveWorkZone] after jump: direction=${direction}, intendedRoom=${Math.round(intendedRoom)}, room=${Math.round(room)}, drift=${drift.toFixed(4)}, elapsedMs=${elapsedMs.toFixed(1)}, stableAfterFrames=${stableAfterFrames}, scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYAfter)}, scrollHeight ${Math.round(scrollHeightBefore)} -> ${Math.round(scrollHeightAfter)}, current.height ${Math.round(heightBefore)} -> ${Math.round(heightAfter)}`
-      );
-    }
-    return { room, extremityReached };
-  }
-  function clampJump(calibratedJump, room, container, direction) {
-    const viewportHeight = containerClientHeight(container);
-    const pageHeight = containerScrollHeight(container);
-    const distanceToExtremity = direction < 0 ? containerScrollY(container) : pageHeight - containerScrollY(container) - viewportHeight;
-    return Math.min(
-      calibratedJump,
-      distanceToExtremity,
-      viewportHeight - MIN_INTERSECT - room
-    );
-  }
-  function isAtExtremity(jump = 0, container, direction) {
-    if (direction < 0) {
-      return containerScrollY(container) + direction * jump === 0;
-    }
-    return containerScrollHeight(container) - (containerScrollY(container) + direction * jump) - containerClientHeight(container) === 0;
-  }
-  function measureRoom(current, container, direction) {
-    const viewportHeight = containerClientHeight(container);
-    const rect = current.getBoundingClientRect();
-    return direction < 0 ? rect.top : viewportHeight - rect.bottom;
-  }
-  function performJump(jump, container, direction) {
-    const viewportHeight = containerClientHeight(container);
-    const pageHeight = containerScrollHeight(container);
-    const distanceToExtremity = direction < 0 ? containerScrollY(container) : pageHeight - containerScrollY(container) - viewportHeight;
-    if (jump >= distanceToExtremity && direction < 0) {
-      containerScrollTo(container, 0);
-    } else if (jump >= distanceToExtremity) {
-      containerScrollTo(container, pageHeight);
-    } else {
-      containerScrollBy(container, jump * direction);
-    }
-  }
+  // src/dev/stabilize.js
   async function waitLayoutStable(container = document.documentElement, {
     stableFrames = 2,
     maxFrames = 300,
@@ -370,15 +285,105 @@
   }
   function geometryFingerprint(container) {
     return [
-      containerScrollHeight(container),
+      scrollHeight(container),
       document.body.scrollWidth,
-      containerScrollY(container)
+      scrollY(container)
     ].join(":");
   }
   function nextAnimationFrame() {
     return new Promise(
       (resolve) => requestAnimationFrame(resolve)
     );
+  }
+
+  // src/dev/moveWorkZone.js
+  async function moveWorkZone(current, container, direction = -1) {
+    let room = measureRoom(current, container, direction);
+    let slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, room);
+    let extremityReached = isAtExtremityAfter(0, container, direction);
+    while (!slabIntersectionAtMinimum && !extremityReached) {
+      if (isEarlyStopRequestedByUser()) {
+        return { room, extremityReached };
+      }
+      const previousRoom = room;
+      const scrollYBefore = scrollY(container);
+      const scrollHeightBefore = scrollHeight(container);
+      const heightBefore = current.getBoundingClientRect().height;
+      const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
+      const intendedRoom = previousRoom + jump;
+      slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, intendedRoom);
+      extremityReached = isAtExtremityAfter(jump, container, direction);
+      console.log(
+        `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, jump=${Math.round(jump)}, intendedRoom=${Math.round(intendedRoom)}, scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, current.height=${Math.round(heightBefore)}, extremityReached=${extremityReached}`
+      );
+      const jumpStartTime = performance.now();
+      performJump(jump, container, direction);
+      const scrollYImmediatelyAfterJump = scrollY(container);
+      console.log(
+        `[moveWorkZone] immediately after performJump: scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYImmediatelyAfterJump)} (expected ${Math.round(scrollYBefore + jump * direction)})`
+      );
+      let stableAfterFrames;
+      try {
+        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom });
+      } catch (err) {
+        const connected = "isConnected" in current ? current.isConnected : null;
+        const containerConnected = "isConnected" in container ? container.isConnected : null;
+        const freshContainer = findScrollContainer();
+        const containerIsStale = freshContainer !== container;
+        const childCount = container.childElementCount;
+        const effectiveOverflowAnchor = getComputedStyle(container).overflowAnchor;
+        const roomNow = measureRoom(current, container, direction);
+        throw new Error(
+          `moveWorkZone jump did not stabilize within tolerance: direction=${direction}, previousRoom=${previousRoom}, jump=${jump}, intendedRoom=${intendedRoom}, room=${roomNow}, scrollY=${scrollY(container)}, scrollHeight ${scrollHeightBefore} -> ${scrollHeight(container)}, current.isConnected=${connected}, container.isConnected=${containerConnected}, containerIsStale=${containerIsStale}, container.childElementCount=${childCount}, container effectiveOverflowAnchor=${effectiveOverflowAnchor}` + (connected === false ? " (current was unmounted \u2014 use the restart-synchronization menu action, not a retry of this cursor)" : containerIsStale ? " (container is stale \u2014 findScrollContainer() now returns a different element)" : containerConnected === false ? " (container is stale \u2014 the scroll ancestor was replaced mid-traversal)" : " (both still connected and container is current \u2014 this is not an unmount, needs investigation)") + `. ${err.message}`
+        );
+      }
+      room = measureRoom(current, container, direction);
+      const scrollYAfter = scrollY(container);
+      const scrollHeightAfter = scrollHeight(container);
+      const heightAfter = current.getBoundingClientRect().height;
+      const drift = room - intendedRoom;
+      const elapsedMs = performance.now() - jumpStartTime;
+      console.log(
+        `[moveWorkZone] after jump: direction=${direction}, intendedRoom=${Math.round(intendedRoom)}, room=${Math.round(room)}, drift=${drift.toFixed(4)}, elapsedMs=${elapsedMs.toFixed(1)}, stableAfterFrames=${stableAfterFrames}, scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYAfter)}, scrollHeight ${Math.round(scrollHeightBefore)} -> ${Math.round(scrollHeightAfter)}, current.height ${Math.round(heightBefore)} -> ${Math.round(heightAfter)}`
+      );
+    }
+    return { room, extremityReached };
+  }
+  function clampJump(calibratedJump, room, container, direction) {
+    const viewportHeight = clientHeight(container);
+    const pageHeight = scrollHeight(container);
+    const distanceToExtremity = direction < 0 ? scrollY(container) : pageHeight - scrollY(container) - viewportHeight;
+    return Math.min(
+      calibratedJump,
+      distanceToExtremity,
+      viewportHeight - MIN_INTERSECT - room
+    );
+  }
+  function isAtExtremityAfter(jump = 0, container, direction) {
+    if (direction < 0) {
+      return scrollY(container) + direction * jump === 0;
+    }
+    return scrollHeight(container) - (scrollY(container) + direction * jump) - clientHeight(container) === 0;
+  }
+  function isSlabIntersectionAtMinimum(container, intendedRoom) {
+    return intendedRoom >= clientHeight(container) - MIN_INTERSECT;
+  }
+  function measureRoom(current, container, direction) {
+    const viewportHeight = clientHeight(container);
+    const rect = current.getBoundingClientRect();
+    return direction < 0 ? rect.top : viewportHeight - rect.bottom;
+  }
+  function performJump(jump, container, direction) {
+    const viewportHeight = clientHeight(container);
+    const pageHeight = scrollHeight(container);
+    const distanceToExtremity = direction < 0 ? scrollY(container) : pageHeight - scrollY(container) - viewportHeight;
+    if (jump >= distanceToExtremity && direction < 0) {
+      scrollTo(container, 0);
+    } else if (jump >= distanceToExtremity) {
+      scrollTo(container, pageHeight);
+    } else {
+      scrollBy(container, jump * direction);
+    }
   }
 
   // src/dev/moveViewportToBottom.js
@@ -390,17 +395,17 @@
       await moveWorkZone(current, container, 1);
       await waitLayoutStable(container);
     }
-    containerScrollTo(container, containerScrollHeight(container));
+    scrollTo(container, scrollHeight(container));
     await waitLayoutStable(container);
     const decks = getDecks();
     if (decks.length > 0) {
-      const viewportHeight = containerClientHeight(container);
+      const viewportHeight = clientHeight(container);
       const deckBottom = decks[0].getBoundingClientRect().bottom;
       const delta = deckBottom - viewportHeight;
       console.log(
         `[moveViewportToBottom] aligning: deckBottom=${Math.round(deckBottom)}, viewportHeight=${Math.round(viewportHeight)}, delta=${Math.round(delta)}`
       );
-      containerScrollBy(container, delta);
+      scrollBy(container, delta);
       await waitLayoutStable(container);
     }
   }
@@ -434,19 +439,19 @@
     const container = findScrollContainer();
     await moveViewportToBottom(container);
     console.log(
-      `[traverseConversation] after moveViewportToBottom: container=${container === document.documentElement ? "window" : container.className}, scrollY=${containerScrollY(container)}, scrollHeight=${containerScrollHeight(container)}, clientHeight=${containerClientHeight(container)}`
+      `[traverseConversation] after moveViewportToBottom: container=${container === document.documentElement ? "window" : container.className}, scrollY=${scrollY(container)}, scrollHeight=${scrollHeight(container)}, clientHeight=${clientHeight(container)}`
     );
-    let room = containerClientHeight(container);
-    let deckRoom = containerClientHeight(container);
+    let room = clientHeight(container);
+    let deckRoom = clientHeight(container);
     let deck = null;
     let current = null;
     let extremityReached = false;
     let deckCount = 0;
     let slabCount = 0;
     while (true) {
-      if (isStopRequested()) {
+      if (isEarlyStopRequestedByUser()) {
         console.log(
-          `[traverseConversation] stopped by user request after ${deckCount} deck(s), ${slabCount} slab(s). scrollY=${containerScrollY(container)}.`
+          `[traverseConversation] stopped by user request after ${deckCount} deck(s), ${slabCount} slab(s). scrollY=${scrollY(container)}.`
         );
         return;
       }
@@ -467,14 +472,14 @@
         );
         if (deck == null) {
           console.log(
-            `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) returned null after ${deckCount} deck(s), ${slabCount} slab(s). scrollY=${containerScrollY(container)}, room=${Math.round(room)}.`
+            `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) returned null after ${deckCount} deck(s), ${slabCount} slab(s). scrollY=${scrollY(container)}, room=${Math.round(room)}.`
           );
           break;
         }
         deckCount++;
         deckRoom = deck.getBoundingClientRect().top;
         console.log(
-          `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, scrollY=${containerScrollY(container)}`
+          `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, scrollY=${scrollY(container)}`
         );
         slab = nextSlab(room, deck);
         if (!slab) throw new Error("No slab found in ready deck.");
@@ -492,7 +497,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "0.61" : "unbuilt";
+  var VERSION = true ? "0.62" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   GM_registerMenuCommand(`Run dev traversal v${VERSION} (geometry only)`, () => {
     traverseConversation().then(() => console.log("[dev traversal] finished.")).catch((err) => console.error("[dev traversal] failed:", err));
