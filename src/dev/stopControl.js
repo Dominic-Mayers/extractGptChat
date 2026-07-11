@@ -13,6 +13,6 @@ export function resetStop() {
     stopRequested = false;
 }
 
-export function isStopRequested() {
+export function isEarlyStopRequestedByUser() {
     return stopRequested;
 }

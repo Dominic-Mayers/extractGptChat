@@ -38,14 +38,14 @@ export function findScrollContainer() {
     return document.documentElement;
 }
 
-export function containerScrollY(container) {
+export function scrollY(container) {
 
     return container === document.documentElement
         ? window.scrollY
         : container.scrollTop;
 }
 
-export function containerScrollHeight(container) {
+export function scrollHeight(container) {
 
     return container === document.documentElement
         ? document.body.scrollHeight
