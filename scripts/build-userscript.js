@@ -3,7 +3,7 @@ const esbuild = require('esbuild');
 const userscriptHeader = `// ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      4.161
+// @version      4.163
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
