@@ -11,15 +11,15 @@ import { moveWorkZone } from "./moveWorkZone.js";
 import { moveViewportToBottom } from "./moveViewportToBottom.js";
 import {
     findScrollContainer,
-    containerScrollY,
-    containerScrollHeight,
-    containerClientHeight
+    scrollY,
+    scrollHeight,
+    clientHeight
 } from "./scrollContainer.js";
 import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants.js";
-import { resetStop, isStopRequested } from "./stopControl.js";
+import { resetStop, isEarlyStopRequestedByUser } from "./stopControl.js";
 
 export async function traverseConversation() {
 
@@ -35,8 +35,8 @@ export async function traverseConversation() {
     console.log(
         `[traverseConversation] after moveViewportToBottom: ` +
         `container=${container === document.documentElement ? "window" : container.className}, ` +
-        `scrollY=${containerScrollY(container)}, scrollHeight=${containerScrollHeight(container)}, ` +
-        `clientHeight=${containerClientHeight(container)}`
+        `scrollY=${scrollY(container)}, scrollHeight=${scrollHeight(container)}, ` +
+        `clientHeight=${clientHeight(container)}`
     );
 
     //
@@ -49,8 +49,8 @@ export async function traverseConversation() {
     // deck whose leading edges coincide with the trailing edge of
     // the viewport.
     //
-    let room = containerClientHeight(container);
-    let deckRoom = containerClientHeight(container);
+    let room = clientHeight(container);
+    let deckRoom = clientHeight(container);
     let deck = null;
     let current = null;
     let extremityReached = false;
@@ -63,10 +63,10 @@ export async function traverseConversation() {
     //
     while (true) {
 
-        if (isStopRequested()) {
+        if (isEarlyStopRequestedByUser()) {
             console.log(
                 `[traverseConversation] stopped by user request after ${deckCount} deck(s), ` +
-                `${slabCount} slab(s). scrollY=${containerScrollY(container)}.`
+                `${slabCount} slab(s). scrollY=${scrollY(container)}.`
             );
             return;
         }
@@ -113,7 +113,7 @@ export async function traverseConversation() {
                 console.log(
                     `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) ` +
                     `returned null after ${deckCount} deck(s), ${slabCount} slab(s). ` +
-                    `scrollY=${containerScrollY(container)}, room=${Math.round(room)}.`
+                    `scrollY=${scrollY(container)}, room=${Math.round(room)}.`
                 );
                 break;
             }
@@ -122,7 +122,7 @@ export async function traverseConversation() {
             deckRoom = deck.getBoundingClientRect().top;
             console.log(
                 `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, ` +
-                `scrollY=${containerScrollY(container)}`
+                `scrollY=${scrollY(container)}`
             );
 
             slab = nextSlab(room, deck);

@@ -4,12 +4,13 @@
 // position at the true bottom of the conversation — see
 // ASSUMPTIONS.md A9.
 
-import { moveWorkZone, waitLayoutStable } from "./moveWorkZone.js";
+import { moveWorkZone } from "./moveWorkZone.js";
+import { waitLayoutStable } from "./stabilize.js";
 import {
-    containerScrollHeight,
-    containerScrollTo,
-    containerScrollBy,
-    containerClientHeight
+    scrollHeight,
+    scrollTo,
+    scrollBy,
+    clientHeight
 } from "./scrollContainer.js";
 import { getDecks } from "./nextReadyDeck.js";
 
@@ -43,7 +44,7 @@ export async function moveViewportToBottom(container) {
         await waitLayoutStable(container);
     }
 
-    containerScrollTo(container, containerScrollHeight(container));
+    scrollTo(container, scrollHeight(container));
 
     await waitLayoutStable(container);
 
@@ -51,7 +52,7 @@ export async function moveViewportToBottom(container) {
 
     if (decks.length > 0) {
 
-        const viewportHeight = containerClientHeight(container);
+        const viewportHeight = clientHeight(container);
         const deckBottom = decks[0].getBoundingClientRect().bottom;
         const delta = deckBottom - viewportHeight;
 
@@ -60,7 +61,7 @@ export async function moveViewportToBottom(container) {
             `viewportHeight=${Math.round(viewportHeight)}, delta=${Math.round(delta)}`
         );
 
-        containerScrollBy(container, delta);
+        scrollBy(container, delta);
 
         await waitLayoutStable(container);
     }

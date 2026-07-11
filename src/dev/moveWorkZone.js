@@ -29,6 +29,8 @@ import {
 
 import { isEarlyStopRequestedByUser } from "./stopControl.js";
 
+import { waitLayoutStable } from "./stabilize.js";
+
 export async function moveWorkZone(current, container, direction = -1) {
 
     let room = measureRoom(current, container, direction);
@@ -45,9 +47,9 @@ export async function moveWorkZone(current, container, direction = -1) {
         const scrollYBefore = scrollY(container);
         const scrollHeightBefore = scrollHeight(container);
         const heightBefore = current.getBoundingClientRect().height;
-        const intendedRoom = previousRoom + jump;
-
+ 
         const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
+        const intendedRoom = previousRoom + jump;
 
         // These are computed before the jump, because the decision for the next jump 
         // is based on the intent, not the actual result of the jump. 
@@ -141,12 +143,11 @@ export function clampJump(calibratedJump, room, container, direction) {
 /**
  * Determine if the jump reaches extremity.
  * The intended jump should be used instead of the actual jump, which
- * can drift in uncontrolled ways.  This prioritizes a deterministic 
- * end condition over a condition that applies to the actual jump. It assumes
- * the boundary values used in decisions are valid within these small drifts.
- * For example, if the intended jump reaches the extremity, the actual
- * jump may not, but there is no need to actually reach the extremity, 
- * because the activation of the rendering of the last deck is
+ * can drift. This prioritizes a deterministic end condition over a condition
+ * that reflects the actual jump after the drift. It assumes the boundary values used
+ * in decisions are valid within a small drift. For example, if the intended jump
+ * reaches the extremity, the actual jump may not, but there is no need to actually
+ * reach the extremity, because the activation of the rendering of the last deck is
  * already satisfied even with a smaller actual jump.
  */ 
 export function isAtExtremityAfter(jump = 0, container, direction) {
@@ -163,6 +164,11 @@ export function isAtExtremityAfter(jump = 0, container, direction) {
     );
 }
 
+/**
+ * Determine if the intersection of the current slab with the viewport is at minimum.
+ * The same comment as for isAtExtremityAfter applies here: 
+ * the intended jump should be used instead of the actual jump, which can drift. 
+ */
 export function isSlabIntersectionAtMinimum(container, intendedRoom) {
     return intendedRoom >= clientHeight(container) - MIN_INTERSECT;
 }
@@ -203,118 +209,4 @@ export function performJump(jump, container, direction) {
     else {
         scrollBy(container, jump * direction);
     }
-}
-
-
-/**
- * Wait until the geometry becomes stable — see ASSUMPTIONS.md A5.
- *
- * When current/direction/intendedRoom are given, stability additionally
- * requires room to be within roomTolerance of intendedRoom. This folds
- * the drift check into the wait itself, rather than treating it as a
- * separate pass/fail gate applied only after the fingerprint settles:
- * a fingerprint that goes flat for stableFrames during a lull in a
- * longer, staggered reflow no longer gets accepted as "done" just
- * because room hasn't been compared yet. See MAX_DRIFT's role change
- * in moveWorkZone.js.
- *
- * Polls via requestAnimationFrame. A MutationObserver-based redesign
- * was tried and reverted (see project memory) — its premise didn't
- * survive checking against the actual logs: the short/long timing
- * distinction it relied on doesn't predict anything (99.6% of short
- * "geometry stable but room not close" attempts are followed by
- * another short one, not a long one), so there was no real signal to
- * act on. rAF polling, despite competing with React's own rendering
- * for frame scheduling, is what generated every log this was checked
- * against.
- */
-export async function waitLayoutStable(
-    container = document.documentElement,
-    {
-        stableFrames = 2,
-        maxFrames = 300,
-        current = null,
-        direction = null,
-        intendedRoom = null,
-        roomTolerance = MAX_DRIFT
-    } = {}
-) {
-
-    const checkRoom = current != null && intendedRoom != null;
-
-    let previous = geometryFingerprint(container);
-    let unchanged = 0;
-
-    console.log("Start stabilization");
-
-    let attemptStartTime = performance.now();
-    for (let frame = 0; frame < maxFrames; frame++) {
-        await nextAnimationFrame();
-
-        const currentGeometry = geometryFingerprint(container);
-        const geometryChanged = currentGeometry !== previous;
-        const roomNow = checkRoom ? measureRoom(current, container, direction) : null;
-        const roomClose = !checkRoom ||
-            Math.abs(roomNow - intendedRoom) <= roomTolerance;
-
-        if (!geometryChanged && roomClose) {
-            unchanged++;
-        } else {
-            const attemptTime = performance.now() - attemptStartTime;
-            attemptStartTime += attemptTime;
-            // Distinguishes "still actively settling" (geometry itself is
-            // changing) from "settled at the wrong place" (geometry is
-            // stable but room never closed on intendedRoom) — these were
-            // previously indistinguishable in the log, and the second one
-            // can never resolve on its own since nothing is still moving.
-            const reason = geometryChanged && !checkRoom
-                ? `geometry changed (${previous} -> ${currentGeometry})`
-                : geometryChanged
-                ? `geometry changed (${previous} -> ${currentGeometry}), room=${roomNow}`
-                : `geometry stable but room not close: room=${roomNow}, intendedRoom=${intendedRoom}, drift=${(roomNow - intendedRoom).toFixed(2)}`;
-            console.log("Failed attempt at stabilization:", attemptTime, "ms —", reason);
-            previous = currentGeometry;
-            unchanged = 0;
-        }
-
-        if (unchanged >= stableFrames) {
-            const lastAttemptTime = performance.now() - attemptStartTime;
-            console.log("Stabilized. Last attempt time:", lastAttemptTime, "ms");
-            return frame + 1;
-        }
-    }
-    console.log("Out of the stabilization loop");
-    throw new Error(
-        checkRoom
-            ? `Exceeded ${maxFrames} frames waiting for layout stabilization within ${roomTolerance}px of intendedRoom=${intendedRoom} ` +
-              `(last room=${measureRoom(current, container, direction)}).`
-            : `Exceeded ${maxFrames} frames waiting for layout stabilization.`
-    );
-}
-
-
-/**
- * Return a fingerprint of the current geometry.
- *
- * Any geometric change that matters to traversal should
- * modify at least one of these quantities.
- */
-function geometryFingerprint(container) {
-
-    return [
-        scrollHeight(container),
-        document.body.scrollWidth,
-        scrollY(container)
-    ].join(":");
-}
-
-
-/**
- * Wait for the next animation frame.
- */
-function nextAnimationFrame() {
-
-    return new Promise(resolve =>
-        requestAnimationFrame(resolve)
-    );
 }
