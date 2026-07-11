@@ -12,8 +12,8 @@
 - **Structural observation**: information that tells the extractor what it can expect to find below.
 - **Jump**: a scroll movement performed by the extractor inside the safe area.
 - **Calibrated jump**: the jump size the extractor wanted to use before any clamping.
-- **Full jump**: a requested jump that was applied without being clamped.
-- **Clamped jump**: a requested jump that was reduced to keep the current slab visible in the work-zone room.
+- **Full jump**: a calibrated jump that was applied without being clamped.
+- **Clamped jump**: a calibrated jump that was reduced to keep the current slab visible in the work-zone room or when the work-zone reached the extremity of the document.
 - **Room**: viewport space ahead of the current slab.
 - **Viewport move**: A series of jumps triggered when room is small. The purpose is to activate the rendering of new slabs while keeping the current slab visible in the viewport.
 - **Main orchestration**: the top-level extraction sequence.
@@ -21,7 +21,6 @@
 - **Extraction**: reading content from a slab and converting it into exportable data.
 - **Detached current**: the current slab is no longer connected to the live DOM. This often happens when a jump goes out of the safe area.
 - **Resume from current**: continue extraction from the saved current slab after a non-fatal jump failure (current is not detached).
-- **Auto-resume from current**: automatic resume from the saved current slab without requiring a button click.
 - **Retry**: start the extraction attempt again rather than resuming from the saved current slab.
 - **TOC mismatch**: the exported table of contents does not match the expected number of user prompts.
 - **Export**: writing extracted content to Markdown, HTML, or auxiliary files.
@@ -29,5 +28,5 @@
 - **Run**: one execution of the extractor.
 - **Rendering movement**: page movement observed that is not directly caused by the extractor.  The extractor only moves the viewport using small jumps, each time checking that rendering movements stopped.
 - **Layout stability**: a period where measured positions stop changing. The code checks for layout stability before executing a next jump. 
-- **Room drift**: change in room  observed after statibility following a jump and before the next jump. This should normally be zero. Otherwise, statbility was a false positive.
+- **Room drift**: change in room  observed after statibility following a jump and before the next jump. This should normally be zero. Otherwise, stability was a false positive.
 

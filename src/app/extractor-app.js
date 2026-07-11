@@ -6,230 +6,15 @@ export function installExtractorApp() {
     'use strict';
 
     
-    // Measures actual setTimeout delay minus requested delay on every single
-    // sleep() call in the script (there's one definition, called everywhere)
-    // — a direct symptom of event-loop starvation, regardless of whether the
-    // cause is CPU contention, a backgrounded tab, or anything else that
-    // makes the browser late to fire a timer it already scheduled.
-    const sleep = ms => new Promise(r => {
-        const t0 = performance.now();
-        setTimeout(() => {
-            const slip = performance.now() - t0 - ms;
-            _perf.sleepSlip.count++;
-            _perf.sleepSlip.sum += slip;
-            if (slip > _perf.sleepSlip.max) _perf.sleepSlip.max = slip;
-            r();
-        }, ms);
-    });
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
     const nextAnimationFrame = () => new Promise(r => requestAnimationFrame(() => r()));
     
-    // ── Performance counters (reset each run, reported before export) ──
+    // Minimal run state reset each run.
     let _perf = {};
     function _resetPerf() {
         _perf = {
-            htmlToMarkdownCalls: 0, htmlToMarkdownMs: 0,
-            snapshots: [],
             runStartMs: 0,
-            containerTag: '', containerScrollH: 0, containerClientH: 0, containerIsDocEl: false,
-            navItemCount: 0, navClickedIndex: -1, navClickScrollTop: 0, navClickScrollPct: 0,
-            navFirstLabel: '', navLastLabel: '',
-            navDiversionAttempted: false, navDiversionSettled: false,
-            bootstrapRole: '', bootstrapWasIntersectingFalse: false,
-            maxAdvancesWithoutProgress: 0, turnIdDedupSkips: 0, turnIdDedupMaxRun: 0,
-            multiCandidatesInReadyContainer: 0, multiCandidatesMax: 0,
-            readyContainerProbeMisses: { count: 0, above: 0, below: 0, overlapping: 0, nearOnly: 0, examples: [] },
-            readyContainerModel: {
-                checked: 0,
-                containmentViolations: 0,
-                overlappingNonMembers: 0,
-                messageGapViolations: 0,
-                maxMessageGap: 0,
-                topEdgeViolations: 0,
-                bottomEdgeViolations: 0,
-                maxTopEdgeGap: 0,
-                maxBottomEdgeGap: 0,
-                maxTopEdgeWinner: null,
-                maxBottomEdgeWinner: null,
-                domOnlyMembers: 0,
-                probeOnlyMembers: 0,
-                slabStacksChecked: 0,
-                slabItemsChecked: 0,
-                unknownSlabItems: 0,
-                slabGapViolations: 0,
-                maxSlabGap: 0,
-                delayedRechecksScheduled: 0,
-                delayedRechecksResolved: 0,
-                delayedRechecksChanged: 0,
-                delayedRecheckExamples: [],
-                examples: [],
-                exampleMsgIds: [],
-            },
-            readyMargin: { count: 0, sum: 0, max: 0, maxWinner: null },
-            containerReach: { count: 0, sum: 0, max: 0, maxWinner: null },
-            sleepSlip: { count: 0, sum: 0, max: 0 },
-            tabHidden: { wasHidden: false, hideCount: 0 },
             expectedUserPrompts: 0,
-            contentChangedAfterExtraction: { count: 0, examples: [] },
-            postReadyMutations: { count: 0, examples: [] },
-            preReadyMutations: {
-                count: 0, examples: [], containersWithAny: 0,
-                readyDelayMs: { count: 0, sum: 0, max: 0 },
-            },
-            discoverySnapshot: {
-                totalContainers: 0, alreadyHadMessageAtDiscovery: 0,
-                alreadyHadNonEmptyTextAtDiscovery: 0, textAtDiscoveryWhileNotIntersecting: 0,
-                alreadyHadImageAtDiscovery: 0, imageAtDiscoveryWhileNotIntersecting: 0,
-                diffExamples: [],
-            },
-            compositeFingerprint: {
-                candidates: 0, matchedFinalText: 0, mismatchedFinalText: 0,
-                matchedFirst: 0, mismatchedFirst: 0, matchedLater: 0, mismatchedLater: 0,
-                // The join: of the candidates whose container's own readiness
-                // flag (data-is-intersecting) was still 'false' at the exact
-                // moment this candidate registered, how many matched anyway?
-                // This is the direct evidence for "content existing despite
-                // the flag still saying not-ready is safely sufficient for
-                // readiness" — not inferred from two separate aggregate
-                // counts that were never actually joined before this.
-                matchedWhileNotIntersecting: 0, mismatchedWhileNotIntersecting: 0,
-                fieldExercised: { codeBlocks: 0, images: 0, tables: 0, placeholders: 0 },
-                imageCandidateDetails: [],
-                examples: [],
-            },
-            maxContainerGap: 0, containerGapViolations: 0, containerGapSkippedDetached: 0,
-            slabAdjacency: { checked: 0, maxGap: 0, maxOverlap: 0, violations: 0 },
-            viewportMovesWorkZone: 0, viewportMovesForceEdge: 0,
-            viewportMoveOperationsWorkZone: 0, viewportMoveOperationsForceEdge: 0,
-            // Direct image-slab selector diagnostics. candidatesFound counts
-            // discovery events because every successor query re-scans the
-            // mounted DOM; byTurnId is the deduplicated view.
-            imageOnlyTurns: { candidatesFound: 0, extracted: 0, byTurnId: {} },
-            // Diagnostic for the canvas/textdoc-block extraction path
-            // specifically — distinguishes "the element was never in the
-            // DOM at all when checked" from "found but not geometrically
-            // inside readyContainer yet" from "selected but htmlToMarkdown
-            // returned empty", three very different failure modes that
-            // would otherwise all look identical (no file saved).
-            canvasBlocks: { seenGlobally: 0, candidatesFound: 0, extracted: 0, markdownEmpty: 0 },
-            slabFiltering: {
-                allowlisted: 0,
-                unlisted: 0,
-                byRule: {},
-                examples: [],
-            },
-            intermediateDeckAdvances: 0,
-            lifecycle: {
-                autoResumesFromCurrent: 0,
-            },
-            // Informational only — see maintainWorkZone: the room outcome
-            // of the one move issued is no longer a gate, just observed.
-            workZoneRoomShortfall: { count: 0, examples: [] },
-            // Per-jump pacing inside maintainWorkZone's incremental jumping
-            // loop: how many of the small scrollTop jumps actually had to wait for
-            // scrollHeight to stop changing (vs. being already stable on
-            // the first check), and how many hit the per-jump cap without
-            // ever stabilizing. If `waitedFrames` stays near 0 across a
-            // real run, this signal essentially never fires and isn't
-            // doing anything — useful to know before trusting it as the fix.
-            // sandwichedEmptySeen/sandwichedEmptyTimedOut/sandwichedEmptyExamples
-            // are the separate scrollHeight-blind signal (see
-            // findSandwichedEmptySlabInViewport) — Seen means the pattern was
-            // observed at least once during some jump's wait; TimedOut means
-            // it was *still* present when the per-jump cap was hit (either a
-            // permanently-broken deck, or our cap being too short — examples
-            // record framesWaited to help tell those apart empirically).
-            workZoneJumpStability: {
-                jumps: 0, steps: 0, waitedFrames: 0, timedOut: 0, maxFramesWaited: 0,
-                maxJumpPx: 0, maxCalibratedJumpPx: 0, targetClampedJumps: 0,
-                lastTargetClampedJumpPx: null, lastTargetClampedJumpRank: null,
-                calibratedJumpCurrentJumps: 0, calibratedJumpCurrentMoves: 0,
-                calibratedJumpMoveSequence: 0, calibratedJumpCurrentLastMoveSequence: null,
-                requestedJumpBuckets: {},
-                targetClampedJumpPxSum: 0,
-                jumpPxSum: 0, jumpMsSum: 0, jumpsAtMax: 0, adaptiveIncreases: 0, adaptiveResets: 0,
-                // How often the final target clamp was smaller than the old
-                // anti-near-hang floor. Informational only: the clamp now
-                // honors the target exactly instead of overshooting it.
-                subMinTargetClamps: 0,
-                sandwichedEmptySeen: 0, sandwichedEmptyTimedOut: 0, sandwichedEmptyExamples: [],
-                // See WORK_ZONE_JUMP_HIDDEN_RETRY_MS's comment: a "pure"
-                // timeout (no sawSandwiched, no detached) that happened
-                // while the tab was hidden gets one retry with a much
-                // longer deadline, since live evidence points to tab-
-                // backgrounding-induced requestAnimationFrame starvation
-                // rather than a real failure. pureTimeoutHiddenRetries
-                // counts every such retry across the whole run;
-                // pureTimeoutHiddenExhausted counts how many times even
-                // the extended wait still failed.
-                pureTimeoutHiddenRetries: 0, pureTimeoutHiddenExhausted: 0,
-                // Tests the assumption behind treating room as something
-                // we can keep using after a wait without re-deriving it
-                // from scratch: does an already-rendered slab's room
-                // (measureRoom's value — distance from the viewport top to
-                // current's top, for WALK_DIRECTION===-1) actually stay the
-                // same between right-after-the-synchronous-jump and after
-                // waitForLayoutStable resolves, or can the page settling
-                // (new content mounting elsewhere, virtualization, etc.)
-                // move it too? Measured every jump, not assumed — see
-                // maintainWorkZone. Not "headroom" — that term already
-                // means something else (distance from current's top to
-                // the viewport's *bottom*, i.e. clientH - room), and using
-                // it here for room itself caused real confusion. roomDriftSum
-                // keeps sign (does it trend one direction); roomDriftAbsSum
-                // is for a magnitude-only average; roomDriftLog is the full
-                // (rightAfterJump, drift) pair for every jump, not just
-                // outliers — needed to check whether drift correlates with
-                // room's own size, which a pre-filtered sample of only the
-                // large ones can't answer.
-                roomDriftSum: 0, roomDriftAbsSum: 0, roomDriftMaxAbs: 0, roomDriftLog: [],
-                // See WORK_ZONE_JUMP_SNAPSHOT_CAP — counts jumps that got
-                // the full current+precedent+subsequent outerHTML capture,
-                // so the cap can actually stop new ones once reached.
-                fullSnapshotCount: 0,
-            },
-            // A candidate that findNextSlabInReadyDeck geometrically confirmed but
-            // extractSlab() returned null for (htmlToMarkdown produced
-            // no text — e.g. an image-generation turn whose container passed
-            // the virtualization-readiness gate before the actual <img> ever
-            // landed in the DOM). Before this counter existed, that case was
-            // indistinguishable from success in the log: current/lastEl
-            // still advanced past the element either way, silently dropping
-            // it from the export forever with no error and no diagnostic.
-            extractionFailures: { count: 0, examples: [] },
-            // Tracks the slab-content fingerprint wait only — existence
-            // (does a candidate exist at all) is a single synchronous
-            // selector check with no wait, never counted here.
-            slabDiscoveryWait: { waited: 0, alreadyReady: 0, resolvedAfterWait: 0, timedOut: 0, maxWaitMs: 0 },
-            // Dedicated, independently-lived observers (see
-            // watchForToComeFingerprint) attached the instant a turn is
-            // found without a message element or image at the moment it's declared
-            // ready. Unlike _activeLifecycleObserver (replaced/disconnected
-            // the moment the walk moves to the next container, ~1s after
-            // ready in the retry-loop case), these keep running independent
-            // of the main walk, specifically to find what — if anything —
-            // shows up between "ready" and the <img> actually landing.
-            toComeFingerprint: { watches: [] },
-            // Diagnostic only, not a gating fingerprint: logs the full
-            // ordered sequence of distinct values primaryImageForSlab's
-            // <img src> takes from the moment an image-type slab candidate
-            // is first discovered, so a candidate readiness check (e.g.
-            // "src is non-empty") can be tested after the fact against
-            // whatever value actually preceded the final one — see
-            // watchImageSrcHistory.
-            imageSrcHistory: { watches: [] },
-            // Same purpose as imageSrcHistory, but for a deck's own
-            // data-is-intersecting attribute: lets an "Empty container"
-            // placeholder show whether that flag ever flickered back to
-            // false between deck entry and the moment the deck was found
-            // empty, instead of only showing its value at the one instant
-            // the placeholder was written.
-            intersectingHistory: { watches: [] },
-            scrollHeightGrowthCheck: { before: null, after: null, grewBy: null },
-            // checks: how many containers got a coverage check at all (only
-            // meaningful once we've actually drained every slab from one).
-            // gaps: how many of those had at least one real, unaccounted-for
-            // gap — direct evidence of missed content, independent of type.
-            containerCoverage: { checks: 0, gaps: 0, examples: [], zeroSlabDecks: 0, zeroSlabDeckExamples: [] },
         };
     }
     _resetPerf();
@@ -344,20 +129,6 @@ export function installExtractorApp() {
     // patch to unblock this one conversation, not a general mechanism.
     const KNOWN_PERMANENTLY_BROKEN_TURN_IDS = ['70e7d42f-42df-4fa6-8c41-fb72b4aee15f'];
     let _knownUnresolvableSandwichedTurnIds = new Set(KNOWN_PERMANENTLY_BROKEN_TURN_IDS);
-    let _reportedAllowlistedSlabItems = new WeakSet();
-    let _reportedUnlistedSlabItems = new WeakSet();
-    // Diagnostic only — tracks which image-type slab candidates already
-    // have a watchImageSrcHistory() observer attached, so the repeated
-    // querySelectedSlabCandidates() calls (one per main-loop iteration)
-    // don't attach a second observer to the same element.
-    let _watchedImageSrcHistory = new WeakSet();
-    // Same de-duplication purpose, for watchIntersectingHistory() — a deck
-    // can be re-entered as targetDeck more than once across retries, and
-    // each entry shouldn't attach a second observer to the same element.
-    let _watchedIntersectingHistory = new WeakSet();
-    function totalViewportMoves() {
-        return _perf.viewportMoveOperationsWorkZone + _perf.viewportMoveOperationsForceEdge;
-    }
     
     const escLabel = s => s.replace(/\\/g, '\\\\').replace(/]/g, '\\]');
     const escUrl   = s => s.replace(/>/g, '%3E');
@@ -575,8 +346,6 @@ export function installExtractorApp() {
             const body   = cells.slice(1).map(r => `| ${r.join(' | ')} |`).join('\n');
             return [header, sep, ...(body ? [body] : [])].join('\n');
         }
-        _perf.htmlToMarkdownCalls++;
-        const _t0 = performance.now();
         const _result = walk(el, 0)
             .trim()
             .replace(/\n{3,}/g, '\n\n')
@@ -585,22 +354,17 @@ export function installExtractorApp() {
                 (_match, filename) => `Upload: ${filename}`
             )
             .replace(/\n{3,}/g, '\n\n');
-        _perf.htmlToMarkdownMs += performance.now() - _t0;
         return _result;
     }
     
     function dryMarkdownFor(el) {
         const imageCounterBefore = _imageCounter;
         const pendingLengthBefore = _pendingImageDownloads.length;
-        const callsBefore = _perf.htmlToMarkdownCalls;
-        const msBefore = _perf.htmlToMarkdownMs;
         try {
             return htmlToMarkdown(el);
         } finally {
             _imageCounter = imageCounterBefore;
             _pendingImageDownloads.length = pendingLengthBefore;
-            _perf.htmlToMarkdownCalls = callsBefore;
-            _perf.htmlToMarkdownMs = msBefore;
         }
     }
     
@@ -634,7 +398,7 @@ export function installExtractorApp() {
         return uploads.join('\n') + '\n\n' + body.replace(/^\n+/, '').trimStart();
     }
     
-    async function exportMarkdown(ui, prompts, includeDiag = false, stopped = false, exportTimestamp = Date.now(), stopReason = null) {
+    async function exportMarkdown(ui, prompts, exportTimestamp = Date.now()) {
         const questions = countPrompts(prompts);
         const date  = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
         const title = getChatTitle();
@@ -644,10 +408,6 @@ export function installExtractorApp() {
         // same run must keep reusing the same timestamp, since any images
         // already downloaded for this run have it baked into their
         // filenames already on disk.
-    
-        // Count prompt navigation dots for the diagnostic (dot count vs exported count).
-        const promptDots = getNavMenuItems();
-    
         let md = `# ${title}\n_${questions} user prompts — ${date}_\n\n`;
     
         const userPrompts = prompts.filter(pr => pr.role === 'user');
@@ -673,202 +433,6 @@ export function installExtractorApp() {
             const text  = pr.role === 'user' ? hoistUploads(pr.text) : pr.text;
             const anchor = pr.role === 'user' && pr.msgId ? `<a id="msg-${pr.msgId}"></a>\n\n` : '';
             md += `${anchor}${label}\n\n${text}\n\n---\n\n`;
-        }
-        if (includeDiag && _perf.runStartMs > 0) {
-            const _ms    = performance.now() - _perf.runStartMs;
-            const _sleep = _ms - _perf.htmlToMarkdownMs;
-            const promptDots = getNavMenuItems();
-            const expected = rememberExpectedUserPrompts(promptDots.length);
-            const exported = countPrompts(prompts);
-            const tocStatus = expected === 0 ? 'not visible' : expected === exported ? 'OK' : 'MISMATCH';
-            const userMsgSummary = formatUserMsgSummary(exported, expected);
-            const issueLines = [];
-            if (tocStatus === 'MISMATCH') issueLines.push(`toc-mismatch=${exported}/${expected}`);
-            if (_perf.extractionFailures.count > 0) issueLines.push(`extraction-empty=${_perf.extractionFailures.count}`);
-            if (_perf.containerCoverage.gaps > 0) issueLines.push(`coverage-gaps=${_perf.containerCoverage.gaps}`);
-            if (_perf.containerCoverage.zeroSlabDecks > 0) issueLines.push(`zero-slab-decks=${_perf.containerCoverage.zeroSlabDecks}`);
-            if (_perf.slabFiltering.unlisted > 0) issueLines.push(`unlisted-stack-items=${_perf.slabFiltering.unlisted}`);
-            if (_perf.readyContainerModel.unknownSlabItems > 0) issueLines.push(`unknown-slab-items=${_perf.readyContainerModel.unknownSlabItems}`);
-            if (_perf.workZoneJumpStability.sandwichedEmptySeen > 0) {
-                issueLines.push(`SANDWICHED-EMPTY-SLAB=${_perf.workZoneJumpStability.sandwichedEmptySeen}`);
-            }
-            const sandwichedWarning = _perf.workZoneJumpStability.sandwichedEmptySeen > 0
-                ? `    ⚠ SANDWICHED EMPTY SLAB DETECTED: a deck with no selectable slab was visible between ` +
-                  `neighboring real-slab decks during work-zone stepping. This means browser/layout stability alone ` +
-                  `did not prove ChatGPT-level slab readiness; the jump + stability approach needs a readiness patch.\n`
-                : '';
-    
-            md += `    ── perf (v4.161) ──\n`
-                + `    total ${(_ms/1000).toFixed(1)}s | sleep/wait ${(_sleep/1000).toFixed(1)}s (${Math.round(100*_sleep/_ms)}%)\n`
-                + `    htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms\n`
-                + `    User msgs: ${userMsgSummary}\n`
-                + `    Exported ${exported}${expected ? `/${expected}` : ''} user prompts (${prompts.length} slabs/notes). TOC=${tocStatus}.\n`
-                + (stopReason ? `    Stop reason: ${stopReason}\n` : '')
-                + `    Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}\n`
-                + `\n`
-                + `    ── diag (v4.161) ──\n`
-                + `    Missing-slab signals: ${issueLines.length ? issueLines.join(', ') : 'none'}\n`
-                + sandwichedWarning
-                + `    Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, already=${_perf.slabDiscoveryWait.alreadyReady}, `
-                  + `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, timed-out=${_perf.slabDiscoveryWait.timedOut}, `
-                  + `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms\n`
-                + `    Non-message slabs: images extracted=${_perf.imageOnlyTurns.extracted}, ` +
-                  `canvas extracted=${_perf.canvasBlocks.extracted}, canvas markdown-empty=${_perf.canvasBlocks.markdownEmpty}\n`
-                + `    Geometry/model: deck-gap-violations=${_perf.containerGapViolations}, `
-                  + `container-coverage-gaps=${_perf.containerCoverage.gaps}, slab-adjacency-violations=${_perf.slabAdjacency.violations}, `
-                  + `model message-gaps=${_perf.readyContainerModel.messageGapViolations}, unknown slab items=${_perf.readyContainerModel.unknownSlabItems}\n`
-                + `    Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}` +
-                  (_perf.workZoneRoomShortfall.examples.length
-                      ? `\n      ${_perf.workZoneRoomShortfall.examples.join('\n      ')}`
-                      : '') + `\n`
-                + `    Work-zone jump pacing: jumps=${_perf.workZoneJumpStability.jumps}, stability-checks=${_perf.workZoneJumpStability.steps}, waited=${_perf.workZoneJumpStability.waitedFrames}, `
-                  + `capped-out=${_perf.workZoneJumpStability.timedOut}, maxFramesWaited=${_perf.workZoneJumpStability.maxFramesWaited}, `
-                  + `avgJump=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpPxSum / _perf.workZoneJumpStability.jumps) : 0}px, `
-                  + `avgJumpTime=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpMsSum / _perf.workZoneJumpStability.jumps) : 0}ms, `
-                  + `avgTimePer120px=${_perf.workZoneJumpStability.jumpPxSum ? Math.round(_perf.workZoneJumpStability.jumpMsSum / (_perf.workZoneJumpStability.jumpPxSum / 120)) : 0}ms, `
-                  + `maxJump=${_perf.workZoneJumpStability.maxJumpPx}px, maxCalibratedJump=${_perf.workZoneJumpStability.maxCalibratedJumpPx}px, `
-                  + `jumpsAtMax=${_perf.workZoneJumpStability.jumpsAtMax}, targetClamped=${_perf.workZoneJumpStability.targetClampedJumps}, `
-                  + `subMinTargetClamps=${_perf.workZoneJumpStability.subMinTargetClamps}, `
-                  + `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, `
-                  + `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}\n`
-                + `    Requested jump sizes: ${formatRequestedJumpBuckets()}\n`
-                + `    Clamped jumps: ${_perf.workZoneJumpStability.targetClampedJumps} total ` +
-                  `(avg ${_perf.workZoneJumpStability.targetClampedJumps ? Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps) : 0}px)\n`
-                + `    Pure-timeout hidden-tab retries (see WORK_ZONE_JUMP_HIDDEN_RETRY_MS — timed out, not sandwiched, ` +
-                  `not detached, tab was hidden during the wait): retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
-                  `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}\n`
-                + `    Room drift during wait (does an already-rendered slab's distance from the viewport edge hold ` +
-                  `steady between right-after-the-jump and after waitForLayoutStable resolves? See maintainWorkZone): ` +
-                  `avgAbs=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.roomDriftAbsSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
-                  `netSum=${Math.round(_perf.workZoneJumpStability.roomDriftSum)}px, maxAbs=${Math.round(_perf.workZoneJumpStability.roomDriftMaxAbs)}px` +
-                  (_perf.workZoneJumpStability.roomDriftLog.length
-                      ? `\n      ${_perf.workZoneJumpStability.roomDriftLog.join('\n      ')}`
-                      : '') + `\n`
-                + `    Sandwiched-empty-slab readiness failure signal (see findSandwichedEmptySlabInViewport): ` +
-                  `seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}` +
-                  (_perf.workZoneJumpStability.sandwichedEmptyExamples.length
-                      ? `\n      ${_perf.workZoneJumpStability.sandwichedEmptyExamples.join('\n      ')}`
-                      : '') + `\n`
-                + `    Timer slip: samples=${_perf.sleepSlip.count}, avg=${_perf.sleepSlip.count ? Math.round(_perf.sleepSlip.sum / _perf.sleepSlip.count) : 0}ms, `
-                  + `max=${Math.round(_perf.sleepSlip.max)}ms; tab hidden ${_perf.tabHidden.hideCount} time(s)\n`
-                + `    Note: detailed missing slabs are inserted inline in the transcript near where they were detected.\n`;
-    
-            if (_perf.snapshots.length > 0) {
-                const snaps = _perf.snapshots;
-    
-                // Select one representative snapshot per 10% position in the
-                // recorded chronological sequence — not per 10% of q (prompt
-                // count). Bucketing by q breaks down the moment q stalls: a
-                // run that confirms only a handful of prompts before getting
-                // stuck (common under contention) has every later, time-
-                // triggered snapshot compute to the same pct=100% relative to
-                // the final q, so the very first one to reach it greedily
-                // fills all remaining rows and every subsequent snapshot —
-                // exactly the new ones the time-based ticker exists to
-                // capture — gets silently discarded. Indexing by position
-                // instead guarantees bp=0 is always the first snapshot,
-                // bp=100 is always the last, and the rows in between are
-                // spread evenly across real elapsed time regardless of
-                // whether q ever moves.
-                const BKPTS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-                const displaySnaps = BKPTS.map(bp => ({
-                    snap: snaps[Math.min(snaps.length - 1, Math.round(bp / 100 * (snaps.length - 1)))],
-                    bp,
-                }));
-    
-                const IND = '    ';
-                const hdrs = ['bp', 'dur', 'all', 'user', 'cont', 'view', 'size', '↑', '↓'];
-                const caps = [10, 18, 11, 9, 9, 9, 8, 4, 4];
-                // bp/dur/all/user/cont/view form the left half, size/↑/↓ the
-                // right half — generalized (not hardcoded indices) since
-                // adding cont/view/user changed the split from 3+3 to 6+3.
-                const LEFT_COLS = 6;
-    
-                const clip = (s, w) => {
-                    s = String(s);
-                    return s.length <= w ? s : s.slice(0, Math.max(0, w - 1)) + '…';
-                };
-                const cell = (s, w, left = false) => {
-                    s = clip(s, w);
-                    return left ? s.padEnd(w) : s.padStart(w);
-                };
-                const border = (l, m, r, w) =>
-                    IND + l + w.map(n => '─'.repeat(n)).join(m) + r + '\n';
-                const row = (xs, w) =>
-                    IND + '│' + xs.map((x, i) => cell(x, w[i], i >= 1 && i < LEFT_COLS)).join('│') + '│\n';
-    
-                const fQ = (q, d) => `${q}(+${d})`;
-                const fT = (s, ds) => {
-                    const fmt = t => {
-                        const h = Math.floor(t / 3600);
-                        const m = Math.floor((t % 3600) / 60);
-                        const r = t % 60;
-                        if (h > 0) return `${h}h${String(m).padStart(2,'0')}m${String(r).padStart(2,'0')}s`;
-                        if (m > 0) return `${m}m${String(r).padStart(2,'0')}s`;
-                        return `${r}s`;
-                    };
-                    return `${fmt(s)}(+${fmt(ds)})`;
-                };
-    
-                const rows = [];
-                for (let i = 0; i < displaySnaps.length; i++) {
-                    const { snap, bp } = displaySnaps[i];
-                    const prev = i > 0 ? displaySnaps[i - 1].snap : null;
-                    const cumTs  = Math.round(snap.t / 1000);
-                    const prevTs = prev ? Math.round(prev.t / 1000) : 0;
-                    const incM   = prev ? snap.m - prev.m : snap.m;
-                    const incQ   = prev ? snap.q - prev.q : snap.q;
-                    const incC   = prev ? snap.c - prev.c : snap.c;
-                    const incV   = prev ? snap.v - prev.v : snap.v;
-                    rows.push([
-                        `${bp}%`,
-                        fT(cumTs, cumTs - prevTs),
-                        fQ(snap.m, incM),
-                        fQ(snap.q, incQ),
-                        fQ(snap.c, incC),
-                        fQ(snap.v, incV),
-                        String(snap.d),
-                        String(snap.uBefore),
-                        String(snap.uAfter),
-                    ]);
-                }
-    
-                const widths = hdrs.map((h, i) =>
-                    Math.min(caps[i], Math.max(h.length, ...rows.map(r => r[i].length)))
-                );
-                const sumWidths = (from, to) => widths.slice(from, to).reduce((a, b) => a + b, 0);
-                // colW = leftSum+3; need colW >= 29 for legend items → leftSum >= 26
-                const leftSum = sumWidths(0, LEFT_COLS);
-                if (leftSum < 26) widths[1] += 26 - leftSum;
-                const innerW = widths.reduce((a, b) => a + b, 0) + widths.length - 1;
-                const spanBorder  = (l, r) => IND + l + '─'.repeat(innerW) + r + '\n';
-                const spanContent = text  => IND + '│' + clip(text.padEnd(innerW), innerW) + '│\n';
-                const legendItems = [
-                    'bp=timeline position', 'dur=elapsed(+Δ)',  'all=all messages', 'user=user messages',
-                    'cont=containers advanced', 'view=viewport moves',  'size=DOM elements',
-                    '↑=user msgs above', '↓=user msgs below',
-                ];
-                const colW = Math.floor(innerW / 2);
-                const legendRow = (l, r) => {
-                    const left  = clip((l || '').padEnd(colW), colW);
-                    const right = clip((r || '').padEnd(innerW - colW), innerW - colW);
-                    return IND + '│' + left + right + '│\n';
-                };
-                let out = spanBorder('┌', '┐');
-                out += spanContent('Prompt discovery snapshots (▲ up pass)');
-                out += spanContent('');
-                const half = Math.ceil(legendItems.length / 2);
-                for (let i = 0; i < half; i++)
-                    out += legendRow(legendItems[i], legendItems[i + half]);
-                out += border('├', '┬', '┤', widths);
-                out += row(hdrs, widths);
-                out += border('├', '┼', '┤', widths);
-                for (let i = 0; i < rows.length; i++) {
-                    out += row(rows[i], widths);
-                }
-                out += border('└', '┴', '┘', widths);
-                md += out;
-            }
         }
         if (_pendingImageDownloads.length > 0) {
             // Fetched from inside this page's own session (chatgpt.com), not
@@ -968,7 +532,7 @@ export function installExtractorApp() {
             // deck's full content can run to several KB on its own
             // (confirmed live). The 'room-drift-right-after-jump' /
             // 'room-drift-after-wait' labels are the deliberate exception —
-            // real, untrimmed outerHTML (see maintainWorkZone), because the
+            // real, untrimmed outerHTML (see maintainWork-Zone), because the
             // whole point there is diffing the actual DOM at two specific
             // instants, which trimmedCaptureHtml's identity-tag-only output
             // can't show. Plain string concatenation, not appended via DOM
@@ -1118,10 +682,9 @@ export function installExtractorApp() {
         return candidates.reduce((a, b) => better(b, a) ? b : a);
     }
     
-    // Outer deck rectangles are expected to be close, but this is diagnostic
-    // evidence, not a traversal stop condition. A small CSS/layout gap is not
-    // the absence of a next deck; the loop should stop only when no next deck
-    // is found.
+    // Outer deck rectangles are expected to be close. A small CSS/layout gap is
+    // not the absence of a next deck; the loop should stop only when no next
+    // deck is found.
     const DECK_ADJACENCY_TOLERANCE = 2;
     
     // Selected slabs need a looser rule. Tool/control elements are
@@ -1145,15 +708,7 @@ export function installExtractorApp() {
             olderDeck.getBoundingClientRect(),
             newerDeck.getBoundingClientRect()
         );
-        _perf.maxContainerGap = Math.max(_perf.maxContainerGap, Math.abs(gap));
-        if (Math.abs(gap) <= DECK_ADJACENCY_TOLERANCE) return gap;
-        _perf.containerGapViolations++;
-        console.warn(
-            `[Extractor] Deck adjacency diagnostic: facing edges differ by ${Math.round(gap)}px ` +
-            `(allowed ±${DECK_ADJACENCY_TOLERANCE}px). ` +
-            `Current deck=${deckSequenceId(olderDeck) || '(none)'}, ` +
-            `next deck=${deckSequenceId(newerDeck) || '(none)'}.`
-        );
+        return gap;
     }
     
     function checkSlabAdjacency(currentSlab, nextSlab) {
@@ -1161,21 +716,6 @@ export function installExtractorApp() {
             WALK_DIRECTION,
             currentSlab.geometryElement.getBoundingClientRect(),
             nextSlab.geometryElement.getBoundingClientRect()
-        );
-        _perf.slabAdjacency.checked++;
-        if (gap >= 0) {
-            _perf.slabAdjacency.maxGap = Math.max(_perf.slabAdjacency.maxGap, gap);
-        } else {
-            _perf.slabAdjacency.maxOverlap = Math.max(_perf.slabAdjacency.maxOverlap, -gap);
-        }
-        if (gap <= SLAB_ADJACENCY_MAX_GAP && gap >= -SLAB_ADJACENCY_OVERLAP_TOLERANCE) return gap;
-        _perf.slabAdjacency.violations++;
-        console.warn(
-            `[Extractor] Slab adjacency diagnostic between ${currentSlab.type} and ${nextSlab.type}: ` +
-            `${gap >= 0 ? `${Math.round(gap)}px gap` : `${Math.round(-gap)}px overlap`} ` +
-            `(allowed gap ≤${SLAB_ADJACENCY_MAX_GAP}px, overlap ≤${SLAB_ADJACENCY_OVERLAP_TOLERANCE}px). ` +
-            `Current turn=${slabTurnId(currentSlab) || '(none)'} msg=${slabMessageId(currentSlab) || '(none)'}; ` +
-            `next turn=${slabTurnId(nextSlab) || '(none)'} msg=${slabMessageId(nextSlab) || '(none)'}.`
         );
         return gap;
     }
@@ -1232,10 +772,10 @@ export function installExtractorApp() {
         return gaps;
     }
     
-    // Returns null when the deck's coverage is unremarkable, or a diagnostic
-    // note to insert into the walkway when extracted slabs leave a real
-    // coverage gap or when the deck yielded zero slabs. We deliberately do
-    // not throw on a zero-slab deck: "no
+    // Returns null when the deck's coverage is unremarkable, or a note to
+    // insert into the walkway when extracted slabs leave a real coverage gap
+    // or when the deck yielded zero slabs. We deliberately do not throw on a
+    // zero-slab deck: "no
     // slab detected" is a statement about our own extraction, not about the
     // conversation — the conversation itself is always correct, a turn
     // happened, a response was expected — but we have no way to distinguish,
@@ -1248,50 +788,11 @@ export function installExtractorApp() {
     // cannot fix either way. So instead: log it, and leave a visible note in
     // the actual exported transcript rather than silently skipping past it —
     // the gap stays honest and visible without sacrificing everything else.
-    // Renders the gap between when a deck's readiness gate resolved and
-    // the moment it was found empty — see deckEntryDiag in run() for why
-    // this matters: a nonzero move count here means the work zone scrolled
-    // again after the deck was confirmed ready but before it was searched,
-    // which could itself be what re-unmounted the deck's content.
-    function describeMovesSinceEntry(entryDiag) {
-        if (!entryDiag) return 'deck-entry-diag=(unavailable)';
-        const movesSince = totalViewportMoves() - entryDiag.movesAtEntry;
-        const displacement = entryDiag.scrollPosNow != null && entryDiag.scrollPosAtEntry != null
-            ? Math.round(entryDiag.scrollPosNow - entryDiag.scrollPosAtEntry)
-            : '(unavailable)';
-        return `viewport-moves-since-deck-entry=${movesSince}, scroll-displacement-since-deck-entry=${displacement}px, ` +
-            `was-intersecting-at-entry="${entryDiag.isIntersectingAtEntry}"`;
-    }
-    
-    // Looks up the matching watchIntersectingHistory() entry by turnId — by
-    // the time a deck is found empty, the watch was attached one or more
-    // loop iterations earlier, so this is found by id, not by reference.
-    // Direct evidence for whether data-is-intersecting ever held a stable
-    // true, or only ever touched it briefly before reverting.
-    function describeIntersectingHistory(deckEl) {
-        const turnId = deckSequenceId(deckEl) || '(none)';
-        const watch = _perf.intersectingHistory.watches.find(w => w.turnId === turnId);
-        if (!watch) return 'data-is-intersecting-history=(not watched)';
-        const sequence = watch.values.map(v => `${v.value}@${v.atMs}ms`).join(' -> ');
-        return `data-is-intersecting-history=[${sequence}]` +
-            (watch.detachedAtMs !== null ? ` (detached at ${watch.detachedAtMs}ms)` : '') +
-            (watch.timedOut ? ' (watch timed out)' : '');
-    }
-    
-    function finishDeckCoverage(deckEl, ranges, current, entryDiag = null) {
+    function finishDeckCoverage(deckEl, ranges, current) {
         const deckRect = deckEl.getBoundingClientRect();
-        _perf.containerCoverage.checks++;
         const gaps = findContainerCoverageGaps(ranges, deckRect.height);
         if (gaps.length > 0) {
-            _perf.containerCoverage.gaps++;
             const gapText = gaps.map(g => `[${Math.round(g.from)}px–${Math.round(g.to)}px]`).join(', ');
-            if (_perf.containerCoverage.examples.length < 10) {
-                _perf.containerCoverage.examples.push(
-                    `turnId=${deckSequenceId(deckEl) || '(none)'}: ${gaps.length} gap(s) — ` +
-                    gapText +
-                    ` not covered by any of the ${ranges.length} extracted slab(s)`
-                );
-            }
             if (ranges.length > 0) {
                 return {
                     role: 'unknown',
@@ -1323,16 +824,6 @@ export function installExtractorApp() {
                 : `${Math.round(distance)}px ahead of current — should already have been found`;
             return `${candidate.type}/${slabRole(candidate)} rect=[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] (${distanceNote})`;
         });
-        _perf.containerCoverage.zeroSlabDecks++;
-        if (_perf.containerCoverage.zeroSlabDeckExamples.length < 10) {
-            _perf.containerCoverage.zeroSlabDeckExamples.push(
-                `turnId=${deckSequenceId(deckEl) || '(none)'}, ` +
-                `rect=[top=${Math.round(deckRect.top)},bottom=${Math.round(deckRect.bottom)},height=${Math.round(deckRect.height)}], ` +
-                `current=${currentRect ? `${current.type}/${slabRole(current)} rect=[top=${Math.round(currentRect.top)},bottom=${Math.round(currentRect.bottom)}]` : '(unknown)'}, ` +
-                `overlapping candidates: ${overlapping.length === 0 ? '(none)' : overlapping.join('; ')}, ` +
-                `live structure:\n${dumpElementStructure(deckEl)}`
-            );
-        }
         return {
             // Unlike canvas/image extraction below, there's no type-based
             // certainty here — the missing content could have been either
@@ -1344,8 +835,7 @@ export function installExtractorApp() {
             role: deckEl.getAttribute('data-turn') || 'unknown',
             text: `*[Empty container — no slab could be detected for this turn (turnId=` +
                 `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure or an ` +
-                `extractor bug; see the exported diagnostics. ${describeMovesSinceEntry(entryDiag)}, ` +
-                `${describeIntersectingHistory(deckEl)}]*\n\n` +
+                `extractor bug.]*\n\n` +
                 `${captureElementHtmlReference('empty-container-coverage', deckEl, deckEl.getAttribute('data-turn') || 'unknown', deckSequenceId(deckEl))}\n\n`,
             plainText: '[Empty container]',
             msgId: null,
@@ -1353,8 +843,8 @@ export function installExtractorApp() {
         };
     }
     
-    // Empirically measured floors (Compatibility Check panel, "Shortest
-    // user/assistant message height"): 44px / 32px on a live conversation.
+    // Empirically measured floors from a live conversation: 44px / 32px for
+    // shortest user/assistant message heights.
     // smallExtra must stay under the smaller of the two (the next prompt
     // could be either role) so the probe point can never overshoot past the
     // immediately-adjacent message into the one before it.
@@ -1385,7 +875,6 @@ export function installExtractorApp() {
         const currentDeckId = deckSequenceId(turnEl);
         const allCandidates = queryDeckSequenceContainers().filter(el => el !== turnEl);
         const deckCandidates = allCandidates.filter(el => !currentDeckId || deckSequenceId(el) !== currentDeckId);
-        _perf.turnIdDedupSkips += allCandidates.length - deckCandidates.length;
         for (let h = 8; h <= 400; h *= 2) {
             const candidates = deckCandidates.filter(el => {
                 const er = el.getBoundingClientRect();
@@ -1479,56 +968,7 @@ export function installExtractorApp() {
         return { margin, winnerInfo };
     }
     
-    function recordReadyMargin(container) {
-        const { margin, winnerInfo } = measureReadyMargin(container, WALK_DIRECTION);
-        _perf.readyMargin.count++;
-        _perf.readyMargin.sum += margin;
-        if (margin > _perf.readyMargin.max) {
-            _perf.readyMargin.max = margin;
-            _perf.readyMargin.maxWinner = winnerInfo;
-        }
-    }
-    
-    // Discovery instrumentation, not a behavior change. Unlike a version
-    // that starts watching only once a container is already trusted ready,
-    // this starts the instant a container is first identified as the next
-    // candidate — before we know anything about its readiness — and keeps
-    // watching straight through the not-ready→ready transition. A
-    // message-level fingerprint, if one exists, has to live in that
-    // transition, not after it: watching only afterward can never find it,
-    // by construction, regardless of how many clean runs come back empty.
-    // markContainerReady() (called from inside waitForTurnReady at the exact
-    // moment data-is-intersecting flips, or is already not 'false') splits
-    // every mutation this session sees into a pre-ready bucket and a
-    // post-ready bucket on the same timeline, so "what changed before we
-    // trusted it" and "what changed after" are both visible, separately.
-    // Event-driven, not polled — costs nothing between mutations. Replaced
-    // each time a new container becomes the current candidate, so cost stays
-    // bounded to one container's subtree at a time.
-    // Complements the mutation observer above rather than replacing it: a
-    // MutationObserver only ever reports changes, so a fingerprint that's
-    // already in its final state the instant a container is first
-    // discovered — e.g. the message wrapper already exists with non-empty
-    // text while data-is-intersecting is still 'false' — would never
-    // generate a mutation at all and is invisible to it by construction.
-    // Snapshotting the candidate's own message-relevant properties at
-    // discovery and again at the ready-declared moment, then diffing them
-    // directly, is the only way to catch that case.
-    //
-    // Keyed by the message element itself (not msgId) so a lookup at actual
-    // extraction time needs no bookkeeping beyond "was this exact node ever
-    // a composite-fingerprint candidate" — entries are removed once compared,
-    // and any left over for elements that never get extracted are reclaimed
-    // normally once the element is garbage-collected.
-    const _compositeSnapshots = new WeakMap();
-    // Plain innerText equality (what the composite-fingerprint test originally
-    // compared) only proves visible text stopped changing — it says nothing
-    // about whether images have finished loading, code blocks are still being
-    // syntax-highlighted, or tables are still being assembled, all of which
-    // are part of what htmlToMarkdown() actually extracts. A message could
-    // pass the text-equality test while still being structurally incomplete.
-    // This captures the richer per-message signature so the comparison can
-    // catch that gap instead of just text length.
+    // Captures the message structure that must be stable before extraction.
     function summarizeMessageStructure(el, container) {
         // [data-message-author-role] is the extraction scope for ordinary
         // message slabs, not just a point marker. Images are treated more
@@ -1634,378 +1074,6 @@ export function installExtractorApp() {
                         : 'ready';
         return { ready, reason, summary, imageSrcs };
     }
-    
-    
-    function summarizeContainerCandidate(turnEl) {
-        const msgEls = turnEl.querySelectorAll('[data-message-author-role]');
-        const firstMsg = msgEls[0] || null;
-        return {
-            dataIsIntersecting: turnEl.getAttribute('data-is-intersecting'),
-            className: turnEl.className,
-            childCount: turnEl.children.length,
-            rectHeight: Math.round(turnEl.getBoundingClientRect().height),
-            messageElementCount: msgEls.length,
-            firstMessageTextLen: firstMsg ? firstMsg.innerText.length : null,
-            // Whole-container check (not the message/imageScope-level scoping
-            // summarizeMessageStructure uses) — this is a coarse discovery-
-            // vs-ready diagnostic, not an extraction-accuracy one, so it only
-            // needs to answer "did an <img> exist anywhere in here yet."
-            hasImage: turnEl.querySelectorAll('img').length > 0,
-        };
-    }
-    let _activeLifecycleObserver = null;
-    let _activeLifecycleReadyDeclared = false;
-    let _activeLifecycleT0 = 0;
-    let _activeLifecycleHadPreMutation = false;
-    let _activeLifecycleTurnEl = null;
-    let _activeLifecycleDiscoverySnapshot = null;
-    
-    function stopActiveLifecycleObserver() {
-        if (_activeLifecycleObserver) {
-            _activeLifecycleObserver.disconnect();
-            _activeLifecycleObserver = null;
-        }
-        _activeLifecycleReadyDeclared = false;
-        _activeLifecycleHadPreMutation = false;
-        _activeLifecycleTurnEl = null;
-        _activeLifecycleDiscoverySnapshot = null;
-    }
-    
-    function watchContainerLifecycle(turnEl) {
-        stopActiveLifecycleObserver();
-        _activeLifecycleReadyDeclared = false;
-        _activeLifecycleHadPreMutation = false;
-        _activeLifecycleTurnEl = turnEl;
-        _activeLifecycleDiscoverySnapshot = summarizeContainerCandidate(turnEl);
-        _perf.discoverySnapshot.totalContainers++;
-        if (_activeLifecycleDiscoverySnapshot.messageElementCount > 0) _perf.discoverySnapshot.alreadyHadMessageAtDiscovery++;
-        // "While not intersecting" is tracked as its own explicit count,
-        // not inferred from "this is the discovery moment so it's probably
-        // still false" — that assumption isn't always true (e.g. a
-        // re-derived candidate from the findNextDeck retry loop could already
-        // be intersecting by the time it's re-registered here), so the claim
-        // that content precedes the container's own readiness flag needs its
-        // own direct measurement, not a coincidence of when this runs.
-        if (_activeLifecycleDiscoverySnapshot.firstMessageTextLen > 0) {
-            _perf.discoverySnapshot.alreadyHadNonEmptyTextAtDiscovery++;
-            if (_activeLifecycleDiscoverySnapshot.dataIsIntersecting === 'false') _perf.discoverySnapshot.textAtDiscoveryWhileNotIntersecting++;
-        }
-        if (_activeLifecycleDiscoverySnapshot.hasImage) {
-            _perf.discoverySnapshot.alreadyHadImageAtDiscovery++;
-            if (_activeLifecycleDiscoverySnapshot.dataIsIntersecting === 'false') _perf.discoverySnapshot.imageAtDiscoveryWhileNotIntersecting++;
-        }
-        // Tests the proposed composite fingerprint (message exists + non-empty
-        // text + no known skeleton class) directly, rather than by intuition:
-        // if it holds at discovery, record the exact text right now, then
-        // compare against whatever extractSlab() ultimately captures for
-        // this same element after the FULL wait resolves. That natural
-        // discovery-to-extraction interval (hundreds of ms to tens of
-        // seconds) is a stronger stability test than a deliberate 2-3-poll
-        // check would be, and costs nothing extra — no new delay introduced,
-        // no change to wait/gating behavior.
-        //
-        // Snapshots every [data-message-author-role] element present at
-        // discovery, not just the first: a multi-candidate container drains
-        // several siblings across later loop iterations, and the first
-        // candidate matching reliably says nothing about whether the 2nd,
-        // 3rd, or 4th sibling is just as safe to trust early — that needs
-        // its own evidence, tagged separately below.
-        // Deliberately NOT gated on the container's own skeleton class: a
-        // container can still show its height-placeholder while a message
-        // inside it has already rendered — slower content like a generated
-        // image is plausibly more likely to leave its container in that
-        // state than text is, since rendering takes longer. Gating
-        // registration on the container would skip exactly that case,
-        // silently undoing the per-message OR-condition fix below. The
-        // per-message skeleton/placeholder check a few lines down already
-        // filters out genuinely-incomplete messages; a container with no
-        // messages at all simply yields an empty querySelectorAll, so
-        // nothing is lost by not checking the container's class first.
-        {
-            let idx = 0;
-            for (const msgEl of turnEl.querySelectorAll('[data-message-author-role]')) {
-                const isFirst = idx === 0;
-                idx++;
-                // Non-empty text OR a present image qualifies: a generated
-                // image with no caption has innerText.length === 0 (an <img>
-                // alt attribute doesn't count toward innerText), so requiring
-                // text alone would silently exclude exactly the messages most
-                // likely to actually contain an image — never registering
-                // them as candidates, regardless of how many images they have.
-                // Same message-element-vs-container scoping as summarizeMessageStructure:
-                // only trusted for a single-message container, since that's
-                // the only case where "an image exists somewhere in here"
-                // unambiguously means "this message has an image".
-                const singleMessageContainer = turnEl.querySelectorAll('[data-message-author-role]').length === 1;
-                const hasImage = (singleMessageContainer ? turnEl : msgEl).querySelectorAll('img').length > 0;
-                const hasContent = msgEl.innerText.length > 0 || hasImage;
-                if (hasContent &&
-                    !msgEl.querySelector('[class*="skeleton"], [class*="placeholder"], [data-placeholder]')) {
-                    _perf.compositeFingerprint.candidates++;
-                    _compositeSnapshots.set(msgEl, {
-                        ...summarizeMessageStructure(msgEl, turnEl), isFirst, discoveredAt: performance.now(),
-                        imageSrcs: imageSrcsFor(msgEl, turnEl),
-                        // Joins this candidate to the discovery-snapshot stats
-                        // above: was the *container's* readiness flag already
-                        // reporting 'false' at the exact moment this candidate
-                        // registered? Read from the same synchronous snapshot
-                        // (no time has passed), so this is the container's
-                        // state at this candidate's own discovery, not a
-                        // coincidence of when watchContainerLifecycle runs.
-                        containerWasNotIntersectingAtDiscovery: _activeLifecycleDiscoverySnapshot.dataIsIntersecting === 'false',
-                    });
-                }
-            }
-        }
-        // Diagnostic only: image-generation turns carry no ordinary message
-        // element, so snapshot the containing turn section separately. Runtime
-        // selection no longer uses this broad scope; it directly selects
-        // `.group/imagegen-image` slabs.
-        if (turnEl.querySelectorAll('[data-message-author-role]').length === 0) {
-            const turnSections = turnEl.matches('[data-turn]')
-                ? [turnEl, ...turnEl.querySelectorAll('[data-turn]')]
-                : [...turnEl.querySelectorAll('[data-turn]')];
-            for (const turnSection of turnSections) {
-                const hasImage = turnSection.querySelectorAll('img').length > 0;
-                const hasContent = turnSection.innerText.length > 0 || hasImage;
-                if (hasContent &&
-                    !turnSection.querySelector('[class*="skeleton"], [class*="placeholder"], [data-placeholder]')) {
-                    _perf.compositeFingerprint.candidates++;
-                    _compositeSnapshots.set(turnSection, {
-                        ...summarizeMessageStructure(turnSection, turnEl), isFirst: true, discoveredAt: performance.now(),
-                        imageSrcs: imageSrcsFor(turnSection, turnEl),
-                        containerWasNotIntersectingAtDiscovery: _activeLifecycleDiscoverySnapshot.dataIsIntersecting === 'false',
-                    });
-                }
-            }
-        }
-        const t0 = _activeLifecycleT0 = performance.now();
-        const describe = m => {
-            const tgt = m.target;
-            const tag = tgt.nodeType === Node.ELEMENT_NODE
-                ? `<${tgt.tagName.toLowerCase()}${tgt.getAttribute?.('data-message-id') ? ` msgId=${tgt.getAttribute('data-message-id')}` : ''}>`
-                : '(text node)';
-            const detail = m.type === 'attributes'
-                ? `attr "${m.attributeName}" ${m.oldValue !== null ? `"${m.oldValue}"` : '(absent)'} → ` +
-                  `"${tgt.getAttribute?.(m.attributeName)}"`
-                : m.type === 'childList'
-                    ? `${m.addedNodes.length} node(s) added, ${m.removedNodes.length} removed`
-                    : `text changed`;
-            return `${m.type} on ${tag}: ${detail}`;
-        };
-        const obs = new MutationObserver(mutations => {
-            const dt = Math.round(performance.now() - t0);
-            const bucket = _activeLifecycleReadyDeclared ? _perf.postReadyMutations : _perf.preReadyMutations;
-            if (!_activeLifecycleReadyDeclared) _activeLifecycleHadPreMutation = true;
-            for (const m of mutations) {
-                bucket.count++;
-                if (bucket.examples.length < 30) bucket.examples.push(`+${dt}ms ${describe(m)}`);
-            }
-        });
-        obs.observe(turnEl, {
-            subtree: true, childList: true,
-            attributes: true, attributeOldValue: true,
-            characterData: true, characterDataOldValue: true,
-        });
-        _activeLifecycleObserver = obs;
-    }
-    // Attached the instant a turn is found without an ordinary message element (no
-    // [data-message-author-role]) and imageless (no <img> yet) at the exact
-    // moment its container is declared ready — i.e. exactly the precondition
-    // that produced the original silent-drop bug. Deliberately a separate
-    // MutationObserver instance from _activeLifecycleObserver: that one gets
-    // disconnected the moment watchContainerLifecycle is next called for a
-    // different container, which in the retry-loop case happens only ~1s
-    // after ready — far too soon to see a slower arrival. This one lives on
-    // its own, independent of wherever the main walk goes next, until either
-    // an <img> shows up or a generous timeout elapses.
-    function watchForToComeFingerprint(turnSection, containerEl) {
-        if (!turnSection) return;
-        if (turnSection.querySelectorAll('[data-message-author-role]').length > 0) return;
-        if (turnSection.querySelectorAll('img').length > 0) return;
-        // The actual gap this guards against: turnSection might not be the
-        // right scope at all. If the rendered image lands as a *sibling* of
-        // turnSection rather than a descendant — somewhere else inside the
-        // broader container — neither this gate nor a MutationObserver
-        // scoped to turnSection would ever see it, no matter how long we
-        // wait. Checked directly here, not assumed: if the container has an
-        // <img> that turnSection's own narrower check missed, that's the
-        // scoping bug confirmed, not "nothing happened."
-        const containerHasImgTurnSectionMissed = !!(containerEl && containerEl.querySelectorAll('img').length > 0);
-        // Observe the broader container, not just turnSection — covers
-        // turnSection's own subtree too (it's a descendant), so this is a
-        // strict widening, not a different check, and it's the only way to
-        // catch an image landing as a sibling instead of inside turnSection.
-        const watchRoot = containerEl || turnSection;
-        const t0 = performance.now();
-        // The direct test for the position hypothesis above: is this
-        // element actually inside the visible viewport rectangle right now,
-        // not just past ChatGPT's own virtualization gate? rect.top/bottom
-        // are viewport-relative already (getBoundingClientRect's normal
-        // behavior) — compared against window.innerHeight here, not against
-        // the scroll container's own bounds, since what matters for a real
-        // browser-level IntersectionObserver is the actual viewport, not
-        // any particular scrollable ancestor.
-        const r0 = turnSection.getBoundingClientRect();
-        const entry = {
-            turnId: turnSection.getAttribute('data-turn-id') || turnSection.closest('[data-turn]')?.getAttribute('data-turn-id') || '(none)',
-            events: [], resolvedMs: null, detachedAtMs: null, timedOut: false, startedAt: t0,
-            rectAtStart: `top=${Math.round(r0.top)} bottom=${Math.round(r0.bottom)} height=${Math.round(r0.height)} ` +
-                `(viewport height=${window.innerHeight}) — ${r0.bottom <= 0 || r0.top >= window.innerHeight ? 'OUTSIDE visible viewport' : 'inside visible viewport'}`,
-            scopeCheck: containerHasImgTurnSectionMissed
-                ? 'SCOPING BUG CONFIRMED — container already has an <img> that turnSection\'s own check missed; it landed outside turnSection, not "nothing happened"'
-                : 'no discrepancy at watch start — container and turnSection agreed (both 0 images)',
-            domDumpAtTimeout: null,
-        };
-        _perf.toComeFingerprint.watches.push(entry);
-        const describe = node => {
-            if (node.nodeType !== 1) return '(text node)';
-            const cls = (node.className || '').toString().slice(0, 70);
-            return `<${node.tagName.toLowerCase()} class="${cls}">`;
-        };
-        const ATTR_WHITELIST = new Set(['class', 'src', 'data-is-intersecting']);
-        let deadline, detachCheck;
-        const finish = () => { obs.disconnect(); clearTimeout(deadline); clearInterval(detachCheck); };
-        const obs = new MutationObserver(muts => {
-            const dt = Math.round(performance.now() - t0);
-            for (const m of muts) {
-                if (m.type === 'childList') {
-                    for (const n of m.addedNodes) {
-                        if (n.nodeType !== 1) continue;
-                        entry.events.push(`+${dt}ms added ${describe(n)}`);
-                        if (n.tagName === 'IMG' || n.querySelector?.('img')) entry.resolvedMs = dt;
-                    }
-                } else if (m.type === 'attributes' && ATTR_WHITELIST.has(m.attributeName)) {
-                    entry.events.push(`+${dt}ms attr "${m.attributeName}" on ${describe(m.target)} -> "${m.target.getAttribute(m.attributeName)}"`);
-                }
-            }
-            if (entry.resolvedMs !== null) finish();
-        });
-        obs.observe(watchRoot, { subtree: true, childList: true, attributes: true });
-        // A MutationObserver is bound to this exact node object — if React
-        // replaces it wholesale (a remount, same data-turn-id but a new
-        // node) rather than mutating it in place, removal happens on the
-        // PARENT's childList, which this observer (scoped to turnSection
-        // itself) never sees. Without this check, a remount and "genuinely
-        // nothing happened" both look identical: 0 events, timeout reached.
-        // Confirmed not hypothetical: the first real watch reported 0
-        // events for a turn the user then confirmed shows a working image
-        // live — virtualization remounting it mid-export, after our watcher
-        // attached to the now-orphaned old node, is the most likely cause.
-        detachCheck = setInterval(() => {
-            if (!watchRoot.isConnected && entry.detachedAtMs === null) {
-                entry.detachedAtMs = Math.round(performance.now() - t0);
-                finish();
-            }
-        }, 500);
-        deadline = setTimeout(() => {
-            entry.timedOut = true;
-            // The browser only ever paints what's actually in the DOM — if
-            // the image is visible elsewhere, *something* represents it
-            // here, even if it isn't an <img> tag. Every check so far
-            // (gate, scope check, MutationObserver) only ever looked for
-            // 'img' elements specifically; a CSS background-image, an SVG
-            // <image>, or a <canvas> would be invisible to all of them
-            // regardless of container scope. Dumped only on a genuine
-            // timeout (not every watch) since this walks every descendant —
-            // cheap for one event, wasteful to do unconditionally.
-            entry.domDumpAtTimeout = dumpElementStructure(watchRoot);
-            finish();
-        }, TO_COME_TIMEOUT_MS);
-    }
-    
-    // Diagnostic only — not a gating fingerprint, and does not change
-    // extraction behavior. Logs the full ordered sequence of distinct
-    // values primaryImageForSlab(slabEl)'s <img src> takes, from the
-    // moment this candidate is first discovered. The point is to find out,
-    // after the fact, whether a candidate readiness check (e.g. "src is
-    // non-empty") would have been fooled by a value that existed before
-    // the real final one — by testing that check against the actual
-    // previous value in this log, not by guessing what the previous value
-    // might look like.
-    //
-    // Observes slabEl itself, not just the <img> descendant, with
-    // subtree+childList in addition to attributes: the failure mode this
-    // guards against is the same scoping bug already found once for
-    // watchForToComeFingerprint — if the real image lands via a *replaced*
-    // node (old element removed, new one added) rather than a mutated
-    // attribute on the same node, an observer bound only to one node's
-    // attributes would see nothing. Re-resolving primaryImageForSlab(slabEl)
-    // fresh on every mutation, instead of trusting one node reference,
-    // means a node replacement is captured the same way an attribute change
-    // would be.
-    function watchImageSrcHistory(slabEl) {
-        if (_watchedImageSrcHistory.has(slabEl)) return;
-        _watchedImageSrcHistory.add(slabEl);
-        const t0 = performance.now();
-        const entry = {
-            turnId: slabEl.closest('[data-turn]')?.getAttribute('data-turn-id') || '(none)',
-            values: [],
-            timedOut: false,
-            detachedAtMs: null,
-        };
-        _perf.imageSrcHistory.watches.push(entry);
-        const recordCurrent = () => {
-            const image = primaryImageForSlab(slabEl);
-            const src = image?.getAttribute('src') || '';
-            const last = entry.values[entry.values.length - 1];
-            if (last && last.value === src) return; // not a real change — skip
-            entry.values.push({ value: src, atMs: Math.round(performance.now() - t0) });
-        };
-        recordCurrent(); // capture whatever's there (or absent) at watch start too, not just later changes
-        let deadline, detachCheck;
-        const finish = () => { obs.disconnect(); clearTimeout(deadline); clearInterval(detachCheck); };
-        const obs = new MutationObserver(() => recordCurrent());
-        obs.observe(slabEl, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
-        detachCheck = setInterval(() => {
-            if (!slabEl.isConnected && entry.detachedAtMs === null) {
-                entry.detachedAtMs = Math.round(performance.now() - t0);
-                finish();
-            }
-        }, 500);
-        deadline = setTimeout(() => { entry.timedOut = true; finish(); }, TO_COME_TIMEOUT_MS);
-    }
-    
-    // Records the actual value history of a deck's data-is-intersecting
-    // attribute, from the moment we start waiting on it through to whatever
-    // happens later — direct evidence for whether a deck that later shows
-    // up as an "Empty container" ever held a stable true, or only ever
-    // touched it briefly before reverting. Looked up by turnId from the
-    // placeholder-building code, not passed by reference, since the deck
-    // may be searched and found empty several loop iterations after this
-    // watch was attached.
-    function watchIntersectingHistory(readinessEl) {
-        if (_watchedIntersectingHistory.has(readinessEl)) return;
-        _watchedIntersectingHistory.add(readinessEl);
-        const t0 = performance.now();
-        const entry = {
-            turnId: deckSequenceId(readinessEl) || '(none)',
-            values: [],
-            timedOut: false,
-            detachedAtMs: null,
-        };
-        _perf.intersectingHistory.watches.push(entry);
-        const recordCurrent = () => {
-            const value = readinessEl.getAttribute('data-is-intersecting');
-            const last = entry.values[entry.values.length - 1];
-            if (last && last.value === value) return; // not a real change — skip
-            entry.values.push({ value, atMs: Math.round(performance.now() - t0) });
-        };
-        recordCurrent(); // capture the value at watch start too, not just later changes
-        let deadline, detachCheck;
-        const finish = () => { obs.disconnect(); clearTimeout(deadline); clearInterval(detachCheck); };
-        const obs = new MutationObserver(() => recordCurrent());
-        obs.observe(readinessEl, { attributes: true, attributeFilter: ['data-is-intersecting'] });
-        detachCheck = setInterval(() => {
-            if (!readinessEl.isConnected && entry.detachedAtMs === null) {
-                entry.detachedAtMs = Math.round(performance.now() - t0);
-                finish();
-            }
-        }, 500);
-        deadline = setTimeout(() => { entry.timedOut = true; finish(); }, TO_COME_TIMEOUT_MS);
-        return entry;
-    }
-    
     function dumpElementStructure(root) {
         const lines = [];
         const walk = (el, depth) => {
@@ -2019,39 +1087,6 @@ export function installExtractorApp() {
         };
         walk(root, 0);
         return lines.join('\n');
-    }
-    function markContainerReady() {
-        if (_activeLifecycleReadyDeclared) return; // already marked for this session
-        _activeLifecycleReadyDeclared = true;
-        const dt = Math.round(performance.now() - _activeLifecycleT0);
-        _perf.preReadyMutations.readyDelayMs.count++;
-        _perf.preReadyMutations.readyDelayMs.sum += dt;
-        if (dt > _perf.preReadyMutations.readyDelayMs.max) _perf.preReadyMutations.readyDelayMs.max = dt;
-        if (_activeLifecycleHadPreMutation) _perf.preReadyMutations.containersWithAny++;
-        if (_activeLifecycleTurnEl && _activeLifecycleTurnEl.isConnected && _activeLifecycleDiscoverySnapshot) {
-            const after = summarizeContainerCandidate(_activeLifecycleTurnEl);
-            const before = _activeLifecycleDiscoverySnapshot;
-            for (const key of Object.keys(after)) {
-                if (JSON.stringify(before[key]) !== JSON.stringify(after[key]) && _perf.discoverySnapshot.diffExamples.length < 30) {
-                    _perf.discoverySnapshot.diffExamples.push(
-                        `${key}: ${JSON.stringify(before[key])} → ${JSON.stringify(after[key])} (discovery-to-ready ${dt}ms)`
-                    );
-                }
-            }
-        }
-        if (_activeLifecycleTurnEl && _activeLifecycleTurnEl.isConnected) {
-            // Same multi-turn-per-container fix as the non-message candidate
-            // registration above — querySelector (singular) would watch only
-            // the first [data-turn] section, silently missing a sibling.
-            // This is not hypothetical: it's the likely reason the first
-            // to-come watch on a real run reported 0 events for 30s on a
-            // turn the user confirmed shows a real, working image in the
-            // live page — the watcher most likely had the wrong element.
-            const turnSections = _activeLifecycleTurnEl.matches('[data-turn]')
-                ? [_activeLifecycleTurnEl, ..._activeLifecycleTurnEl.querySelectorAll('[data-turn]')]
-                : [..._activeLifecycleTurnEl.querySelectorAll('[data-turn]')];
-            for (const turnSection of turnSections) watchForToComeFingerprint(turnSection, _activeLifecycleTurnEl);
-        }
     }
     
     // How much light must stay ahead of current, beyond the bare minimum,
@@ -2068,7 +1103,7 @@ export function installExtractorApp() {
     // viewport, not just at its boundary. The default keeps the move more
     // conservative: advance until current has about half a viewport of room
     // ahead, unless the explicit slab lookahead minimum needs more.
-    // maintainWorkZone takes this as an overridable parameter (not just a constant) so
+    // maintainWork-Zone takes this as an overridable parameter (not just a constant) so
     // different advance strategies — this maximal one, a minimal
     // "just enough room past the trigger margin" one, or anything between —
     // can be experimented with from call sites without touching this function.
@@ -2088,7 +1123,7 @@ export function installExtractorApp() {
     // advances one state immediately — no streak requirement, the jump size
     // alone is the calibration state and fully determines what happens
     // next. A failed jump is fatal (no automatic retry — see
-    // maintainWorkZone) but first retreats WORK_ZONE_MOVE_JUMP_RETREAT_STATES
+    // maintainWork-Zone) but first retreats WORK_ZONE_MOVE_JUMP_RETREAT_STATES
     // states (2 × 60px = 120px) rather than collapsing all the way back to
     // the floor, floored at WORK_ZONE_MOVE_JUMP_PX, so the size is already
     // smaller by the time the user manually retries via the panel's Restart
@@ -2113,43 +1148,8 @@ export function installExtractorApp() {
     // fault. current.geometryElement getting detached (all-zero rect)
     // stays checked — that's a structural fact (is it in the document or
     // not), not a comparison against a number we made up. See
-    // maintainWorkZone's cleanJump for where this is actually used.
+    // maintainWork-Zone's cleanJump for where this is actually used.
     let _workZoneAdaptiveJumpPx = WORK_ZONE_MOVE_JUMP_PX;
-    
-    function ensureRequestedJumpBucket(size) {
-        return _perf.workZoneJumpStability.requestedJumpBuckets[size] ||
-            (_perf.workZoneJumpStability.requestedJumpBuckets[size] = {
-                jumps: 0,
-                clamped: 0,
-                clampedPxSum: 0,
-            });
-    }
-    
-    function ensureRequestedJumpBucketLadder() {
-        for (let size = WORK_ZONE_MOVE_JUMP_PX; size <= WORK_ZONE_MOVE_JUMP_MAX_PX; size += WORK_ZONE_MOVE_JUMP_GROW_PX) {
-            ensureRequestedJumpBucket(size);
-        }
-    }
-    
-    function requestedJumpBucketEntries() {
-        ensureRequestedJumpBucketLadder();
-        return Object.entries(_perf.workZoneJumpStability.requestedJumpBuckets)
-            .map(([size, stats]) => [Number(size), stats])
-            .sort(([a], [b]) => a - b);
-    }
-    
-    function formatRequestedJumpBuckets(separator = ' | ') {
-        const entries = requestedJumpBucketEntries();
-        if (entries.length === 0) return `${WORK_ZONE_MOVE_JUMP_PX}px : 0 full / 0 clamped (avg 0px)`;
-        return entries
-            .map(([size, stats]) => {
-                const clampedAvgPx = stats.clamped
-                    ? Math.round(stats.clampedPxSum / stats.clamped)
-                    : 0;
-                return `${size}px : ${stats.jumps} full / ${stats.clamped} clamped (avg ${clampedAvgPx}px)`;
-            })
-            .join(separator);
-    }
     
     // Visual aid for video-recording a real run, nothing more — a small,
     // fixed-position dot, persistent for the whole run (created once,
@@ -2189,7 +1189,7 @@ export function installExtractorApp() {
         }
     }
     
-    // Set by every setPos (maintainWorkZone and forceScrollToEdge) right
+    // Set by every setPos (maintainWork-Zone and forceScrollToEdge) right
     // when we ourselves assign scrollTop/scrollY — the one fact the
     // background sampler below needs to tell "we just moved this" apart
     // from "something else moved it." null until the very first scripted
@@ -2212,87 +1212,13 @@ export function installExtractorApp() {
     // whether it happened during light blue, green, or (if this fires between
     // current changing and the marker's own next color change) neither.
     let _samplerRunning = false;
-    function startBackgroundPositionSampler(getCurrent, container) {
-        if (_samplerRunning) return;
-        _samplerRunning = true;
-        let lastTop = null, lastBottom = null, lastTurnId = null;
-        let lastScrollPos = null, lastScrollHeight = null;
-        const readScrollPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
-        const readScrollHeight = () => container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-        // type included, not just turnId/deckSequenceId — deck-entry and
-        // deck-exit (makeDeckEntryCurrent/makeDeckExitCurrent) share the
-        // same deckSequenceId for one deck but are genuinely different
-        // positions (the deck's leading vs trailing edge) with different
-        // synthetic geometry. Without this, current legitimately flipping
-        // entry->exit (or exit->the deck's first real slab) reads as a
-        // huge, spurious "movement" of one stable identity, when it's
-        // really just current correctly becoming something else.
-        const identify = cur => {
-            if (!cur) return '(none)';
-            if (cur.element) return `${cur.type}:${slabTurnId(cur) || '(no turn-id)'}`;
-            if (cur.deckElement) return `${cur.type}:${deckSequenceId(cur.deckElement) || '(no turn-id, deck)'}`;
-            return '(synthetic)';
-        };
-        const tick = () => {
-            if (!_samplerRunning) return;
-            const cur = getCurrent();
-            const turnId = identify(cur);
-            if (cur?.geometryElement) {
-                const r = cur.geometryElement.getBoundingClientRect();
-                if (lastTurnId === turnId && lastTop !== null && (r.top !== lastTop || r.bottom !== lastBottom)) {
-                    if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
-                        _perf.workZoneJumpStability.roomDriftLog.push(
-                            `BACKGROUND SAMPLE: current (turnId=${turnId}) moved between two animation frames with ` +
-                            `no tracked jump in between — top ${Math.round(lastTop)}->${Math.round(r.top)}px, ` +
-                            `bottom ${Math.round(lastBottom)}->${Math.round(r.bottom)}px, ` +
-                            `markerColor=${_stabilizationMarkerEl?.style.background || '(no marker)'}`
-                        );
-                    }
-                }
-                lastTop = r.top; lastBottom = r.bottom; lastTurnId = turnId;
-            } else {
-                lastTop = lastBottom = null; lastTurnId = turnId;
-            }
-            // The rawest possible signals, watched independently of
-            // current entirely: the actual scrollTop/scrollY (compared
-            // against _lastIntentionalScrollPos — what *we* last set it
-            // to, via setPos — so a mismatch means something other than
-            // our own scripted jump moved it) and scrollHeight (any
-            // change at all, since we never set this ourselves — it's
-            // purely a side effect of content mounting/unmounting). This
-            // is what current's own rect alone can't catch: movement of
-            // the viewport or page that doesn't happen to touch current
-            // directly, like the neighboring-deck case found earlier.
-            const scrollPos = readScrollPos();
-            const scrollHeight = readScrollHeight();
-            if (lastScrollPos !== null && scrollPos !== lastScrollPos && scrollPos !== _lastIntentionalScrollPos) {
-                if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
-                    _perf.workZoneJumpStability.roomDriftLog.push(
-                        `BACKGROUND SAMPLE: scroll position changed to something we did not set ourselves — ` +
-                        `${Math.round(lastScrollPos)}->${Math.round(scrollPos)}px (last intentional set: ${Math.round(_lastIntentionalScrollPos ?? NaN)}px), ` +
-                        `markerColor=${_stabilizationMarkerEl?.style.background || '(no marker)'}`
-                    );
-                }
-            }
-            if (lastScrollHeight !== null && scrollHeight !== lastScrollHeight) {
-                if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
-                    _perf.workZoneJumpStability.roomDriftLog.push(
-                        `BACKGROUND SAMPLE: scrollHeight changed — ${Math.round(lastScrollHeight)}->${Math.round(scrollHeight)}px, ` +
-                        `markerColor=${_stabilizationMarkerEl?.style.background || '(no marker)'}`
-                    );
-                }
-            }
-            lastScrollPos = scrollPos;
-            lastScrollHeight = scrollHeight;
-            requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-    }
+    function startBackgroundPositionSampler(getCurrent, container) {}
+
     function stopBackgroundPositionSampler() {
         _samplerRunning = false;
     }
     
-    // maintainWorkZone's per-step pacing gate (see waitForLayoutStable):
+    // maintainWork-Zone's per-step pacing gate (see waitForLayoutStable):
     // how many consecutive animation frames scrollHeight must hold still
     // for before the next step is allowed to fire, and the hard cap on how
     // long any single step will wait for that before giving up and moving
@@ -2308,7 +1234,7 @@ export function installExtractorApp() {
     const WORK_ZONE_JUMP_STABLE_MAX_MS = 1500;
     // Retrying a *short* wait several times (the first version of this)
     // turned out to be the wrong shape for the problem. The reason isn't
-    // just "give it more chances" — it's that maintainWorkZone's whole
+    // just "give it more chances" — it's that maintainWork-Zone's whole
     // stepping model depends on knowing the real, settled room value
     // before it can decide anything about the next step: if the viewport
     // (or content around current) genuinely drifted while we weren't
@@ -2336,7 +1262,7 @@ export function installExtractorApp() {
     // other such signs turn up later.
     const WORK_ZONE_JUMP_HIDDEN_RETRY_MS = SLAB_FINISH_TIMEOUT_MS; // reuse the existing "give it a real, generous chance" duration rather than invent a new one
     // Safety net for the per-jump current+precedent+subsequent outerHTML
-    // capture in maintainWorkZone — bounds the .html export's size on a
+    // capture in maintainWork-Zone — bounds the .html export's size on a
     // long/complete run, not a deliberate sample size. Each jump captured
     // is 2 entries (right-after-jump, after-wait), each bundling up to 3
     // real deck snapshots, so this is already generous before the export
@@ -2477,7 +1403,7 @@ export function installExtractorApp() {
     // (see memory: the v4.142/v4.143 incident) is not reliable. The actual
     // identity of whatever's intersecting the viewport right after a
     // move's last step is real, checkable evidence instead — captured once
-    // per completed maintainWorkZone call (not per step) and fed to
+    // per completed maintainWork-Zone call (not per step) and fed to
     // pushHtmlCaptures below, which is what actually accumulates it for the
     // separate .html export — this function just collects, it doesn't
     // format or store.
@@ -2539,7 +1465,7 @@ export function installExtractorApp() {
         return false; // nothing real to check against (e.g. SLAB_WALK_START) — never reaches the work-zone loop anyway
     }
     
-    // Per-step pacing signal for maintainWorkZone's stepping loop: waits for
+    // Per-step pacing signal for maintainWork-Zone's stepping loop: waits for
     // the container's scrollHeight to stop changing across a few consecutive animation
     // frames, AND for no sandwiched-empty-slab to be present (see
     // findSandwichedEmptySlabInViewport just above — this is the part that
@@ -2619,15 +1545,8 @@ export function installExtractorApp() {
                     }
                 }
                 if (readyToResolve) {
-                    _perf.workZoneJumpStability.steps++;
-                    if (changed) _perf.workZoneJumpStability.waitedFrames++;
-                    if (timedOut) _perf.workZoneJumpStability.timedOut++;
-                    _perf.workZoneJumpStability.maxFramesWaited =
-                        Math.max(_perf.workZoneJumpStability.maxFramesWaited, framesChecked);
                     if (sawSandwiched) {
-                        _perf.workZoneJumpStability.sandwichedEmptySeen++;
                         if (timedOut && lastSandwiched) {
-                            _perf.workZoneJumpStability.sandwichedEmptyTimedOut++;
                             const role = lastSandwiched.sectionEl?.getAttribute('data-turn') ||
                                 lastSandwiched.deckEl.getAttribute('data-turn') || 'unknown';
                             const tId = deckSequenceId(lastSandwiched.deckEl);
@@ -2643,11 +1562,6 @@ export function installExtractorApp() {
                                 role,
                                 html: trimmedCaptureHtml(lastSandwiched.sectionEl || lastSandwiched.deckEl),
                             }]);
-                            if (_perf.workZoneJumpStability.sandwichedEmptyExamples.length < 5) {
-                                _perf.workZoneJumpStability.sandwichedEmptyExamples.push(
-                                    `role=${role} turnId=${tId || '(none)'}, framesWaited=${framesChecked}`
-                                );
-                            }
                         }
                     }
                     resolve({ changed, timedOut, sawSandwiched, detached, wasHidden, framesChecked });
@@ -2672,16 +1586,8 @@ export function installExtractorApp() {
         const result = await attemptLayoutStable(container, current);
         if (!result.timedOut || result.sawSandwiched || result.detached) return { ...result, hiddenRetried: false };
         if (!result.wasHidden) return { ...result, hiddenRetried: false }; // no explanatory sign — nothing to gain by waiting again
-        _perf.workZoneJumpStability.pureTimeoutHiddenRetries++;
-        console.warn(
-            `[Extractor] work-zone stability wait timed out while the tab was hidden, with current still connected ` +
-            `and no sandwiched-empty deck present — retrying once with the deadline extended to ` +
-            `${WORK_ZONE_JUMP_HIDDEN_RETRY_MS / 1000}s, since requestAnimationFrame throttling while backgrounded ` +
-            `can fully explain a short wait never seeing a settled frame.`
-        );
         const retried = await attemptLayoutStable(container, current, WORK_ZONE_JUMP_HIDDEN_RETRY_MS);
         if (retried.timedOut && !retried.sawSandwiched && !retried.detached) {
-            _perf.workZoneJumpStability.pureTimeoutHiddenExhausted++;
         }
         return { ...retried, hiddenRetried: true };
     }
@@ -2700,13 +1606,11 @@ export function installExtractorApp() {
     // means continuously re-asserting can outlast a reversion that only
     // fires after some idle period — never giving it the chance.
     async function forceScrollToEdge(container, direction, timeoutMs = 30_000) {
-        _perf.viewportMoveOperationsForceEdge++;
         const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
         const setPos = v => {
             if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
             else container.scrollTop = v;
             _lastIntentionalScrollPos = v;
-            _perf.viewportMovesForceEdge++;
         };
         const target = () => {
             const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
@@ -2737,57 +1641,15 @@ export function installExtractorApp() {
         }
     }
     
-    // Checked once per slab-selection attempt, before any search runs —
-    // the decision lives at the slab level, not tied to any particular
-    // deck's own readiness fingerprint. current's leading edge (the side
-    // facing unexplored territory) only ever advances, one slab at a time;
-    // the work zone's own leading edge stays exactly where it is until
-    // this moves it. So current's advance is guaranteed to eventually
-    // close the gap down to the margin — that moment is what triggers a
-    // move, never a deck's fingerprint. *Whether* to move (room <= extra)
-    // is unchanged from the original design. *How far* it tries to advance
-    // is the advanceFraction parameter (see WORK_ZONE_ADVANCE_FRACTION) —
-    // independent of the trigger margin and deliberately overridable, so
-    // call sites can experiment with maximal-jump vs just-enough-room
-    // advance strategies without touching this function.
-    //
-    // There used to be a separate "move to a precomputed target, then
-    // separately wait/poll for room" two-phase design (moveWorkZoneTo +
-    // a doubleRAF-paced settle loop — see memory). That fell apart on a
-    // real run: a precomputed target/scrollMax snapshot can go stale
-    // during the time spent reaching and then waiting on it (layout above
-    // current shifting by 1000+px mid-wait, see memory), and the doubleRAF
-    // settle phase had zero stability awareness of its own — it just
-    // polled a number with no way to tell "still genuinely converging"
-    // from "stuck." This version is one continuous loop instead: take one
-    // small step toward more room, wait for it via the same
-    // waitForLayoutStable used everywhere else (browser+ChatGPT-stability,
-    // not just a frame count), re-measure room live, and decide whether to
-    // take another step — never computing a destination in advance, never
-    // trusting any position/height snapshot beyond the instant it was read.
-    async function maintainWorkZone(container, current, minimumRoomAhead = 0, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
+    async function maintainWorkZone(container, current, advanceFraction = WORK_ZONE_ADVANCE_FRACTION) {
         if (current.type === 'start') return { roomSatisfied: true, boundaryReached: false, room: Infinity, required: 0 }; // no deck/slab reference yet
         const readPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
         const setPos = v => {
             if (container === document.documentElement) window.scrollTo({ top: v, behavior: 'instant' });
             else container.scrollTop = v;
             _lastIntentionalScrollPos = v;
-            _perf.viewportMovesWorkZone++;
-            _perf.workZoneJumpStability.jumps++;
         };
-        const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
-        // Room ahead of current, read fresh from the live DOM every single
-        // time this is called — never cached, never reused across a step.
-        // This used to read containerTop once, outside this function, and
-        // reuse that snapshot for every jump in the whole call — directly
-        // contradicting this comment's own claim. If container isn't
-        // document.documentElement (findScrollContainer can return a
-        // nested scrollable div), its own position on the page is exactly
-        // as capable of drifting mid-call (a header, banner, or the
-        // composer box changing height) as anything else here. Reading it
-        // fresh on every call closes that gap; if container really is
-        // document.documentElement this costs nothing extra and always
-        // yields exactly 0.
+        const clientH = container === document.documentElement ? document.documentElement.clientHeight  : container.clientHeight;
         const liveContainerTop = () => container === document.documentElement ? 0 : container.getBoundingClientRect().top;
         const measureRoom = () => {
             const containerTop = liveContainerTop();
@@ -2798,57 +1660,56 @@ export function installExtractorApp() {
             const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
             return Math.max(0, scrollH - clientH);
         };
-        const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, minimumRoomAhead);
+        const extra = Math.max(clientH * WORK_ZONE_MARGIN_FRACTION, SLAB_LOOKAHEAD_PX);
         let room = measureRoom();
         if (room > extra) return { roomSatisfied: true, boundaryReached: false, room, required: extra }; // still plenty of light ahead of current
-        // advanceRoom is aspirational, not a destination to walk straight
-        // to and stop at: how much fresh room past current we'd like to
-        // end up with if nothing stops us, floored at `extra` (a step that
-        // didn't even clear the trigger margin wouldn't be worth taking)
-        // and capped just short of clientH (current must stay genuinely
-        // inside the viewport, not sit exactly on its edge). The loop below
-        // keeps stepping toward this, but is content to stop as soon as
-        // `extra` is cleared if it runs out of patience or room first —
-        // exactly the same bar the original design judged success against.
         const advanceRoom = Math.min(clientH - 1, Math.max(extra, clientH * advanceFraction));
         const jumpSign = WALK_DIRECTION === -1 ? -1 : 1; // direction of scrollTop change that increases room
         const startedAt = performance.now();
         const deadline = Date.now() + SLAB_FINISH_TIMEOUT_MS;
         let boundaryReached = false;
         let jumpsTaken = 0;
-        let moveSequence = null;
         let outcome = 'advance-complete'; // overwritten below if the loop exits any other way
-        // No automatic retry here. A failure ends this run and surfaces one
-        // complete diagnostic. Detached current is decisive evidence that
-        // the jump was too aggressive, so it retreats the adaptive jump size
-        // before stopping. Non-detached failures keep the live cursor and
-        // offer a panel Resume instead of rebuilding from the conversation
-        // edge or silently retrying inside this loop.
+
+        function normalizeJump(room) {
+            const remainingToAdvanceRoom = advanceRoom - room;
+            if (remainingToAdvanceRoom < WORK_ZONE_TINY_TARGET_CLAMP_PX && room > extra) return null;
+            return room + _workZoneAdaptiveJumpPx < advanceRoom
+                ? _workZoneAdaptiveJumpPx
+                : remainingToAdvanceRoom;
+        }
+
+        function performJump(safeJumpPx) {
+            const curTop = readPos();
+            const max = liveScrollMax(); // re-read live — scrollable range can shift mid-run
+            const intendedPos = curTop + jumpSign * safeJumpPx;
+            const hitScrollBoundary = jumpSign < 0 ? intendedPos <= 0 : intendedPos >= max;
+            const nextPos = Math.max(0, Math.min(max, intendedPos));
+            if (nextPos === curTop) {
+                // Genuinely can't move any further — a real document-boundary
+                // case, not a failure to retry against.
+                return { hitBoundary: true };
+            }
+            if (hitScrollBoundary) boundaryReached = true;
+            setPos(nextPos);
+            jumpsTaken++;
+            return { hitBoundary: false };
+        }
+
+        // Waits for the layout to stabilise after a jump. Returns the
+        // stability object from waitForLayoutStable.
+        async function waitLayoutStable() {
+            setStabilizationMarkerColor('#5ac8fa');
+            const stability = await waitForLayoutStable(container, current);
+            await nextAnimationFrame();
+            setStabilizationMarkerColor('#34c759');
+            return stability;
+        }
+
         while (room < advanceRoom) {
-            if (room > extra && Date.now() > deadline) { outcome = 'satisfied-timeout'; break; } // good enough already, not worth chasing the aspirational extra any further
+            if (room > extra ) { outcome = 'satisfied-timeout'; break; } // good enough already, not worth chasing the aspirational extra any further
             if (room <= extra && Date.now() > deadline) {
                 const waitedMs = Math.round(performance.now() - startedAt);
-                // Numeric geometry (room/scrollMax deltas) isn't trustworthy
-                // diagnostic evidence on its own — any number of unrelated
-                // DOM changes could produce the same numbers (see memory).
-                // The outerHTML of whatever's actually intersecting the
-                // viewport right now is real, checkable ground truth
-                // instead — captured to the separate .html export (not
-                // inlined into this message) so the markdown stays clean.
-                pushHtmlCaptures('work-zone-fatal-timeout', capturedIntersectingDecksHtml(container));
-                _perf.workZoneRoomShortfall.count++;
-                if (_perf.workZoneRoomShortfall.examples.length < 10) {
-                    _perf.workZoneRoomShortfall.examples.push(
-                        `steps=${jumpsTaken}, room=${Math.round(room)}px, required=${Math.round(extra)}px, ` +
-                        `boundaryReached=${boundaryReached}, waited=${waitedMs}ms`
-                    );
-                }
-                // Not retreating the jump size here: the overall deadline is
-                // a cumulative-time signal, not one correlated specifically
-                // with the jump size just used (unlike timedOut/
-                // sawSandwiched/detached, each checked once per jump — see
-                // cleanJump below), so there's no evidence here that a
-                // smaller size would even help next time.
                 const message =
                     `Timed out after ${SLAB_FINISH_TIMEOUT_MS / 1000}s stepping toward work-zone room ahead of current ` +
                     `(${jumpsTaken} small step(s) taken, room=${Math.round(room)}px, required=${Math.round(extra)}px, ` +
@@ -2859,394 +1720,26 @@ export function installExtractorApp() {
                 err.resumeFromCurrent = !isCurrentDetached(current);
                 throw err;
             }
-            const curTop = readPos();
-            const max = liveScrollMax(); // re-read live every step — the document's own scrollable range can shift mid-run, same as everything else
-            // The calibrated jump size is the requested intervention size:
-            // once calibration has reached the configured maximum, a jump
-            // should really use that calibrated size whenever applying it
-            // would still leave current before the work-zone target
-            // (room < advanceRoom, normally half the viewport height). Only
-            // the final approach to advanceRoom is
-            // clamped. This keeps the calibration semantics honest: a high
-            // max tests high jumps, while geometry only prevents crossing
-            // the explicit "current must remain inside the work zone"
-            // boundary.
-            //
-            // _workZoneAdaptiveJumpPx grows purely from "was the last jump
-            // clean" — it has no idea where current actually is right now.
-            // If the calibrated jump would cross advanceRoom (capped at
-            // clientH-1 specifically so current stays genuinely inside the
-            // viewport), clamp only that final jump. Without this boundary,
-            // a grown jump can take current from "inside the viewport" to
-            // "fully behind it" in one leap, and ChatGPT's virtualizer may
-            // detach the current node. getBoundingClientRect() then returns
-            // an all-zero rect forever after, which reads as permanent
-            // room=0 that no further jump can correct (observed live: a 30s
-            // timeout with room stuck at exactly 0 across 101 jumps).
-            //
-            const remainingToAdvanceRoom = advanceRoom - room;
-            if (remainingToAdvanceRoom < WORK_ZONE_TINY_TARGET_CLAMP_PX && room > extra) break; // already past minimum — skip the sub-pixel final approach
-            const calibratedJumpPx = _workZoneAdaptiveJumpPx;
-            const safeJumpPx = room + calibratedJumpPx < advanceRoom
-                ? calibratedJumpPx
-                : remainingToAdvanceRoom;
-            _perf.workZoneJumpStability.maxCalibratedJumpPx =
-                Math.max(_perf.workZoneJumpStability.maxCalibratedJumpPx, calibratedJumpPx);
-            const targetClamped = safeJumpPx < calibratedJumpPx;
-            const intendedPos = curTop + jumpSign * safeJumpPx;
-            const hitScrollBoundary = jumpSign < 0
-                ? intendedPos <= 0
-                : intendedPos >= max;
-            const nextPos = Math.max(0, Math.min(max, intendedPos));
-            if (nextPos === curTop) {
-                // Genuinely can't move any further in the direction that
-                // would help — a real document-boundary case, not a
-                // failure to retry against. Not fatal even if room is
-                // still <= extra: the caller decides whether to wait for
-                // more mounted content or accept the boundary.
-                boundaryReached = true;
-                outcome = 'boundary';
-                break;
-            }
-            if (hitScrollBoundary) boundaryReached = true;
-            if (moveSequence === null) {
-                _perf.workZoneJumpStability.calibratedJumpMoveSequence++;
-                moveSequence = _perf.workZoneJumpStability.calibratedJumpMoveSequence;
-            }
-            _perf.workZoneJumpStability.calibratedJumpCurrentJumps++;
-            if (_perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence !== moveSequence) {
-                _perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence = moveSequence;
-                _perf.workZoneJumpStability.calibratedJumpCurrentMoves++;
-            }
-            const requestedBucket = ensureRequestedJumpBucket(calibratedJumpPx);
-            if (targetClamped) {
-                requestedBucket.clamped++;
-                requestedBucket.clampedPxSum += safeJumpPx;
-            } else {
-                requestedBucket.jumps++;
-            }
-            setPos(nextPos);
-            if (targetClamped) {
-                _perf.workZoneJumpStability.targetClampedJumps++;
-                _perf.workZoneJumpStability.lastTargetClampedJumpPx = Math.round(safeJumpPx);
-                _perf.workZoneJumpStability.lastTargetClampedJumpRank = _perf.workZoneJumpStability.jumps;
-                _perf.workZoneJumpStability.targetClampedJumpPxSum += safeJumpPx;
-                if (safeJumpPx < WORK_ZONE_TINY_TARGET_CLAMP_PX) _perf.workZoneJumpStability.subMinTargetClamps++;
-            }
-            const appliedJumpPx = Math.round(Math.abs(nextPos - curTop));
-            _perf.workZoneJumpStability.maxJumpPx = Math.max(_perf.workZoneJumpStability.maxJumpPx, appliedJumpPx);
-            _perf.workZoneJumpStability.jumpPxSum += appliedJumpPx;
-            if (appliedJumpPx >= WORK_ZONE_MOVE_JUMP_MAX_PX) _perf.workZoneJumpStability.jumpsAtMax++;
-            jumpsTaken++;
-            // Tests a narrower, specific assumption — not "nothing about a
-            // move is predictable," but: immediately after setPos
-            // (synchronous, exact — current's own room right then is pure
-            // geometry, nothing async involved yet), is that same already-
-            // rendered slab's room still the same number once we're done
-            // *waiting* for the page to settle (new content mounting
-            // elsewhere, virtualization, etc.)? That's an assumption, not
-            // a guaranteed principle — measured directly
-            // here, every jump, so the aggregate stats either confirm or
-            // refute it with real numbers instead of a guess.
-            const roomRightAfterJump = measureRoom();
-            setStabilizationMarkerColor('#5ac8fa'); // light blue — exactly the real, unmodified waitForLayoutStable window, see its own comment
-            // Tests a specific theory: action buttons (copy/regenerate/etc.)
-            // under a message often mount later than the message text
-            // itself, and if that doesn't change scrollHeight (e.g. the
-            // turn already reserved the space), waitForLayoutStable's
-            // scrollHeight check would never even notice it happening —
-            // the same kind of blind spot already documented for
-            // pre-reserved canvas/textdoc height. Counting actual <button>
-            // elements (a stable tag, not a guess at ChatGPT's obfuscated
-            // class names) near current, before and after the wait, tests
-            // this directly instead of assuming it.
-            const turnContainerForButtons = current?.element?.closest('[data-turn-id-container]') || current?.deckElement || null;
-            const buttonsRightAfterJump = turnContainerForButtons ? turnContainerForButtons.querySelectorAll('button').length : null;
-            // Real outerHTML (not trimmedCaptureHtml's identity-tag-only
-            // version) of current's own turn container AND its immediate
-            // neighbors (deck containers are siblings in the DOM, so
-            // previous/nextElementSibling is enough — no full-document
-            // scan needed), at both measurement instants. Tests a theory
-            // that doesn't assume the cause lives in current's own content
-            // at all: the reason a slab's room moves during the wait might
-            // be something happening to the deck right above or below it
-            // (still mid-mount, still being virtualized), not anything
-            // about current itself — and might correlate with *position*
-            // in the viewport rather than which specific message it is.
-            // Captured for every jump (not just ones that already showed
-            // drift), up to WORK_ZONE_JUMP_SNAPSHOT_CAP, precisely so the
-            // non-drifting majority is in the same dataset as the
-            // drifting minority — a position correlation can't be checked
-            // against a sample that already excludes everything that
-            // didn't drift.
-            const precedentDeck = turnContainerForButtons?.previousElementSibling?.hasAttribute('data-turn-id-container')
-                ? turnContainerForButtons.previousElementSibling : null;
-            const subsequentDeck = turnContainerForButtons?.nextElementSibling?.hasAttribute('data-turn-id-container')
-                ? turnContainerForButtons.nextElementSibling : null;
-            // DOM-sibling order isn't the same as viewport position — the
-            // precedent/subsequent above answer "what's adjacent in the
-            // document," not "what's actually below current on screen."
-            // findDeckBelow answers the latter directly, by geometry: scan
-            // every deck currently in the DOM (not just siblings) and find
-            // the one whose own top edge sits at or below current's
-            // bottom edge, closest first. Tracked by turnId (not just
-            // captured) so its identity — and whether it's the *same* deck
-            // every run — can be checked across runs, the same way
-            // current's own turnId already is in roomDriftLog.
-            // Single scan per instant (queryDeckSequenceContainers does a
-            // real document.querySelectorAll + a rect check on every
-            // result) reused for above, below, AND a simple total count —
-            // not just "what's the nearest neighbor" but "how many decks
-            // are mounted in the whole document right now," to know
-            // whether this local block is most of what's in the DOM or a
-            // small fragment of something much larger.
-            const findDeckBelow = decks => {
-                if (!current?.geometryElement) return null;
-                const r = current.geometryElement.getBoundingClientRect();
-                let best = null, bestGap = Infinity;
-                for (const deckEl of decks) {
-                    const rect = deckEl.getBoundingClientRect();
-                    const gap = rect.top - r.bottom;
-                    if (gap >= 0 && gap < bestGap) { bestGap = gap; best = deckEl; }
-                }
-                return best;
-            };
-            // Mirror of findDeckBelow, but for what's actually relevant to
-            // "is the viewport itself covered": current's own rect spans
-            // from room down past clientH (it's taller than the
-            // viewport), so it already fully covers room..clientH on its
-            // own — anything below current is off-screen and can't be
-            // what's visible. The part of the viewport that's genuinely in
-            // question is *above* current: 0..room. findDeckAbove finds
-            // whatever deck's bottom edge is closest to (at or above)
-            // current's top, so that region's actual coverage (or lack of
-            // it) can be checked directly instead of assumed from the
-            // DOM-sibling precedent check (which mostly came back none,
-            // but that's adjacency in the document, not coverage on screen).
-            const findDeckAbove = decks => {
-                if (!current?.geometryElement) return null;
-                const r = current.geometryElement.getBoundingClientRect();
-                let best = null, bestGap = Infinity;
-                for (const deckEl of decks) {
-                    const rect = deckEl.getBoundingClientRect();
-                    const gap = r.top - rect.bottom;
-                    if (gap >= 0 && gap < bestGap) { bestGap = gap; best = deckEl; }
-                }
-                return best;
-            };
-            // The "covered area" question, directly: not just where
-            // current's leading edge (room) sits, but its actual rendered
-            // extent (top *and* bottom — its real height), the below
-            // deck's extent, and whether either leaves a genuine gap (no
-            // rendered content at all) against the other or against the
-            // viewport's own bottom edge. Relative to the container's own
-            // top (liveContainerTop), the same frame room already uses, so
-            // these numbers line up directly against room/clientH.
-            const rectRelativeToContainer = el => {
-                if (!el) return null;
-                const rect = el.getBoundingClientRect();
-                const ct = liveContainerTop();
-                return { top: rect.top - ct, bottom: rect.bottom - ct, height: rect.height };
-            };
-            const decksInDomRightAfterJump = queryDeckSequenceContainers();
-            const deckBelowRightAfterJump = findDeckBelow(decksInDomRightAfterJump);
-            const deckAboveRightAfterJump = findDeckAbove(decksInDomRightAfterJump);
-            const currentGeomRightAfterJump = rectRelativeToContainer(current?.geometryElement);
-            const belowGeomRightAfterJump = rectRelativeToContainer(deckBelowRightAfterJump);
-            const aboveGeomRightAfterJump = rectRelativeToContainer(deckAboveRightAfterJump);
-            const outerHtmlRightAfterJump = turnContainerForButtons?.outerHTML || null;
-            const precedentHtmlRightAfterJump = precedentDeck?.outerHTML || null;
-            const subsequentHtmlRightAfterJump = subsequentDeck?.outerHTML || null;
-            const belowHtmlRightAfterJump = deckBelowRightAfterJump?.outerHTML || null;
-            const belowTurnIdRightAfterJump = deckBelowRightAfterJump ? (deckSequenceId(deckBelowRightAfterJump) || '(no turn-id)') : '(none)';
-            const aboveTurnIdRightAfterJump = deckAboveRightAfterJump ? (deckSequenceId(deckAboveRightAfterJump) || '(no turn-id)') : '(none)';
-            const jumpStartedAt = performance.now();
-            const stability = await waitForLayoutStable(container, current);
-            _perf.workZoneJumpStability.jumpMsSum += performance.now() - jumpStartedAt;
-            const buttonsAfterWait = turnContainerForButtons ? turnContainerForButtons.querySelectorAll('button').length : null;
-            const outerHtmlAfterWait = turnContainerForButtons?.outerHTML || null;
-            const precedentHtmlAfterWait = precedentDeck?.outerHTML || null;
-            const subsequentHtmlAfterWait = subsequentDeck?.outerHTML || null;
-            const decksInDomAfterWait = queryDeckSequenceContainers();
-            const deckBelowAfterWait = findDeckBelow(decksInDomAfterWait);
-            const deckAboveAfterWait = findDeckAbove(decksInDomAfterWait);
-            const currentGeomAfterWait = rectRelativeToContainer(current?.geometryElement);
-            const belowGeomAfterWait = rectRelativeToContainer(deckBelowAfterWait);
-            const aboveGeomAfterWait = rectRelativeToContainer(deckAboveAfterWait);
-            const belowHtmlAfterWait = deckBelowAfterWait?.outerHTML || null;
-            const belowTurnIdAfterWait = deckBelowAfterWait ? (deckSequenceId(deckBelowAfterWait) || '(no turn-id)') : '(none)';
-            const aboveTurnIdAfterWait = deckAboveAfterWait ? (deckSequenceId(deckAboveAfterWait) || '(no turn-id)') : '(none)';
-            const belowChanged = belowTurnIdRightAfterJump !== belowTurnIdAfterWait || belowHtmlRightAfterJump !== belowHtmlAfterWait;
-            await nextAnimationFrame();
+
+            const safeJumpPx = normalizeJump(room);
+            if (safeJumpPx === null) break;
+
+            const { hitBoundary } = performJump(safeJumpPx);
+            if (hitBoundary) { boundaryReached = true; outcome = 'boundary'; break; }
+
+            const stability = await waitLayoutStable();
             room = measureRoom();
-            setStabilizationMarkerColor('#34c759'); // green — stabilization declared, one rendering cycle yielded before measuring room
+
             if (boundaryReached) {
                 outcome = 'boundary';
                 break;
             }
-            // Gap to whatever's below (real content if a deck was found,
-            // otherwise the viewport's own bottom edge) — positive means
-            // genuinely uncovered space (no rendered content there at
-            // all), not just "not current," at each instant. current's own
-            // rect already spans from room past clientH (taller than the
-            // viewport), so room..clientH is always covered by current
-            // itself — this is mostly diagnostic context, not where a real
-            // gap could show up on screen.
-            const gapBelowRightAfterJump = belowGeomRightAfterJump
-                ? belowGeomRightAfterJump.top - (currentGeomRightAfterJump?.bottom ?? roomRightAfterJump)
-                : clientH - (currentGeomRightAfterJump?.bottom ?? roomRightAfterJump);
-            const gapBelowAfterWait = belowGeomAfterWait
-                ? belowGeomAfterWait.top - (currentGeomAfterWait?.bottom ?? room)
-                : clientH - (currentGeomAfterWait?.bottom ?? room);
-            // Gap *above* current, within 0..room — the part of the
-            // viewport actually in question (see findDeckAbove's comment):
-            // is this region genuinely covered by a real mounted deck, or
-            // empty? No deck found at all means the entire 0..room region
-            // is uncovered, not just "not current's own content."
-            const gapAboveRightAfterJump = aboveGeomRightAfterJump
-                ? roomRightAfterJump - aboveGeomRightAfterJump.bottom
-                : roomRightAfterJump;
-            const gapAboveAfterWait = aboveGeomAfterWait
-                ? room - aboveGeomAfterWait.bottom
-                : room;
-            const roomDriftDuringWait = room - roomRightAfterJump;
-            _perf.workZoneJumpStability.roomDriftSum += roomDriftDuringWait;
-            _perf.workZoneJumpStability.roomDriftAbsSum += Math.abs(roomDriftDuringWait);
-            _perf.workZoneJumpStability.roomDriftMaxAbs =
-                Math.max(_perf.workZoneJumpStability.roomDriftMaxAbs, Math.abs(roomDriftDuringWait));
-            // Every jump, not just outliers — capturing only the large
-            // drifts can't answer whether drift correlates with the size
-            // of roomRightAfterJump itself (e.g. "only large room drifts,
-            // small room holds steady"); that needs the full
-            // (size, drift) pairing to actually check, not a pre-filtered
-            // sample. Capped only as a safety net for very long runs, not
-            // as a deliberate sample size. role/turnId identify *what*
-            // current actually was at each measurement — same safe
-            // element-vs-synthetic-marker handling as currentNotePlaceholder
-            // — to test whether drift clusters around a particular content
-            // type (e.g. images/canvas, which can still have sub-elements
-            // settling after scrollHeight itself looks stable) rather than
-            // correlating with room's own size.
-            const currentRoleForDriftLog = current?.element
-                ? slabRole(current)
-                : (current?.deckElement?.getAttribute('data-turn') || current?.type || 'unknown');
-            const currentTurnIdForDriftLog = current?.element
-                ? slabTurnId(current)
-                : (deckSequenceId(current?.deckElement) || null);
-            if (_perf.workZoneJumpStability.roomDriftLog.length < 2000) {
-                _perf.workZoneJumpStability.roomDriftLog.push(
-                    `rightAfterJump=${Math.round(roomRightAfterJump)}px, afterWait=${Math.round(room)}px, ` +
-                    `drift=${Math.round(roomDriftDuringWait)}px, role=${currentRoleForDriftLog}, ` +
-                    `turnId=${currentTurnIdForDriftLog || '(none)'}, buttons=${buttonsRightAfterJump ?? 'n/a'}->${buttonsAfterWait ?? 'n/a'}, ` +
-                    `belowTurnId=${belowTurnIdRightAfterJump}->${belowTurnIdAfterWait}, belowChanged=${belowChanged}, ` +
-                    `currentBottom=${Math.round(currentGeomRightAfterJump?.bottom ?? NaN)}->${Math.round(currentGeomAfterWait?.bottom ?? NaN)}px, ` +
-                    `gapBelowCurrent=${Math.round(gapBelowRightAfterJump)}->${Math.round(gapBelowAfterWait)}px, ` +
-                    `aboveTurnId=${aboveTurnIdRightAfterJump}->${aboveTurnIdAfterWait}, ` +
-                    `gapAboveCurrent(0..room, the part actually on screen)=${Math.round(gapAboveRightAfterJump)}->${Math.round(gapAboveAfterWait)}px, ` +
-                    `decksInWholeDom=${decksInDomRightAfterJump.length}->${decksInDomAfterWait.length}`
-                );
-            }
-            // Ungated by drift — every jump up to the cap, not just ones
-            // that already showed drift, so the non-drifting majority is
-            // in the same dataset as the drifting minority (see the
-            // comment above precedentDeck for why). Each entry bundles
-            // current + precedent + subsequent together (one entry per
-            // timing instant) rather than three separate ones, and labels
-            // room (the position) right in the heading, not just drift —
-            // both are needed to check a position-based theory, not only
-            // a content-based one.
-            if (turnContainerForButtons && _perf.workZoneJumpStability.fullSnapshotCount < WORK_ZONE_JUMP_SNAPSHOT_CAP) {
-                _perf.workZoneJumpStability.fullSnapshotCount++;
-                const snapshotTurnId = currentTurnIdForDriftLog || '(none)';
-                const bundle = (label, h) =>
-                    `<!-- room=${Math.round(h.room)}px, drift=${Math.round(roomDriftDuringWait)}px, turnId=${snapshotTurnId}, ` +
-                    `belowTurnId=${h.belowTurnId}, belowChangedFromOtherInstant=${belowChanged}, aboveTurnId=${h.aboveTurnId} -->\n` +
-                    `<!-- current rect: top=${Math.round(h.currentGeom?.top ?? NaN)}px bottom=${Math.round(h.currentGeom?.bottom ?? NaN)}px ` +
-                    `height=${Math.round(h.currentGeom?.height ?? NaN)}px (clientH=${Math.round(clientH)}px) -->\n` +
-                    `<!-- below rect: top=${Math.round(h.belowGeom?.top ?? NaN)}px bottom=${Math.round(h.belowGeom?.bottom ?? NaN)}px, ` +
-                    `gap to current's bottom (off-screen, real content vs viewport's own bottom edge) = ${Math.round(h.gapBelow)}px -->\n` +
-                    `<!-- above rect: top=${Math.round(h.aboveGeom?.top ?? NaN)}px bottom=${Math.round(h.aboveGeom?.bottom ?? NaN)}px, ` +
-                    `gap in 0..room (the part actually on screen above current) — positive means genuinely uncovered: ${Math.round(h.gapAbove)}px -->\n` +
-                    `<!-- precedent deck (DOM sibling): -->\n${h.precedentHtml ?? '<!-- (none) -->'}\n` +
-                    `<!-- current deck: -->\n${h.currentHtml ?? '<!-- (none) -->'}\n` +
-                    `<!-- subsequent deck (DOM sibling): -->\n${h.subsequentHtml ?? '<!-- (none) -->'}\n` +
-                    `<!-- deck geometrically below current (by position, not DOM order): -->\n${h.belowHtml ?? '<!-- (none) -->'}\n` +
-                    `<!-- deck geometrically above current (by position, not DOM order): -->\n${h.aboveHtml ?? '<!-- (none) -->'}`;
-                pushHtmlCaptures('jump-snapshot-right-after-jump', [{
-                    turnId: snapshotTurnId,
-                    role: currentRoleForDriftLog,
-                    html: bundle('right-after-jump', {
-                        room: roomRightAfterJump, currentHtml: outerHtmlRightAfterJump,
-                        precedentHtml: precedentHtmlRightAfterJump, subsequentHtml: subsequentHtmlRightAfterJump,
-                        belowHtml: belowHtmlRightAfterJump, belowTurnId: belowTurnIdRightAfterJump,
-                        aboveHtml: deckAboveRightAfterJump?.outerHTML || null, aboveTurnId: aboveTurnIdRightAfterJump,
-                        currentGeom: currentGeomRightAfterJump, belowGeom: belowGeomRightAfterJump, aboveGeom: aboveGeomRightAfterJump,
-                        gapBelow: gapBelowRightAfterJump, gapAbove: gapAboveRightAfterJump,
-                    }),
-                }]);
-                pushHtmlCaptures('jump-snapshot-after-wait', [{
-                    turnId: snapshotTurnId,
-                    role: currentRoleForDriftLog,
-                    html: bundle('after-wait', {
-                        room, currentHtml: outerHtmlAfterWait,
-                        precedentHtml: precedentHtmlAfterWait, subsequentHtml: subsequentHtmlAfterWait,
-                        belowHtml: belowHtmlAfterWait, belowTurnId: belowTurnIdAfterWait,
-                        aboveHtml: deckAboveAfterWait?.outerHTML || null, aboveTurnId: aboveTurnIdAfterWait,
-                        currentGeom: currentGeomAfterWait, belowGeom: belowGeomAfterWait, aboveGeom: aboveGeomAfterWait,
-                        gapBelow: gapBelowAfterWait, gapAbove: gapAboveAfterWait,
-                    }),
-                }]);
-            }
-            // There used to be a check here comparing the post-wait room to
-            // roomBeforeJump + appliedJumpPx and failing on a mismatch —
-            // removed, since predicting the outcome of our own scripted
-            // jump that way was never actually reliable (see
-            // roomDriftDuringWait above for the assumption that
-            // replaced it, and why it's measured instead of trusted). The
-            // loop below already doesn't care whether any one jump hit an
-            // expectation — it just keeps stepping, re-measuring room
-            // fresh, until advanceRoom is reached or time runs out.
-            // Detachment stays checked because it's a structural fact
-            // (current.geometryElement is or isn't in the document), not a
-            // comparison against a number we made up.
-            //
-            // "Clean" does not mean "nothing changed." Mounting newly
-            // revealed content is exactly the normal case we are pacing for.
-            // A jump is clean if the page reached a stable state without
-            // hitting the per-jump cap, without seeing the stronger
-            // sandwiched-empty signal, and without current having been
-            // detached.
             const cleanJump = stability && !stability.timedOut && !stability.sawSandwiched && !stability.detached;
             if (cleanJump) {
-                // Calibration state machine: jump size alone determines what
-                // happens next, so a clean jump advances one 60px state
-                // immediately — no streak gate.
                 if (_workZoneAdaptiveJumpPx < WORK_ZONE_MOVE_JUMP_MAX_PX) {
                     _workZoneAdaptiveJumpPx = Math.min(WORK_ZONE_MOVE_JUMP_MAX_PX, _workZoneAdaptiveJumpPx + WORK_ZONE_MOVE_JUMP_GROW_PX);
-                    _perf.workZoneJumpStability.calibratedJumpCurrentJumps = 0;
-                    _perf.workZoneJumpStability.calibratedJumpCurrentMoves = 0;
-                    _perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence = null;
-                    _perf.workZoneJumpStability.adaptiveIncreases++;
                 }
             } else {
-                // Fatal, no in-loop retry. If current detached, retreat the
-                // calibration state 2 steps (120px) from the size that just
-                // failed — floored at the base, not a full collapse — so a
-                // later fresh run starts smaller instead of repeating the
-                // one that just failed. If current is still connected, keep
-                // the calibration and let the panel offer Resume from this
-                // cursor instead.
-                //
-                // This is a minor convenience, not load-bearing: the actual
-                // fix is detecting the failure (above, via
-                // stability.detached/sawSandwiched/timedOut) fast and
-                // accurately. Without this retreat, a retry would just
-                // restart at the floor and slowly regrow instead of
-                // resuming near the size that failed — slower, never
-                // wrong. If this ever gets in the way of keeping the code
-                // simple, it can be deleted (along with run()'s matching
-                // "deliberately not reset" comment) with nothing lost but
-                // that bit of regrowth time.
                 const reasonParts = [];
                 if (stability?.detached) reasonParts.push('current detached (signature of a too-large jump)');
                 if (stability?.sawSandwiched) reasonParts.push('sandwiched-empty deck still present');
@@ -3261,20 +1754,6 @@ export function installExtractorApp() {
                     );
                 }
                 if (!stability) reasonParts.push('stability check did not resolve');
-                // Only detachment is actually evidence of a too-large jump
-                // (a structural fact, not a comparison against a predicted
-                // number — see the comment above cleanJump for why that
-                // comparison was removed). sawSandwiched/timedOut alone,
-                // with current still connected, is consistent instead with
-                // the separate, already-documented sandwiched-empty-deck
-                // gap (see findSandwichedEmptySlabInViewport / the exported
-                // diag's "needs a readiness patch" note): ChatGPT hasn't
-                // finished rendering this content yet, independent of jump
-                // size. Confirmed live: a 540px jump (well under the old
-                // 600px cap) failed this way with geometryElement.isConnected
-                // still true — retreating the jump size would not have
-                // been the fix there. Don't claim a confidence the
-                // evidence doesn't support.
                 const detachedCause = !!stability?.detached;
                 const failedJumpPx = _workZoneAdaptiveJumpPx;
                 if (detachedCause) {
@@ -3282,10 +1761,6 @@ export function installExtractorApp() {
                         WORK_ZONE_MOVE_JUMP_PX,
                         _workZoneAdaptiveJumpPx - WORK_ZONE_MOVE_JUMP_RETREAT_STATES * WORK_ZONE_MOVE_JUMP_GROW_PX
                     );
-                    _perf.workZoneJumpStability.calibratedJumpCurrentJumps = 0;
-                    _perf.workZoneJumpStability.calibratedJumpCurrentMoves = 0;
-                    _perf.workZoneJumpStability.calibratedJumpCurrentLastMoveSequence = null;
-                    _perf.workZoneJumpStability.adaptiveResets++;
                 }
                 pushHtmlCaptures('work-zone-jump-failed', capturedIntersectingDecksHtml(container));
                 const explanation = detachedCause
@@ -3307,15 +1782,7 @@ export function installExtractorApp() {
                 throw err;
             }
         }
-        // Capture only when a move actually happened — most calls find
-        // room > extra immediately above and return before this point.
-        // Goes to the separate .html export (pushHtmlCaptures), not the
-        // markdown — the markdown stays clean text, the real captured
-        // markup lives in its own file. jumpsTaken/outcome are still
-        // returned so the caller can log them live without needing the
-        // capture itself.
         if (jumpsTaken > 0) {
-            _perf.viewportMoveOperationsWorkZone++;
             pushHtmlCaptures('work-zone-move', capturedIntersectingDecksHtml(container));
         }
         return { roomSatisfied: room > extra, boundaryReached, room, required: extra, jumpsTaken, outcome };
@@ -3380,8 +1847,7 @@ export function installExtractorApp() {
     
     // Mechanism A — is the deck found by findNextDeck actually loaded?
     // ChatGPT's own lazy placeholder wrapper, [data-turn-id-container],
-    // reports data-is-intersecting="false" while blank — the same
-    // fingerprint the Compatibility Check panel inspects. Resolution is
+    // reports data-is-intersecting="false" while blank. Resolution is
     // intersection-driven, so only move the viewport if it's still blank
     // (moving it is purely to trigger that), then wait for it to clear.
     // Same 30s-then-fail discipline as everywhere else: trust the source,
@@ -3398,15 +1864,12 @@ export function installExtractorApp() {
     // violation instead of surfacing it (the same silent leniency this
     // file has already been corrected away from once — see
     // finishDeckCoverage's history).
-    async function waitForTurnReady(container, turnEl, timeoutMs = 30_000, onTick = null) {
+    async function waitForTurnReady(container, turnEl, timeoutMs = 30_000) {
         if (turnEl.getAttribute('data-is-intersecting') !== 'false') {
-            recordReadyMargin(container);
-            markContainerReady();
             return; // already resolved
         }
         const deadline = Date.now() + timeoutMs;
         while (turnEl.getAttribute('data-is-intersecting') === 'false') {
-            onTick?.();
             if (!turnEl.isConnected)
                 throw new Error('Target deck node detached from the document while waiting for it to mount — reacquire needed, not a timeout.');
             if (Date.now() > deadline) {
@@ -3421,8 +1884,6 @@ export function installExtractorApp() {
             }
             await sleep(100);
         }
-        recordReadyMargin(container);
-        markContainerReady();
     }
     
     // Geometry-model diagnostics below inspect ready decks in detail. The
@@ -3549,333 +2010,8 @@ export function installExtractorApp() {
             ).join(' || ')}` : '');
     }
     
-    function scheduleReadyContainerGapRecheck(kind, readyContainer, firstEl, secondEl, initialGap, threshold, containerTurnId) {
-        if (_perf.readyContainerModel.delayedRechecksScheduled >= 20) return;
-        _perf.readyContainerModel.delayedRechecksScheduled++;
-        const label = `${kind}: turnId=${containerTurnId}, initial=${Math.round(initialGap)}px, threshold=${Math.round(threshold)}px`;
-        setTimeout(() => {
-            if (!readyContainer.isConnected || !firstEl?.isConnected || (secondEl && !secondEl.isConnected)) {
-                _perf.readyContainerModel.delayedRechecksResolved++;
-                if (_perf.readyContainerModel.delayedRecheckExamples.length < 10) {
-                    _perf.readyContainerModel.delayedRecheckExamples.push(`${label} → node detached before recheck`);
-                }
-                return;
-            }
-            const r = readyContainer.getBoundingClientRect();
-            const firstRect = firstEl.getBoundingClientRect();
-            const firstScopeRect = slabScopeForMessageElement(firstEl).getBoundingClientRect();
-            const secondRect = secondEl?.getBoundingClientRect();
-            const secondScopeRect = secondEl ? slabScopeForMessageElement(secondEl).getBoundingClientRect() : null;
-            let recheckedGap;
-            if (kind === 'top-message-inset') recheckedGap = firstRect.top - r.top;
-            else if (kind === 'bottom-message-inset') recheckedGap = r.bottom - firstRect.bottom;
-            else recheckedGap = secondRect.top - firstRect.bottom;
-            const delta = recheckedGap - initialGap;
-            _perf.readyContainerModel.delayedRechecksResolved++;
-            if (Math.abs(delta) >= SMALL_EXTRA) _perf.readyContainerModel.delayedRechecksChanged++;
-            if (_perf.readyContainerModel.delayedRecheckExamples.length < 10) {
-                _perf.readyContainerModel.delayedRecheckExamples.push(
-                    `${label} → after 500ms ${Math.round(recheckedGap)}px (Δ${Math.round(delta)}px), ` +
-                    `containerRect=[${rectSummary(r)}], ` +
-                    `firstMessageRect=[${rectSummary(firstRect)}], ` +
-                    `firstSlabScopeRect=[${rectSummary(firstScopeRect)}]` +
-                    (secondRect ? `, secondMessageRect=[${rectSummary(secondRect)}]` : '') +
-                    (secondScopeRect ? `, secondSlabScopeRect=[${rectSummary(secondScopeRect)}]` : '')
-                );
-            }
-        }, 500);
-    }
-    
-    function checkReadyContainerModel(readyContainer, checkedModelContainers) {
-        if (!readyContainer || checkedModelContainers.has(readyContainer)) return;
-        checkedModelContainers.add(readyContainer);
-        _perf.readyContainerModel.checked++;
-    
-        const r = readyContainer.getBoundingClientRect();
-        const tolerance = 1;
-        const messageGapThreshold = Math.max(shortestMountedMessageHeight(), MIN_ONE_LINE_MESSAGE_HEIGHT);
-        const edgeGapThreshold = SLAB_ADJACENCY_MAX_GAP;
-        const members = [];
-        const containerTurnId = deckSequenceId(readyContainer) || '(none)';
-        const domMembers = new Set(readyContainer.querySelectorAll('[data-message-author-role]'));
-        const probeMembers = new Set();
-        const rememberModelExampleMsgId = (label, msgId) => {
-            if (!msgId || _perf.readyContainerModel.exampleMsgIds.length >= 20) return;
-            _perf.readyContainerModel.exampleMsgIds.push({ label, msgId });
-        };
-    
-        for (const el of document.querySelectorAll('[data-message-author-role]')) {
-            const er = el.getBoundingClientRect();
-            const probe = er.top + SMALL_EXTRA;
-            const probeInside = probe > r.top && probe <= r.bottom;
-            const overlapPx = Math.min(er.bottom, r.bottom) - Math.max(er.top, r.top);
-            const overlaps = overlapPx > SMALL_EXTRA;
-            if (probeInside) {
-                probeMembers.add(el);
-                members.push({ el, rect: er });
-                if (er.top < r.top - tolerance || er.bottom > r.bottom + tolerance) {
-                    _perf.readyContainerModel.containmentViolations++;
-                    if (_perf.readyContainerModel.examples.length < 10) {
-                        _perf.readyContainerModel.examples.push(
-                            `containment: message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
-                            `not fully inside container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
-                            `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
-                            `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
-                        );
-                    }
-                }
-            } else if (overlaps) {
-                _perf.readyContainerModel.overlappingNonMembers++;
-                if (_perf.readyContainerModel.examples.length < 10) {
-                    _perf.readyContainerModel.examples.push(
-                        `overlap-nonmember: message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}] ` +
-                        `overlaps container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}] by ${Math.round(overlapPx)}px ` +
-                        `but probe=${Math.round(probe)} is outside; ` +
-                        `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
-                        `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
-                    );
-                }
-            }
-        }
-    
-        for (const el of domMembers) {
-            if (probeMembers.has(el)) continue;
-            _perf.readyContainerModel.domOnlyMembers++;
-            if (_perf.readyContainerModel.examples.length < 10) {
-                const er = el.getBoundingClientRect();
-                _perf.readyContainerModel.examples.push(
-                    `dom-only-member: message is a DOM descendant but its probe is outside readyContainer; ` +
-                    `message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
-                    `container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
-                    `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
-                    `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
-                );
-            }
-        }
-        for (const el of probeMembers) {
-            if (domMembers.has(el)) continue;
-            _perf.readyContainerModel.probeOnlyMembers++;
-            if (_perf.readyContainerModel.examples.length < 10) {
-                const er = el.getBoundingClientRect();
-                _perf.readyContainerModel.examples.push(
-                    `probe-only-member: message probe is inside readyContainer but it is not a DOM descendant; ` +
-                    `message rect[top=${Math.round(er.top)},bottom=${Math.round(er.bottom)}], ` +
-                    `container[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)}]; ` +
-                    `role=${el.getAttribute('data-message-author-role') || '(none)'}, ` +
-                    `msgId=${el.getAttribute('data-message-id') || '(none)'}, readyContainerTurnId=${containerTurnId}`
-                );
-            }
-        }
-    
-        const stacks = [...readyContainer.querySelectorAll('[data-conversation-screenshot-content]')]
-            .map(scope => [...scope.children].find(child => child.matches?.('.flex.max-w-full.flex-col.gap-4.grow')))
-            .filter(Boolean);
-        for (const stack of stacks) {
-            _perf.readyContainerModel.slabStacksChecked++;
-            const slabItems = [...stack.children]
-                .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), kind: classifySlabItem(el) }))
-                .filter(item => item.rect.height > 0);
-            _perf.readyContainerModel.slabItemsChecked += slabItems.length;
-            for (const item of slabItems) {
-                if (item.kind === 'unknown') {
-                    _perf.readyContainerModel.unknownSlabItems++;
-                    if (_perf.readyContainerModel.examples.length < 10) {
-                        _perf.readyContainerModel.examples.push(
-                            `unknown-slab-item: ${describeSlabItem(item.el, item.index)}, ` +
-                            `readyContainerTurnId=${containerTurnId}`
-                        );
-                    }
-                }
-            }
-            slabItems.sort((a, b) => a.rect.top - b.rect.top);
-            for (let i = 1; i < slabItems.length; i++) {
-                const gap = slabItems[i].rect.top - slabItems[i - 1].rect.bottom;
-                if (gap > _perf.readyContainerModel.maxSlabGap) {
-                    _perf.readyContainerModel.maxSlabGap = gap;
-                }
-                if (gap >= edgeGapThreshold) {
-                    _perf.readyContainerModel.slabGapViolations++;
-                    if (_perf.readyContainerModel.examples.length < 10) {
-                        _perf.readyContainerModel.examples.push(
-                            `slab-gap: ${Math.round(gap)}px between direct stack slabs ` +
-                            `(threshold=${Math.round(edgeGapThreshold)}px); ` +
-                            `readyContainerTurnId=${containerTurnId}, ` +
-                            `prev=${describeSlabItem(slabItems[i - 1].el, slabItems[i - 1].index)}, ` +
-                            `next=${describeSlabItem(slabItems[i].el, slabItems[i].index)}`
-                        );
-                    }
-                }
-            }
-        }
-    
-        members.sort((a, b) => a.rect.top - b.rect.top);
-        if (members.length > 0) {
-            const topGap = members[0].rect.top - r.top;
-            const bottomGap = r.bottom - members[members.length - 1].rect.bottom;
-            if (topGap > _perf.readyContainerModel.maxTopEdgeGap) {
-                _perf.readyContainerModel.maxTopEdgeGap = topGap;
-                _perf.readyContainerModel.maxTopEdgeWinner = {
-                    msgId: members[0].el.getAttribute('data-message-id') || '(none)',
-                    role: members[0].el.getAttribute('data-message-author-role') || '(none)',
-                    containerTurnId,
-                    gap: Math.round(topGap),
-                    containerRect: rectSummary(r),
-                    messageRect: rectSummary(members[0].rect),
-                    slabScopeRect: rectSummary(slabScopeForMessageElement(members[0].el).getBoundingClientRect()),
-                    memberCount: members.length,
-                };
-            }
-            if (bottomGap > _perf.readyContainerModel.maxBottomEdgeGap) {
-                _perf.readyContainerModel.maxBottomEdgeGap = bottomGap;
-                _perf.readyContainerModel.maxBottomEdgeWinner = {
-                    msgId: members[members.length - 1].el.getAttribute('data-message-id') || '(none)',
-                    role: members[members.length - 1].el.getAttribute('data-message-author-role') || '(none)',
-                    containerTurnId,
-                    gap: Math.round(bottomGap),
-                    containerRect: rectSummary(r),
-                    messageRect: rectSummary(members[members.length - 1].rect),
-                    slabScopeRect: rectSummary(slabScopeForMessageElement(members[members.length - 1].el).getBoundingClientRect()),
-                    memberCount: members.length,
-                };
-            }
-            if (topGap >= edgeGapThreshold) {
-                _perf.readyContainerModel.topEdgeViolations++;
-                scheduleReadyContainerGapRecheck('top-message-inset', readyContainer, members[0].el, null, topGap, edgeGapThreshold, containerTurnId);
-                if (_perf.readyContainerModel.examples.length < 10) {
-                    const gapTop = r.top;
-                    const gapBottom = members[0].rect.top;
-                    const gapOccupants = [...document.querySelectorAll('[data-message-author-role]')]
-                        .filter(el => el !== members[0].el)
-                        .map(el => ({ el, rect: el.getBoundingClientRect() }))
-                        .filter(({ rect }) => rect.bottom > gapTop && rect.top < gapBottom)
-                        .sort((a, b) => b.rect.bottom - a.rect.bottom);
-                    const nearestAbove = [...document.querySelectorAll('[data-message-author-role]')]
-                        .filter(el => el !== members[0].el)
-                        .map(el => ({ el, rect: el.getBoundingClientRect() }))
-                        .filter(({ rect }) => rect.bottom <= gapBottom)
-                        .sort((a, b) => b.rect.bottom - a.rect.bottom)[0] || null;
-                    const nonMessageGapOccupants = [...readyContainer.querySelectorAll('*')]
-                        .filter(el => !el.matches('[data-message-author-role]') && !el.closest('[data-message-author-role]'))
-                        .map(el => {
-                            const rect = el.getBoundingClientRect();
-                            const overlap = Math.min(rect.bottom, gapBottom) - Math.max(rect.top, gapTop);
-                            return { el, rect, overlap };
-                        })
-                        .filter(({ overlap }) => overlap > SMALL_EXTRA)
-                        .sort((a, b) => b.overlap - a.overlap);
-                    const nestedGapContainers = [...readyContainer.querySelectorAll('[data-turn-id-container]')]
-                        .map(el => {
-                            const rect = el.getBoundingClientRect();
-                            const overlap = Math.min(rect.bottom, gapBottom) - Math.max(rect.top, gapTop);
-                            return { el, rect, overlap };
-                        })
-                        .filter(({ overlap }) => overlap > SMALL_EXTRA)
-                        .sort((a, b) => b.overlap - a.overlap);
-                    const ancestorContainers = [];
-                    for (let el = readyContainer.parentElement; el; el = el.parentElement) {
-                        if (el.matches?.('[data-turn-id-container]')) {
-                            const rect = el.getBoundingClientRect();
-                            ancestorContainers.push({
-                                id: el.getAttribute('data-turn-id-container') || '(none)',
-                                rect,
-                            });
-                        }
-                    }
-                    const describeGapMessage = item => item
-                        ? `role=${item.el.getAttribute('data-message-author-role') || '(none)'}, ` +
-                          `msgId=${item.el.getAttribute('data-message-id') || '(none)'}, ` +
-                          `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)}], ` +
-                          `containerId=${item.el.closest('[data-turn-id-container]')?.getAttribute('data-turn-id-container') || '(none)'}`
-                        : '(none)';
-                    const describeGapElement = item => item
-                        ? `<${item.el.tagName.toLowerCase()}> overlap=${Math.round(item.overlap)}px, ` +
-                          `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)}], ` +
-                          `class="${(item.el.className || '').slice(0, 80)}", ` +
-                          `data="${[...item.el.attributes].filter(a => a.name.startsWith('data-')).map(a => a.value ? `${a.name}=${a.value}` : a.name).join(' ')}"`
-                        : '(none)';
-                    const describeGapContainer = item => item
-                        ? `id=${item.el.getAttribute('data-turn-id-container') || '(none)'}, ` +
-                          `overlap=${Math.round(item.overlap)}px, ` +
-                          `rect=[top=${Math.round(item.rect.top)},bottom=${Math.round(item.rect.bottom)},height=${Math.round(item.rect.height)}]`
-                        : '(none)';
-                    _perf.readyContainerModel.examples.push(
-                        `top-message-inset: ${Math.round(topGap)}px before first message slab in readyContainer ` +
-                        `(threshold=${Math.round(edgeGapThreshold)}px); ` +
-                        `firstMsgId=${members[0].el.getAttribute('data-message-id') || '(none)'}, ` +
-                        `readyContainerTurnId=${containerTurnId}, ` +
-                        `containerRect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}], ` +
-                        `firstMessageRect=[top=${Math.round(members[0].rect.top)},bottom=${Math.round(members[0].rect.bottom)}], ` +
-                        `firstSlabScopeRect=[${rectSummary(slabScopeForMessageElement(members[0].el).getBoundingClientRect())}], ` +
-                        `memberCount=${members.length}, ` +
-                        `gapOccupantCount=${gapOccupants.length}, ` +
-                        `nearestGapOccupant=${describeGapMessage(gapOccupants[0])}, ` +
-                        `nearestMessageAboveFirst=${describeGapMessage(nearestAbove)}, ` +
-                        `nonMessageGapOccupantCount=${nonMessageGapOccupants.length}, ` +
-                        `largestNonMessageGapOccupant=${describeGapElement(nonMessageGapOccupants[0])}, ` +
-                        `nestedGapContainerCount=${nestedGapContainers.length}, ` +
-                        `largestNestedGapContainer=${describeGapContainer(nestedGapContainers[0])}, ` +
-                        `ancestorContainerCount=${ancestorContainers.length}, ` +
-                        `nearestAncestorContainer=${ancestorContainers[0]
-                            ? `id=${ancestorContainers[0].id}, rect=[top=${Math.round(ancestorContainers[0].rect.top)},bottom=${Math.round(ancestorContainers[0].rect.bottom)},height=${Math.round(ancestorContainers[0].rect.height)}]`
-                            : '(none)'}, ` +
-                        `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[0].el, gapTop, gapBottom)}, ` +
-                        `slabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[0].el, readyContainer)}`
-                    );
-                    rememberModelExampleMsgId('top-message-inset first', members[0].el.getAttribute('data-message-id'));
-                }
-            }
-            if (bottomGap >= edgeGapThreshold) {
-                _perf.readyContainerModel.bottomEdgeViolations++;
-                scheduleReadyContainerGapRecheck('bottom-message-inset', readyContainer, members[members.length - 1].el, null, bottomGap, edgeGapThreshold, containerTurnId);
-                if (_perf.readyContainerModel.examples.length < 10) {
-                    _perf.readyContainerModel.examples.push(
-                        `bottom-message-inset: ${Math.round(bottomGap)}px after last message slab in readyContainer ` +
-                        `(threshold=${Math.round(edgeGapThreshold)}px); ` +
-                        `lastMsgId=${members[members.length - 1].el.getAttribute('data-message-id') || '(none)'}, ` +
-                        `readyContainerTurnId=${containerTurnId}, ` +
-                        `containerRect=[top=${Math.round(r.top)},bottom=${Math.round(r.bottom)},height=${Math.round(r.height)}], ` +
-                        `lastMessageRect=[top=${Math.round(members[members.length - 1].rect.top)},bottom=${Math.round(members[members.length - 1].rect.bottom)}], ` +
-                        `lastSlabScopeRect=[${rectSummary(slabScopeForMessageElement(members[members.length - 1].el).getBoundingClientRect())}], ` +
-                        `memberCount=${members.length}, ` +
-                        `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[members.length - 1].el, members[members.length - 1].rect.bottom, r.bottom)}, ` +
-                        `slabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[members.length - 1].el, readyContainer)}`
-                    );
-                    rememberModelExampleMsgId('bottom-message-inset last', members[members.length - 1].el.getAttribute('data-message-id'));
-                }
-            }
-        }
-        for (let i = 1; i < members.length; i++) {
-            const gap = members[i].rect.top - members[i - 1].rect.bottom;
-            if (gap > _perf.readyContainerModel.maxMessageGap) _perf.readyContainerModel.maxMessageGap = gap;
-            if (gap >= messageGapThreshold) {
-                _perf.readyContainerModel.messageGapViolations++;
-                scheduleReadyContainerGapRecheck('message-gap', readyContainer, members[i - 1].el, members[i].el, gap, messageGapThreshold, containerTurnId);
-                if (_perf.readyContainerModel.examples.length < 10) {
-                    _perf.readyContainerModel.examples.push(
-                        `message-gap: ${Math.round(gap)}px between adjacent message slabs in readyContainer ` +
-                        `(threshold=${Math.round(messageGapThreshold)}px); ` +
-                        `prevMsgId=${members[i - 1].el.getAttribute('data-message-id') || '(none)'}, ` +
-                        `nextMsgId=${members[i].el.getAttribute('data-message-id') || '(none)'}, ` +
-                        `readyContainerTurnId=${containerTurnId}, ` +
-                        `siblingSlabCoverage=${describeSiblingSlabItemsInRange(members[i].el, members[i - 1].rect.bottom, members[i].rect.top)}, ` +
-                        `prevSlabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[i - 1].el, readyContainer)}, ` +
-                        `nextSlabScopeCandidates=${describeSlabScopeCandidatesForMessageElement(members[i].el, readyContainer)}`
-                    );
-                    rememberModelExampleMsgId('message-gap prev', members[i - 1].el.getAttribute('data-message-id'));
-                    rememberModelExampleMsgId('message-gap next', members[i].el.getAttribute('data-message-id'));
-                }
-            }
-        }
-    }
-    
     function isCanvasBlock(el) {
         return Boolean(el?.id && el.id.startsWith('textdoc-message-'));
-    }
-    
-    function recordNearbySlabCandidates(count) {
-        if (count <= 1) return;
-        _perf.multiCandidatesInReadyContainer++;
-        _perf.multiCandidatesMax = Math.max(_perf.multiCandidatesMax, count);
     }
     
     const FILTERED_SLAB_RULES = [
@@ -3898,24 +2034,6 @@ export function installExtractorApp() {
         return items;
     }
     
-    function recordFilteredSlabItem(el, rule = null) {
-        if (rule) {
-            if (_reportedAllowlistedSlabItems.has(el)) return;
-            _reportedAllowlistedSlabItems.add(el);
-            _perf.slabFiltering.allowlisted++;
-            _perf.slabFiltering.byRule[rule.name] = (_perf.slabFiltering.byRule[rule.name] || 0) + 1;
-            return;
-        }
-        if (_reportedUnlistedSlabItems.has(el)) return;
-        _reportedUnlistedSlabItems.add(el);
-        _perf.slabFiltering.unlisted++;
-        const description = `UNLISTED filtered direct-stack item: ${describeSlabItem(el)}`;
-        if (_perf.slabFiltering.examples.length < 20) {
-            _perf.slabFiltering.examples.push(description);
-        }
-        console.warn(`[Extractor] ${description}`, el);
-    }
-    
     function inspectUnselectedStackItems(selectedCandidates, acceptsRect) {
         const selectedGeometry = new Set(selectedCandidates.map(candidate => candidate.geometryElement));
         const unlisted = [];
@@ -3924,7 +2042,6 @@ export function installExtractorApp() {
             const rect = el.getBoundingClientRect();
             if (!acceptsRect(rect)) continue;
             const rule = filteredSlabRuleFor(el);
-            recordFilteredSlabItem(el, rule);
             if (!rule) unlisted.push({ el, rect });
         }
         return unlisted;
@@ -4016,24 +2133,10 @@ export function installExtractorApp() {
         const imageEls = root.querySelectorAll('.group\\/imagegen-image');
         for (const el of messageEls) candidates.push(makeSlabCandidate('message', el));
         for (const el of canvasEls) {
-            _perf.canvasBlocks.seenGlobally++;
-            _perf.canvasBlocks.candidatesFound++;
             candidates.push(makeSlabCandidate('canvas', el));
         }
         for (const el of imageEls) {
-            _perf.imageOnlyTurns.candidatesFound++;
-            const turnId = el.closest('[data-turn]')?.getAttribute('data-turn-id') || null;
-            if (turnId && !_perf.imageOnlyTurns.byTurnId[turnId]) {
-                _perf.imageOnlyTurns.byTurnId[turnId] = {
-                    verdict: 'direct-image-candidate',
-                    dryTextLen: 0,
-                    nearestUserMsgId: '(not applicable)',
-                    nearestUserContainerId: '(not applicable)',
-                    extracted: false,
-                };
-            }
             candidates.push(makeSlabCandidate('image', el));
-            watchImageSrcHistory(el);
         }
         // The turn's own section wrapper (data-turn) exists as soon as the
         // deck mounts, before any of the three precise selectors above have
@@ -4089,7 +2192,6 @@ export function installExtractorApp() {
                     ? b.rect.bottom - a.rect.bottom
                     : a.rect.top - b.rect.top;
             });
-        recordNearbySlabCandidates(ranked.length);
         return ranked[0]?.candidate || null;
     }
     
@@ -4159,7 +2261,7 @@ export function installExtractorApp() {
     // slab in that ready deck is nearest by same-frame distance ahead of
     // current, within the bounded lookahead distance. Unknown direct-stack
     // items are reported, not silently treated as valid slabs.
-    function findNextSlabInReadyDeck(deckEl, currentSlab, entryDiag = null) {
+    function findNextSlabInReadyDeck(deckEl, currentSlab) {
         const selectedCandidates = querySelectedSlabCandidates(deckEl);
         const stackItems = directStackItems(deckEl);
         const frame = measureSlabSearchFrame(deckEl, currentSlab, selectedCandidates, stackItems);
@@ -4169,13 +2271,12 @@ export function installExtractorApp() {
             const unlisted = [];
             for (const { el } of frame.stackItems) {
                 const rule = filteredSlabRuleFor(el);
-                recordFilteredSlabItem(el, rule);
                 if (!rule) unlisted.push(el);
             }
             const detail = stackItems.length === 0
                 ? ''
                 : ` ${stackItems.length} direct-stack item(s) existed, but none matched a valid slab selector` +
-                  (unlisted.length ? ` (${unlisted.length} unlisted); see diagnostics.` : '.');
+                  (unlisted.length ? ` (${unlisted.length} unlisted).` : '.');
             return {
                 kind: 'note',
                 slab: {
@@ -4190,8 +2291,7 @@ export function installExtractorApp() {
                         role: deckEl.getAttribute('data-turn') || 'unknown',
                         text: `*[Empty container — no slab could be detected for this turn (turnId=` +
                             `${deckSequenceId(deckEl) || 'unknown'}). This may be a ChatGPT rendering failure ` +
-                            `or an extractor bug; see the exported diagnostics.${detail} ` +
-                            `${describeMovesSinceEntry(entryDiag)}, ${describeIntersectingHistory(deckEl)}]*\n\n` +
+                            `or an extractor bug.${detail}]*\n\n` +
                             `${captureElementHtmlReference('empty-container-selection', deckEl, deckEl.getAttribute('data-turn') || 'unknown', deckSequenceId(deckEl))}\n\n`,
                         plainText: '[Empty container]',
                         msgId: null,
@@ -4209,15 +2309,12 @@ export function installExtractorApp() {
                 }
                 return a.distances.insideDeckDistance - b.distances.insideDeckDistance;
             });
-        recordNearbySlabCandidates(ranked.length);
-    
         const selectedGeometry = new Set(selectedCandidates.map(candidate => candidate.geometryElement));
         const unlisted = [];
         for (const { el, distances } of frame.stackItems) {
             if (selectedGeometry.has(el) || selectedCandidates.some(candidate => el.contains(candidate.element))) continue;
             if (!distances) continue;
             const rule = filteredSlabRuleFor(el);
-            recordFilteredSlabItem(el, rule);
             if (!rule) unlisted.push({ el, distances });
         }
     
@@ -4234,18 +2331,15 @@ export function installExtractorApp() {
     // signal (a skeleton class, an image with no src yet) is a fingerprint
     // we know will resolve, so only that gets a real wait loop, checked
     // repeatedly on the same already-found element.
-    async function waitForNextSlabInReadyDeck(deckEl, currentSlab, getEntryDiag, onTick, timeoutMs = SLAB_FINISH_TIMEOUT_MS) {
-        const selection = findNextSlabInReadyDeck(deckEl, currentSlab, getEntryDiag());
+    async function waitForNextSlabInReadyDeck(deckEl, currentSlab, timeoutMs = SLAB_FINISH_TIMEOUT_MS) {
+        const selection = findNextSlabInReadyDeck(deckEl, currentSlab);
         if (selection.kind !== 'slab') return selection; // no fingerprint to wait for — final answer now
-        _perf.slabDiscoveryWait.waited++;
         const startedAt = performance.now();
         const deadline = Date.now() + timeoutMs;
         let fp = slabFinishFingerprint(selection.slab, deckEl);
         while (!fp.ready) {
             if (Date.now() > deadline) {
                 const waitedMs = Math.round(performance.now() - startedAt);
-                _perf.slabDiscoveryWait.timedOut++;
-                _perf.slabDiscoveryWait.maxWaitMs = Math.max(_perf.slabDiscoveryWait.maxWaitMs, waitedMs);
                 // A candidate that was found but never passes its own
                 // content fingerprint within the same patience every other
                 // slab gets is a valid empty slab, not a reason to stop the
@@ -4274,14 +2368,9 @@ export function installExtractorApp() {
                     },
                 };
             }
-            onTick?.();
             await sleep(SLAB_FINISH_POLL_MS);
             fp = slabFinishFingerprint(selection.slab, deckEl);
         }
-        const waitedMs = Math.round(performance.now() - startedAt);
-        if (waitedMs < SLAB_FINISH_POLL_MS) _perf.slabDiscoveryWait.alreadyReady++;
-        else _perf.slabDiscoveryWait.resolvedAfterWait++;
-        _perf.slabDiscoveryWait.maxWaitMs = Math.max(_perf.slabDiscoveryWait.maxWaitMs, waitedMs);
         return selection;
     }
     
@@ -4301,10 +2390,8 @@ export function installExtractorApp() {
             const contentRoot = canvasContentRoot(el);
             const text = contentRoot ? htmlToMarkdown(contentRoot) : '';
             if (!text) {
-                _perf.canvasBlocks.markdownEmpty++;
                 return null;
             }
-            _perf.canvasBlocks.extracted++;
             const titleEl = el.querySelector('span.font-semibold, [class*="font-semibold"]');
             const title = (titleEl?.textContent || 'Canvas document').trim();
             const token = `__CANVAS_PLACEHOLDER_${++_canvasCounter}__`;
@@ -4343,113 +2430,12 @@ export function installExtractorApp() {
             if (!messageEl) return null;
             el = messageEl;
         }
-        // Resolves the composite-fingerprint experiment for this element, if
-        // it was ever a candidate: compares the full structural signature
-        // (text length, child count, height, code blocks, images, tables,
-        // placeholders) present back when the fingerprint first held (message
-        // exists, non-empty text, no skeleton class) against the same
-        // signature now, after the full wait — recomputed BEFORE
-        // htmlToMarkdown runs so this comparison can't be skewed by anything
-        // htmlToMarkdown itself mutates. Text-length equality alone can't
-        // tell you whether an image, code block, or table was still loading
-        // at the early moment; this can. A match across many occurrences is
-        // direct evidence the fingerprint would have been safe to act on
-        // early; any mismatch shows exactly which dimension would have been
-        // wrong and by how much.
-        if (_compositeSnapshots.has(el)) {
-            const snap = _compositeSnapshots.get(el);
-            const final = summarizeMessageStructure(el, el.closest('[data-turn-id-container]'));
-            _compositeSnapshots.delete(el);
-            // Tallied regardless of match/mismatch: a clean result on
-            // codeBlocks/images/tables only means something if those fields
-            // were actually non-zero somewhere — otherwise there was no
-            // opportunity for them to diverge, and the comparison was
-            // effectively only testing textLen again.
-            //
-            // Checked at EITHER snapshot, not just the early one: a candidate
-            // can only register with placeholders === 0 at discovery (that's
-            // the registration gate itself), so checking the early value only
-            // would make this field read 0 in every run forever, regardless
-            // of what the page actually does — not a finding, just an
-            // artifact of the gate. The interesting case for that field is
-            // the reverse direction (one appearing later), which only shows
-            // up in the final snapshot.
-            for (const k of Object.keys(_perf.compositeFingerprint.fieldExercised)) {
-                if (snap[k] > 0 || final[k] > 0) _perf.compositeFingerprint.fieldExercised[k]++;
-            }
-            const diffs = Object.keys(final).filter(k => final[k] !== snap[k]);
-            // images (the count above) only catches an <img> appearing or
-            // disappearing — it's blind to ChatGPT swapping the SAME <img>'s
-            // src (e.g. transient/low-res during generation → final signed
-            // estuary URL once ready), which is the actual failure mode that
-            // matters since htmlToMarkdown() reads src directly. Checked
-            // separately, outside the generic key loop above, because src
-            // lists are arrays — `!==` on them would always be true (distinct
-            // references) regardless of content, corrupting every other
-            // field's comparison if folded into the same object.
-            const finalImageSrcs = imageSrcsFor(el, el.closest('[data-turn-id-container]'));
-            const srcsEqual = snap.imageSrcs.length === finalImageSrcs.length &&
-                snap.imageSrcs.every((s, i) => s === finalImageSrcs[i]);
-            if (!srcsEqual) diffs.push('imageSrcs');
-            const matched = diffs.length === 0;
-            // Specifically for images: a near-zero delay here means this
-            // candidate was already fully rendered at discovery (e.g. a tail
-            // message still sitting in the DOM from before the walk started),
-            // so its clean match proves nothing about surviving a real
-            // not-ready→ready cycle. A substantial delay means it actually
-            // went through virtualization and back, which is the case that
-            // matters.
-            if ((snap.images > 0 || final.images > 0) && _perf.compositeFingerprint.imageCandidateDetails.length < 10) {
-                const sinceDiscoveryMs = Math.round(performance.now() - snap.discoveredAt);
-                _perf.compositeFingerprint.imageCandidateDetails.push(
-                    `msgId=${el.getAttribute('data-message-id') || '(none)'}: images ${snap.images}→${final.images}, ` +
-                    `srcsMatched=${srcsEqual}, discovery-to-extraction ${sinceDiscoveryMs}ms, matched=${matched}`
-                );
-            }
-            if (matched) {
-                _perf.compositeFingerprint.matchedFinalText++;
-                if (snap.isFirst) _perf.compositeFingerprint.matchedFirst++;
-                else _perf.compositeFingerprint.matchedLater++;
-                if (snap.containerWasNotIntersectingAtDiscovery) _perf.compositeFingerprint.matchedWhileNotIntersecting++;
-            } else {
-                _perf.compositeFingerprint.mismatchedFinalText++;
-                if (snap.isFirst) _perf.compositeFingerprint.mismatchedFirst++;
-                else _perf.compositeFingerprint.mismatchedLater++;
-                if (snap.containerWasNotIntersectingAtDiscovery) _perf.compositeFingerprint.mismatchedWhileNotIntersecting++;
-                if (_perf.compositeFingerprint.examples.length < 10) {
-                    _perf.compositeFingerprint.examples.push(
-                        `msgId=${el.getAttribute('data-message-id') || '(none)'} (${snap.isFirst ? 'first' : 'later'} sibling in container): ` +
-                        diffs.map(k => k === 'imageSrcs'
-                            ? `imageSrcs ${JSON.stringify(snap.imageSrcs)}→${JSON.stringify(finalImageSrcs)}`
-                            : `${k} ${snap[k]}→${final[k]}`).join(', ')
-                    );
-                }
-            }
-        }
         const text = htmlToMarkdown(el);
         if (!text) return null;
         const msgId = el.getAttribute('data-message-id') || null;
         // Image-generation turns have no data-message-id — data-turn-id is
         // the only stable identity they carry.
         const turnId = msgId ? null : (el.getAttribute('data-turn-id') || null);
-        // Fire-and-forget, not awaited: tests whether the container-ready
-        // flag can flip true before THIS message's own content has finished
-        // populating — a failure mode none of the existing diagnostics would
-        // catch, since they only check whether a slab was found, not whether
-        // its captured text was final. Reads el.innerText.length again later,
-        // off the critical path, so it costs nothing in the walk's hot loop.
-        if (el.isConnected) {
-            const lenAtExtraction = el.innerText.length;
-            setTimeout(() => {
-                if (!el.isConnected) return;
-                if (el.innerText.length !== lenAtExtraction) {
-                    _perf.contentChangedAfterExtraction.count++;
-                    _perf.contentChangedAfterExtraction.examples.push(
-                        `msgId=${msgId || '(none)'} ${lenAtExtraction}→${el.innerText.length} chars`
-                    );
-                }
-            }, 500);
-        }
         return {
             role: el.getAttribute('data-message-author-role') || el.getAttribute('data-turn'),
             text,
@@ -4462,7 +2448,6 @@ export function installExtractorApp() {
     async function run(ui, stopBtn, resumeState = null) {
         const isResume = !!resumeState;
         _pendingAutoRestart = false;
-        stopActiveLifecycleObserver();
         if (isResume && resumeState.perf) _perf = resumeState.perf;
         else _resetPerf();
         setStabilizationMarkerColor('#34c759'); // green from the very start, so the first jump's switch to light blue is visible as a real transition, not the dot just appearing
@@ -4488,43 +2473,26 @@ export function installExtractorApp() {
         );
         // Deliberately NOT reset here. If a previous detached-current jump
         // failure retreated this to a smaller size before throwing (see
-        // maintainWorkZone), a later fresh run should keep that calibration
+        // maintainWork-Zone), a later fresh run should keep that calibration
         // instead of repeating the same size that just failed. It only ever
         // starts at WORK_ZONE_MOVE_JUMP_PX because that's its declared
         // initial value, for a genuinely first run since the page loaded.
         //
         // Minor convenience, not load-bearing — see the matching comment in
-        // maintainWorkZone's failure branch. Safe to delete (reverting to an
+        // maintainWork-Zone's failure branch. Safe to delete (reverting to an
         // unconditional reset here) if it's ever in the way; the worst case
         // without it is a slower regrow from the floor on retry, never a
         // correctness problem.
-        _reportedAllowlistedSlabItems = new WeakSet();
-        _reportedUnlistedSlabItems = new WeakSet();
-        _watchedImageSrcHistory = new WeakSet();
-        _watchedIntersectingHistory = new WeakSet();
         if (!isResume || !_perf.runStartMs) _perf.runStartMs = performance.now();
         ui.total = rememberExpectedUserPrompts(getNavMenuItems().length);
         const container = findScrollContainer();
-        _perf.containerTag     = container.tagName.toLowerCase();
-        _perf.containerScrollH = container.scrollHeight;
-        _perf.containerClientH = container.clientHeight;
-        _perf.containerIsDocEl = container === document.documentElement;
-    
-        // Distinguishes "the tab was backgrounded" from "the tab was visible
-        // but the event loop was still starved" (CPU contention) — both
-        // produce the same symptom (sleepSlip), but only this tells us which
-        // one actually happened during THIS run.
+
         const onVisibilityChange = () => {
-            if (document.hidden) {
-                _perf.tabHidden.wasHidden = true;
-                _perf.tabHidden.hideCount++;
-                ui.log(`  ⚠ tab went to background (${_perf.tabHidden.hideCount}) — timers may stall while hidden`);
-            }
+            if (document.hidden) ui.log('  tab went to background; timers may stall while hidden');
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
     
         const allPrompts = isResume ? resumeState.allPrompts : [];
-        const checkedModelContainers = new WeakSet();
         let lastEl = resumeState?.lastEl || null;
         let stopReason = null; // non-null = stopped early; still export what we have
         // Cumulative across the whole run, unlike advancesWithoutProgress
@@ -4533,47 +2501,15 @@ export function installExtractorApp() {
         // the snapshot table. Declared here (not next to its increment site)
         // so it's already in scope for the bootstrap's own status() call.
         let totalContainerAdvances = resumeState?.totalContainerAdvances || 0;
-        // The total viewport-move count as of the last confirmed prompt —
-        // comparing this against the current total when the *next* prompt
-        // is confirmed is how "did a viewport move happen between these two
-        // prompts" gets decided, for both the panel log and the split
-        // gap-violation stats below.
-        let viewportMovesAtLastPrompt = resumeState?.viewportMovesAtLastPrompt || 0;
         let readyContainer = resumeState?.readyContainer || null;
         let current = resumeState?.current || SLAB_WALK_START;
         let containerSlabRanges = resumeState?.containerSlabRanges || [];
-        // The edge of a deck nearest the already-explored side of the walk —
-        // i.e. where "light" first reaches it. direction=-1: walking upward,
-        // so a new deck's bottom edge is the one adjacent to the deck just
-        // finished; its top edge is the unexplored interior. Used by
-        // containerReach below to measure how far past that entry edge
-        // extraction actually finds a slab, as direct evidence for whether
-        // readiness covers the whole deck or only the part nearest the
-        // entry point.
-        const containerNearEdge = el =>
-            WALK_DIRECTION === -1 ? el.getBoundingClientRect().bottom : el.getBoundingClientRect().top;
-        let containerEntryY = resumeState?.containerEntryY ?? (readyContainer ? containerNearEdge(readyContainer) : null);
-        // Captured the instant a deck's own readiness gate (data-is-
-        // intersecting) resolves, before any further scrolling happens —
-        // lets an "Empty container" placeholder show whether the work zone
-        // moved again (and how many times) between that resolution and the
-        // moment the deck was searched and found empty, since a move in
-        // between could itself be what pushed ChatGPT to re-unmount the
-        // deck it had just mounted.
-        let deckEntryDiag = resumeState?.deckEntryDiag || null;
         // Defensive cap: if ready decks keep yielding no extractable slab,
         // that's not "the conversation is just long." Fail fast with the
         // geometry that didn't match, rather than spin silently through every
         // remaining deck.
         let advancesWithoutProgress = resumeState?.advancesWithoutProgress || 0;
         const MAX_ADVANCES_WITHOUT_PROGRESS = 50;
-        // Tracks how many consecutive advances stayed on the same
-        // data-turn-id before genuinely moving to a different one — a
-        // direct measure of how much duplicate-sibling traffic the turn-id
-        // dedup filter is absorbing, independent of whether the run
-        // ultimately succeeds or hits the advance cap.
-        let lastAdvanceTurnId = resumeState?.lastAdvanceTurnId || null;
-        let curTurnIdRun = resumeState?.curTurnIdRun || 0;
         // className/attributes of every deck advanced through without a
         // matching slab — rect coordinates alone don't say whether a long
         // run of zero-height decks are genuine (if sparse) turn wrappers or
@@ -4584,44 +2520,6 @@ export function installExtractorApp() {
         let advanceChain = resumeState?.advanceChain || [];
     
         if (stopBtn) stopBtn.onclick = () => { ui.stopped = true; };
-    
-        const takeSnap = (p) => {
-            const _uEls = [...document.querySelectorAll('[data-message-author-role="user"]')];
-            const _curR = lastEl?.getBoundingClientRect()
-                       ?? (container === document.documentElement
-                               ? { top: 0, bottom: window.innerHeight }
-                               : container.getBoundingClientRect());
-            _perf.snapshots.push({
-                p,
-                t: Math.round(performance.now() - _perf.runStartMs),
-                m: allPrompts.length,
-                q: countPrompts(allPrompts),
-                c: totalContainerAdvances,
-                v: totalViewportMoves(),
-                d: document.getElementsByTagName('*').length,
-                uBefore: _uEls.filter(el => el.getBoundingClientRect().bottom < _curR.top).length,
-                uAfter:  _uEls.filter(el => el.getBoundingClientRect().top   > _curR.bottom).length,
-            });
-        };
-    
-        let bp = 0;
-        // Count-percent breakpoints alone go dark on a slow run: reaching
-        // even the first 10% breakpoint requires confirming ~ui.total/10
-        // prompts, so a run that stalls or crawls under contention at, say,
-        // 5% of ui.total never crosses bp=10 at all — only one snapshot
-        // (at bp=0) ever gets recorded, no matter how many more minutes the
-        // run keeps going. The diagnostic table then has nothing real to
-        // show for that whole stretch. A periodic time-based snapshot keeps
-        // a real trajectory visible even when count-progress is too slow
-        // relative to ui.total to cross another round threshold.
-        let lastSnapMs = performance.now();
-        const SNAP_INTERVAL_MS = 10_000;
-        const maybeSnap = () => {
-            const pct = ui.total > 0 ? Math.round(100 * countPrompts(allPrompts) / ui.total) : 0;
-            while (bp <= 100 && pct >= bp) { takeSnap(bp); bp += 10; lastSnapMs = performance.now(); }
-            const now = performance.now();
-            if (now - lastSnapMs >= SNAP_INTERVAL_MS) { takeSnap(bp); lastSnapMs = now; }
-        };
     
         // The bootstrap sequence below (nav click, scroll settle, viewport
         // scan) and the chain-walk loop further down are now one single try
@@ -4659,8 +2557,7 @@ export function installExtractorApp() {
         // ── Land on the prompt at the walk's starting edge via the
         // matching nav dot — the last dot (bottom) for an upward walk, the
         // first dot (top) for a downward one. Needed because a second run in
-        // the same page load (Restart, or switching between this and the
-        // Compatibility Check panel) would otherwise bootstrap from wherever
+        // the same page load would otherwise bootstrap from wherever
         // the *previous* run's walk left the scroll position, instead of the
         // actual edge this run needs to start from.
         // Two genuinely different things can go wrong here, and they call
@@ -4686,7 +2583,6 @@ export function installExtractorApp() {
             ui.log(`Resuming from current cursor — ${describeCurrentForStop(resumeState.current, resumeState.readyContainer)}`);
         } else {
             const navItems = getNavMenuItems();
-            _perf.navItemCount = navItems.length;
             if (navItems.length > 0) {
                 // aria-label is the one independent signal for what a dot
                 // actually points to — not inferred from a click's side effect,
@@ -4694,8 +2590,6 @@ export function installExtractorApp() {
                 // wherever a previous run left it. Captured for both ends
                 // regardless of which one gets clicked, so a failure report can
                 // show whether the labels even distinguish position at all.
-                _perf.navFirstLabel = navItems[0].getAttribute('aria-label') || '(none)';
-                _perf.navLastLabel  = navItems[navItems.length - 1].getAttribute('aria-label') || '(none)';
                 const clickedIndex = WALK_DIRECTION === -1 ? navItems.length - 1 : 0;
                 const oppositeIndex = navItems.length - 1 - clickedIndex;
                 // Visit the opposite end first, and dwell there, before the real
@@ -4722,11 +2616,9 @@ export function installExtractorApp() {
                 // arbitrary stretch before a manual Start Extraction click, so
                 // that's the only case this still needs to run for.
                 if (oppositeIndex !== clickedIndex && !ui.isAutoStart) {
-                    _perf.navDiversionAttempted = true;
                     navItems[oppositeIndex].click();
                     try {
                         await forceScrollToEdge(container, -WALK_DIRECTION, 10_000);
-                        _perf.navDiversionSettled = true;
                     } catch (e) {
                         // Best-effort: if the opposite edge won't settle, proceed
                         // to the real bootstrap anyway rather than failing the
@@ -4734,7 +2626,6 @@ export function installExtractorApp() {
                     }
                     await sleep(2000);
                 }
-                _perf.navClickedIndex = clickedIndex;
                 navItems[clickedIndex].click();
             }
             // The click alone isn't trusted to land us at the right edge and
@@ -4745,12 +2636,10 @@ export function installExtractorApp() {
             await forceScrollToEdge(container, WALK_DIRECTION, 30_000);
             // Recorded for every run, not just failures, so a successful run's
             // diag block still shows where this actually landed.
-            _perf.navClickScrollTop = container === document.documentElement ? window.scrollY : container.scrollTop;
             {
                 const scrollH = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
                 const clientH = container === document.documentElement ? window.innerHeight : container.clientHeight;
                 const range = scrollH - clientH;
-                _perf.navClickScrollPct = range > 0 ? Math.round(100 * _perf.navClickScrollTop / range) : 100;
                 // forceScrollToEdge's own stability check only requires 3
                 // checks 150ms apart (450ms total) to agree with *whatever*
                 // scrollHeight currently is — it never confirms scrollHeight
@@ -4760,11 +2649,8 @@ export function installExtractorApp() {
                 // for that brief window but isn't actually the true end yet.
                 // Direct check: re-measure scrollHeight a few seconds later,
                 // with no further scrolling in between, and see if it moved.
-                _perf.scrollHeightGrowthCheck.before = scrollH;
                 await sleep(5000);
                 const scrollHAfter = container === document.documentElement ? document.documentElement.scrollHeight : container.scrollHeight;
-                _perf.scrollHeightGrowthCheck.after = scrollHAfter;
-                _perf.scrollHeightGrowthCheck.grewBy = scrollHAfter - scrollH;
             }
         }
     
@@ -4790,35 +2676,12 @@ export function installExtractorApp() {
         // null (no real deck entered yet), targetDeck comes from the
         // viewport edge rather than adjacency, since there is nothing yet to
         // be adjacent to.
-        const currentScrollPos = () => container === document.documentElement ? window.scrollY : container.scrollTop;
-        // Re-reads the scroll position fresh at the moment of an "Empty
-        // container" check, alongside the position captured at deck entry —
-        // the gap between the two is the actual realized displacement, not
-        // just a count of move-calls we issued (see deckEntryDiag above).
-        const diagAtFailure = () => deckEntryDiag ? { ...deckEntryDiag, scrollPosNow: currentScrollPos() } : null;
         const enterDeck = async (targetDeck) => {
             const readinessEl = readinessElementForDeck(targetDeck);
-            if (!readyContainer) _perf.bootstrapWasIntersectingFalse = readinessEl.getAttribute('data-is-intersecting') === 'false';
-            watchContainerLifecycle(readinessEl);
-            watchIntersectingHistory(readinessEl);
-            await waitForTurnReady(container, readinessEl, 30_000, maybeSnap);
-            // scrollPosAtEntry lets a later "Empty container" placeholder show
-            // the actual realized displacement since this deck was confirmed
-            // ready, not just how many move-calls we issued — a queued/
-            // batched scroll (browser scroll-anchoring or ChatGPT's own
-            // scroll-restoration applying several of our retries at once)
-            // could produce a large displacement from very few call-counted
-            // moves, which a move-count alone would not reveal.
-            deckEntryDiag = {
-                movesAtEntry: totalViewportMoves(),
-                isIntersectingAtEntry: readinessEl.getAttribute('data-is-intersecting'),
-                scrollPosAtEntry: currentScrollPos(),
-            };
+            await waitForTurnReady(container, readinessEl, 30_000);
             if (readyContainer) {
                 if (readyContainer.isConnected) {
                     checkDeckAdjacency(readyContainer, targetDeck);
-                } else {
-                    _perf.containerGapSkippedDetached++;
                 }
             }
             readyContainer = targetDeck;
@@ -4833,17 +2696,11 @@ export function installExtractorApp() {
                 role: entrySectionEl?.getAttribute('data-turn') || targetDeck.getAttribute('data-turn') || 'unknown',
                 html: trimmedCaptureHtml(entrySectionEl || targetDeck),
             }]);
-            containerEntryY = containerNearEdge(readyContainer);
             current = makeDeckEntryCurrent(readyContainer);
             containerSlabRanges = [];
             totalContainerAdvances++;
             advanceChain.push({ desc: describeTurnContainer(readyContainer), el: readyContainer });
-            const thisTurnId = deckSequenceId(readyContainer);
-            curTurnIdRun = (thisTurnId && thisTurnId === lastAdvanceTurnId) ? curTurnIdRun + 1 : 1;
-            lastAdvanceTurnId = thisTurnId;
-            _perf.turnIdDedupMaxRun = Math.max(_perf.turnIdDedupMaxRun, curTurnIdRun);
-            ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
-            maybeSnap();
+            ui.status(countPrompts(allPrompts), allPrompts.length);
         };
     
         // The loop below is organized slab-to-slab, matching the actual
@@ -4857,11 +2714,11 @@ export function installExtractorApp() {
         // attempting the search and reading an 'end-of-deck' result back.
         while (!ui.stopped && !stopReason) {
             // ── ensure work-zone room ahead of current slab ──
-            // maintainWorkZone reports the outcome of the intervention, not
+            // maintainWork-Zone reports the outcome of the intervention, not
             // the end of traversal. If the physical scroll boundary is reached,
             // no further jump can create more room, but structural selection
             // may still find the next visible deck/slab.
-            const zoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+            const zoneStatus = await maintainWorkZone(container, current);
             if (zoneStatus.jumpsTaken > 0) {
                 ui.log(`  work-zone move: ${zoneStatus.jumpsTaken} step(s), outcome=${zoneStatus.outcome}`);
             }
@@ -4876,9 +2733,6 @@ export function installExtractorApp() {
             } else if (!zoneStatus.roomSatisfied) {
                 ui.log(`  scroll boundary reached during work-zone move; continuing with deck/slab geometry search`);
             }
-    
-            if (readyContainer) checkReadyContainerModel(readyContainer, checkedModelContainers);
-    
             // ── if the current supply batch cannot contain the next slab,
             // close it / open the next one — otherwise go straight to
             // finding the next slab in it. waitForNextSlabInReadyDeck's own
@@ -4889,7 +2743,7 @@ export function installExtractorApp() {
             let needsNewBatch = !readyContainer || !deckHasRoomAhead(readyContainer, current);
             let selection = null;
             if (!needsNewBatch) {
-                selection = await waitForNextSlabInReadyDeck(readyContainer, current, diagAtFailure, maybeSnap);
+                selection = await waitForNextSlabInReadyDeck(readyContainer, current);
                 needsNewBatch = selection.kind === 'end-of-deck';
             }
     
@@ -4913,10 +2767,10 @@ export function installExtractorApp() {
                 // below — never papered over with a blind retry.
                 let reachedDocumentBoundaryForNextDeck = false;
                 if (readyContainer) {
-                    const placeholder = finishDeckCoverage(readyContainer, containerSlabRanges, current, diagAtFailure());
+                    const placeholder = finishDeckCoverage(readyContainer, containerSlabRanges, current);
                     if (placeholder) insertMsg(placeholder);
                     current = makeDeckExitCurrent(readyContainer);
-                    const exitZoneStatus = await maintainWorkZone(container, current, SLAB_LOOKAHEAD_PX);
+                    const exitZoneStatus = await maintainWorkZone(container, current);
                     reachedDocumentBoundaryForNextDeck = exitZoneStatus.boundaryReached;
                     if (exitZoneStatus.jumpsTaken > 0) {
                         ui.log(`  work-zone move (deck exit): ${exitZoneStatus.jumpsTaken} step(s), outcome=${exitZoneStatus.outcome}`);
@@ -5004,7 +2858,6 @@ export function installExtractorApp() {
                 }
     
                 advancesWithoutProgress++;
-                _perf.maxAdvancesWithoutProgress = Math.max(_perf.maxAdvancesWithoutProgress, advancesWithoutProgress);
                 if (advancesWithoutProgress > MAX_ADVANCES_WITHOUT_PROGRESS) {
                     const r = readyContainer.getBoundingClientRect();
                     // Find the [data-message-author-role] element geometrically
@@ -5068,34 +2921,20 @@ export function installExtractorApp() {
             if (current.element && current.type !== 'note') checkSlabAdjacency(current, next);
             advancesWithoutProgress = 0;
             advanceChain = [];
-            lastAdvanceTurnId = null;
-            curTurnIdRun = 0;
-            const vpNow = totalViewportMoves();
-            const vpDelta = vpNow - viewportMovesAtLastPrompt;
             const msgId = slabMessageId(next);
             if (next.type === 'note') {
                 recordSlabRange(readyContainer, next.geometryElement, containerSlabRanges);
                 insertMsg(next.note);
                 lastEl = next.geometryElement;
                 current = next;
-                viewportMovesAtLastPrompt = vpNow;
-                ui.log(`#${allPrompts.length} confirmed (note/${slabRole(next)}) — Δviewport ${vpDelta}`);
-                ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
-                maybeSnap();
+                ui.log(`#${allPrompts.length} confirmed (note/${slabRole(next)})`);
+                ui.status(countPrompts(allPrompts), allPrompts.length);
                 await sleep(30);
                 continue;
             }
             // ── extract the slab once ──
             const msg = extractSlab(next);
             if (!msg) {
-                _perf.extractionFailures.count++;
-                if (_perf.extractionFailures.examples.length < 10) {
-                    _perf.extractionFailures.examples.push(
-                        `type=${next.type} role=${slabRole(next)} ` +
-                        `turnId=${slabTurnId(next) || '(none)'} ` +
-                        `msgId=${msgId || '(none)'} returned empty under current readiness fingerprint`
-                    );
-                }
                 ui.log(`  ⚠ extraction returned empty under current readiness fingerprint for ` +
                     `${next.type}/${slabRole(next)} — content permanently lost, advancing past it`);
                 const missingRole = slabRole(next);
@@ -5112,50 +2951,15 @@ export function installExtractorApp() {
                 insertMsg(missingNote);
             }
             if (msg) {
-                if (!_perf.bootstrapRole) _perf.bootstrapRole = slabRole(next);
-                // Gated on byTurnId actually having this turnId, not just
-                // turnId being truthy — canvas-block extractions also
-                // carry a turnId (see extractSlab) but were never found
-                // via the image-turn candidate loop, so they must not
-                // inflate this image-only-turns counter.
-                if (next.type === 'image' && msg.turnId && _perf.imageOnlyTurns.byTurnId[msg.turnId]) {
-                    _perf.imageOnlyTurns.extracted++;
-                    _perf.imageOnlyTurns.byTurnId[msg.turnId].extracted = true;
-                }
                 recordSlabRange(readyContainer, next.geometryElement, containerSlabRanges);
-                // Direct evidence for the whole-deck-readiness question:
-                // how far past this deck's entry edge did extraction just
-                // reach to find this slab? If readiness only ever
-                // covered the area right at the entry edge, reach would
-                // stay small/near-zero even for large decks; a reach
-                // that grows to a large fraction of the deck's own
-                // height is evidence the whole deck was actually ready,
-                // not just the part nearest where light first hit it.
-                {
-                    const slabY = next.geometryElement.getBoundingClientRect().top;
-                    const reach = WALK_DIRECTION === -1 ? containerEntryY - slabY : slabY - containerEntryY;
-                    _perf.containerReach.count++;
-                    _perf.containerReach.sum += reach;
-                    if (reach > _perf.containerReach.max) {
-                        _perf.containerReach.max = reach;
-                        const containerHeight = readyContainer.getBoundingClientRect().height;
-                        _perf.containerReach.maxWinner = {
-                            turnId: deckSequenceId(readyContainer) || '(none)',
-                            containerHeight: Math.round(containerHeight),
-                            pct: containerHeight > 0 ? Math.round(100 * reach / containerHeight) : null,
-                        };
-                    }
-                }
                 insertMsg(msg);
             }
             // ── current = extracted slab ──
             lastEl = next.geometryElement;
             current = next;
-            viewportMovesAtLastPrompt = vpNow;
     
-            ui.log(`#${allPrompts.length} confirmed (${next.type}/${slabRole(next)}) — Δviewport ${vpDelta}`);
-            ui.status(countPrompts(allPrompts), allPrompts.length, totalContainerAdvances, totalViewportMoves());
-            maybeSnap();
+            ui.log(`#${allPrompts.length} confirmed (${next.type}/${slabRole(next)})`);
+            ui.status(countPrompts(allPrompts), allPrompts.length);
     
             // Throttle: a pace-limiter, not a content wait (this branch
             // never scrolls at all — readyContainer is already loaded).
@@ -5177,13 +2981,8 @@ export function installExtractorApp() {
                     readyContainer,
                     allPrompts,
                     containerSlabRanges,
-                    containerEntryY,
-                    deckEntryDiag,
                     totalContainerAdvances,
-                    viewportMovesAtLastPrompt,
                     advancesWithoutProgress,
-                    lastAdvanceTurnId,
-                    curTurnIdRun,
                     advanceChain,
                     lastEl,
                     pendingImageDownloads: _pendingImageDownloads,
@@ -5212,144 +3011,15 @@ export function installExtractorApp() {
             }
         }
         if (!stopReason) _resumeState = null;
-        stopActiveLifecycleObserver();
         stopBackgroundPositionSampler();
         removeStabilizationMarker();
         document.removeEventListener('visibilitychange', onVisibilityChange);
-        if (_perf.readyContainerModel.delayedRechecksResolved < _perf.readyContainerModel.delayedRechecksScheduled) {
-            await sleep(550);
-        }
     
-        const _totalMs = performance.now() - _perf.runStartMs;
-        const _sleepMs = _totalMs - _perf.htmlToMarkdownMs;
-        ui.log('── perf (v4.161) ──');
-        ui.log(`total ${(_totalMs/1000).toFixed(1)}s | sleep/wait ${(_sleepMs/1000).toFixed(1)}s (${Math.round(100*_sleepMs/_totalMs)}%)`);
-        ui.log(`htmlToMarkdown: ${_perf.htmlToMarkdownCalls} calls, ${Math.round(_perf.htmlToMarkdownMs)}ms`);
         ui.log(`${countPrompts(allPrompts)} prompts saved (${allPrompts.length} msgs total).`);
-        ui.log(`Lifecycle: auto-resumes-from-current=${_perf.lifecycle.autoResumesFromCurrent}`);
-        ui.log(
-            `Ready-container nearby message slabs outside deck: ${_perf.readyContainerProbeMisses.count} overlapping/near ` +
-            `(overlapping=${_perf.readyContainerProbeMisses.overlapping}, near-only=${_perf.readyContainerProbeMisses.nearOnly}, ` +
-            `above=${_perf.readyContainerProbeMisses.above}, below=${_perf.readyContainerProbeMisses.below})`
-        );
-        ui.log(
-            `Ready-container model: ${_perf.readyContainerModel.checked} checked, ` +
-            `containment=${_perf.readyContainerModel.containmentViolations}, ` +
-            `overlap-nonmember=${_perf.readyContainerModel.overlappingNonMembers}, ` +
-            `dom-only=${_perf.readyContainerModel.domOnlyMembers}, ` +
-            `probe-only=${_perf.readyContainerModel.probeOnlyMembers}, ` +
-            `message-gaps=${_perf.readyContainerModel.messageGapViolations}, ` +
-            `maxMessageGap=${Math.round(_perf.readyContainerModel.maxMessageGap)}px, ` +
-            `message-insets=${_perf.readyContainerModel.topEdgeViolations + _perf.readyContainerModel.bottomEdgeViolations} ` +
-            `(top=${_perf.readyContainerModel.topEdgeViolations}, bottom=${_perf.readyContainerModel.bottomEdgeViolations}, ` +
-            `maxTop=${Math.round(_perf.readyContainerModel.maxTopEdgeGap)}px, ` +
-            `maxBottom=${Math.round(_perf.readyContainerModel.maxBottomEdgeGap)}px, ` +
-            `maxBottomMsg=${_perf.readyContainerModel.maxBottomEdgeWinner?.msgId || '(none)'}), ` +
-            `slabs=${_perf.readyContainerModel.slabItemsChecked}/${_perf.readyContainerModel.slabStacksChecked}, ` +
-            `unknownSlabs=${_perf.readyContainerModel.unknownSlabItems}, ` +
-            `slabGaps=${_perf.readyContainerModel.slabGapViolations}, ` +
-            `maxSlabGap=${Math.round(_perf.readyContainerModel.maxSlabGap)}px, ` +
-            `rechecks=${_perf.readyContainerModel.delayedRechecksResolved}/${_perf.readyContainerModel.delayedRechecksScheduled}, ` +
-            `changed=${_perf.readyContainerModel.delayedRechecksChanged}`
-        );
-        ui.log(
-            `Slab discovery wait: checked=${_perf.slabDiscoveryWait.waited}, ` +
-            `already=${_perf.slabDiscoveryWait.alreadyReady}, ` +
-            `after-wait=${_perf.slabDiscoveryWait.resolvedAfterWait}, ` +
-            `timed-out=${_perf.slabDiscoveryWait.timedOut}, ` +
-            `maxWait=${Math.round(_perf.slabDiscoveryWait.maxWaitMs)}ms`
-        );
-        ui.log(
-            `Image src history watches: ${_perf.imageSrcHistory.watches.length}, ` +
-            `multi-value=${_perf.imageSrcHistory.watches.filter(w => w.values.length > 1).length} ` +
-            `(>1 distinct value seen — full sequence in the exported diagnostics)`
-        );
-        ui.log(
-            `Filtered direct-stack items: allowlisted=${_perf.slabFiltering.allowlisted}, ` +
-            `unlisted-reported=${_perf.slabFiltering.unlisted}, ` +
-            `rules=${FILTERED_SLAB_RULES.map(rule => rule.name).join(', ') || '(none)'}` +
-            (_perf.slabFiltering.unlisted > 0
-                ? ` — inspect exported diagnostics for exact elements`
-                : '')
-        );
-        ui.log(
-            `Intermediate deck advances: ${_perf.intermediateDeckAdvances}`
-        );
-        ui.log(
-            `Work-zone room shortfall (fatal on the unclamped path, see stop reason if >0): ${_perf.workZoneRoomShortfall.count}`
-        );
-        ui.log(
-            `Work-zone jump pacing: jumps=${_perf.workZoneJumpStability.jumps}, stability-checks=${_perf.workZoneJumpStability.steps}, waited=${_perf.workZoneJumpStability.waitedFrames}, ` +
-            `capped-out=${_perf.workZoneJumpStability.timedOut}, maxFramesWaited=${_perf.workZoneJumpStability.maxFramesWaited}, ` +
-            `avgJump=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpPxSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
-            `avgJumpTime=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.jumpMsSum / _perf.workZoneJumpStability.jumps) : 0}ms, ` +
-            `avgTimePer120px=${_perf.workZoneJumpStability.jumpPxSum ? Math.round(_perf.workZoneJumpStability.jumpMsSum / (_perf.workZoneJumpStability.jumpPxSum / 120)) : 0}ms, ` +
-            `maxJump=${_perf.workZoneJumpStability.maxJumpPx}px, maxCalibratedJump=${_perf.workZoneJumpStability.maxCalibratedJumpPx}px, ` +
-            `jumpsAtMax=${_perf.workZoneJumpStability.jumpsAtMax}, targetClamped=${_perf.workZoneJumpStability.targetClampedJumps}, ` +
-            `subMinTargetClamps=${_perf.workZoneJumpStability.subMinTargetClamps}, ` +
-            `adaptiveIncreases=${_perf.workZoneJumpStability.adaptiveIncreases}, adaptiveResets=${_perf.workZoneJumpStability.adaptiveResets}, ` +
-            `scrollAssignments=${_perf.viewportMovesWorkZone + _perf.viewportMovesForceEdge}`
-        );
-        ui.log(`Requested jump sizes: ${formatRequestedJumpBuckets()}`);
-        ui.log(
-            `Clamped jumps: ${_perf.workZoneJumpStability.targetClampedJumps} total ` +
-            `(avg ${_perf.workZoneJumpStability.targetClampedJumps ? Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps) : 0}px)`
-        );
-        ui.log(
-            `Pure-timeout hidden-tab retries: retries=${_perf.workZoneJumpStability.pureTimeoutHiddenRetries}, ` +
-            `exhausted-and-still-failed=${_perf.workZoneJumpStability.pureTimeoutHiddenExhausted}`
-        );
-        ui.log(
-            `Room drift during wait: avgAbs=${_perf.workZoneJumpStability.jumps ? Math.round(_perf.workZoneJumpStability.roomDriftAbsSum / _perf.workZoneJumpStability.jumps) : 0}px, ` +
-            `netSum=${Math.round(_perf.workZoneJumpStability.roomDriftSum)}px, maxAbs=${Math.round(_perf.workZoneJumpStability.roomDriftMaxAbs)}px`
-        );
-        ui.log(
-            `Sandwiched-empty-slab readiness failure signal: seen=${_perf.workZoneJumpStability.sandwichedEmptySeen}, ` +
-            `capped-out-while-present=${_perf.workZoneJumpStability.sandwichedEmptyTimedOut}`
-        );
-        if (_perf.workZoneJumpStability.sandwichedEmptySeen > 0) {
-            ui.log(
-                `⚠ SANDWICHED EMPTY SLAB DETECTED — browser/layout stability was not enough to prove ChatGPT-level readiness; ` +
-                `the jump + stability approach needs a readiness patch.`
-            );
-        }
-        ui.log(
-            `Container coverage: ${_perf.containerCoverage.checks} checked, ${_perf.containerCoverage.gaps} gap(s), ` +
-            `${_perf.containerCoverage.zeroSlabDecks} zero-slab deck(s) (placeholder inserted, not fatal — see exported diagnostics)`
-        );
-        ui.log(
-            `Slab adjacency: checked=${_perf.slabAdjacency.checked}, ` +
-            `maxGap=${Math.round(_perf.slabAdjacency.maxGap)}px, ` +
-            `maxOverlap=${Math.round(_perf.slabAdjacency.maxOverlap)}px, ` +
-            `violations=${_perf.slabAdjacency.violations}`
-        );
-        if (_perf.readyContainerModel.exampleMsgIds.length > 0) {
-            const infoByMsgId = new Map();
-            let previousUserMsgId = null;
-            allPrompts.forEach((p, i) => {
-                if (p.msgId && !infoByMsgId.has(p.msgId)) {
-                    infoByMsgId.set(p.msgId, {
-                        rank: i + 1,
-                        role: p.role,
-                        previousUserMsgId,
-                    });
-                }
-                if (p.role === 'user' && p.msgId) previousUserMsgId = p.msgId;
-            });
-            ui.log(
-                'Ready-container model ranks: ' +
-                _perf.readyContainerModel.exampleMsgIds.slice(0, 5).map(({ label, msgId }) => {
-                    const info = infoByMsgId.get(msgId);
-                    return info
-                        ? `${label}=#${info.rank}/${info.role}/prevUser:${info.previousUserMsgId ? `msg-${info.previousUserMsgId}` : 'none'}`
-                        : `${label}=?`;
-                }).join(', ')
-            );
-        }
-        if (stopReason) ui.log(`Stopped early — diagnosis: ${stopReason}`);
+        if (stopReason) ui.log(`Stopped early: ${stopReason}`);
         // stopReason travels with the saved state (not just ui.stopped, which
         // only tracks the manual Stop button) so the caller can tell a clean
-        // finish apart from an early, diagnosed stop and still offer export
+        // finish apart from an early stop and still offer export
         // either way.
         _savedState = { allPrompts, stopped: ui.stopped, stopReason, timestamp: _runTimestamp };
     }
@@ -5375,7 +3045,7 @@ export function installExtractorApp() {
         });
     
         const title = Object.assign(document.createElement('div'), {
-            innerText: 'ChatGPT Extractor v4.161',
+            innerText: 'ChatGPT Extractor v4.163',
         });
         Object.assign(title.style, { fontWeight: 'bold', color: '#89b4fa' });
     
@@ -5397,20 +3067,7 @@ export function installExtractorApp() {
         const elapsedEl = Object.assign(document.createElement('div'), { innerText: 'Elapsed : —' });
         const promptsEl = Object.assign(document.createElement('div'), { innerText: 'User msgs : —' });
         const msgsEl = Object.assign(document.createElement('div'), { innerText: 'All msgs : —' });
-        const containersEl = Object.assign(document.createElement('div'), { innerText: 'Containers advanced : —' });
-        const viewportsEl = Object.assign(document.createElement('div'), { innerText: 'Viewport moves : —' });
-        const currentJumpEl = Object.assign(document.createElement('div'), {
-            innerText: `Requested jumps : ${WORK_ZONE_MOVE_JUMP_PX}px : 0 full / 0 clamped (avg 0px)`,
-        });
-        const clampedJumpEl = Object.assign(document.createElement('div'), { innerText: 'Clamped jumps : —' });
-        Object.assign(clampedJumpEl.style, {
-            borderRadius: '4px',
-            padding: '1px 4px',
-            marginLeft: '-4px',
-            marginRight: '-4px',
-        });
-        const jumpsEl = Object.assign(document.createElement('div'), { innerText: 'Total jumps : —' });
-        statusEl.append(elapsedEl, promptsEl, msgsEl, containersEl, viewportsEl, currentJumpEl, clampedJumpEl, jumpsEl);
+        statusEl.append(elapsedEl, promptsEl, msgsEl);
     
         const note = Object.assign(document.createElement('div'), {
             innerText: `Scroll to the ${WALK_DIRECTION === -1 ? 'BOTTOM' : 'TOP'} of the chat before starting.`,
@@ -5421,20 +3078,6 @@ export function installExtractorApp() {
             fontSize: '13px',
             lineHeight: '1.35',
         });
-    
-        const diagCheck = Object.assign(document.createElement('input'), {
-            type: 'checkbox', id: 'extractor-diag-check',
-        });
-        const diagLabel = Object.assign(document.createElement('label'), {
-            htmlFor: 'extractor-diag-check', innerText: 'Include diagnostics in export',
-        });
-        Object.assign(diagLabel.style, { cursor: 'pointer' });
-        const diagRow = document.createElement('div');
-        Object.assign(diagRow.style, {
-            display: 'flex', alignItems: 'center', gap: '6px',
-            marginTop: '8px', fontSize: '11px', color: '#dde1f4',
-        });
-        diagRow.append(diagCheck, diagLabel);
     
         const btnRow = document.createElement('div');
         Object.assign(btnRow.style, { display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' });
@@ -5474,7 +3117,7 @@ export function installExtractorApp() {
         btnRow.append(btn, stopBtn, exportBtn);
     
         const body = document.createElement('div');
-        body.append(statusEl, diagRow, note, btnRow);
+        body.append(statusEl, note, btnRow);
     
         panel.append(titleRow, body);
     
@@ -5494,13 +3137,6 @@ export function installExtractorApp() {
         const _autoStartOnce = sessionStorage.getItem(AUTO_START_ONCE_KEY) === '1';
         if (_autoStartOnce) sessionStorage.removeItem(AUTO_START_ONCE_KEY); // consume now — only this load gets it
         console.log('[Extractor] one-shot auto-start consumed at this load =', _autoStartOnce);
-        // Reload-and-auto-start is specifically the unattended path — nobody
-        // is sitting at the checkbox to remember to tick it before Export
-        // runs. Defaulting it on only here (not for a normal manual start,
-        // where the checkbox keeps its plain unchecked default) means an
-        // auto-started run never silently loses its diag block the way a
-        // forgotten manual click just did.
-        if (_autoStartOnce) diagCheck.checked = true;
         GM_registerMenuCommand('Reload and Auto-Start (this load only)', () => {
             sessionStorage.setItem(AUTO_START_ONCE_KEY, '1');
             location.reload();
@@ -5532,9 +3168,8 @@ export function installExtractorApp() {
         const ui = {
             stopped: false,
             total: 0,
-            get includeDiag() { return diagCheck.checked; },
             isAutoStart: _autoStartOnce,
-            status(promptCount, msgCount, containerCount, viewportCount, jumpCount = _perf.workZoneJumpStability.jumps) {
+            status(promptCount, msgCount) {
                 // this.total is the nav-dot count — a count of prompts, not
                 // messages — so only the prompt line has a meaningful
                 // percentage to show against it.
@@ -5542,26 +3177,8 @@ export function installExtractorApp() {
                 const userMsgSummary = formatUserMsgSummary(promptCount, this.total);
                 promptsEl.innerText    = `User msgs: ${userMsgSummary}`;
                 msgsEl.innerText       = `All msgs : ${msgCount}`;
-                containersEl.innerText = `Containers advanced : ${containerCount}`;
-                viewportsEl.innerText  = `Viewport moves : ${viewportCount}`;
-                const avgJumpPx = jumpCount ? Math.round(_perf.workZoneJumpStability.jumpPxSum / jumpCount) : 0;
-                const requestedJumpStats = formatRequestedJumpBuckets('\n');
-                const clampedJumpStats = _perf.workZoneJumpStability.targetClampedJumps === 0
-                    ? '—'
-                    : `${_perf.workZoneJumpStability.targetClampedJumps} total ` +
-                      `(avg ${Math.round(_perf.workZoneJumpStability.targetClampedJumpPxSum / _perf.workZoneJumpStability.targetClampedJumps)}px)`;
-                currentJumpEl.innerText = `Requested jumps :\n${requestedJumpStats}`;
-                clampedJumpEl.innerText = `Clamped jumps : ${clampedJumpStats}`;
-                clampedJumpEl.style.background =
-                    _perf.workZoneJumpStability.targetClampedJumps === 0
-                        ? 'transparent'
-                        : 'rgba(137, 180, 250, 0.14)';
-                jumpsEl.innerText      = `Total jumps : ${jumpCount} (Avg: ${avgJumpPx}px/jump)`;
                 updateElapsed();
-                console.log(`[Extractor] STATUS: user msgs ${userMsgSummary} | msgs ${msgCount} | ` +
-                    `containers ${containerCount} | viewport moves ${viewportCount} | ` +
-                    `requested jumps ${formatRequestedJumpBuckets()} | ` +
-                    `clamped jumps ${clampedJumpStats} | total jumps ${jumpCount} (Avg: ${avgJumpPx}px/jump)`);
+                console.log(`[Extractor] STATUS: user msgs ${userMsgSummary} | msgs ${msgCount}`);
             },
             log(msg) {
                 updateElapsed();
@@ -5617,7 +3234,6 @@ export function installExtractorApp() {
             getPendingAutoRestart: () => _pendingAutoRestart,
             setPendingAutoRestart: value => { _pendingAutoRestart = value; },
             getSavedState: () => _savedState,
-            incrementAutoResumeCount: () => ++_perf.lifecycle.autoResumesFromCurrent,
         });
     
         attachExportListener({
@@ -5647,294 +3263,4 @@ export function installExtractorApp() {
     
     buildUI();
     
-    // ════════════════════════════════════════════════════════════════
-    // COMPATIBILITY CHECK
-    // ════════════════════════════════════════════════════════════════
-    
-    const _MARKUP_CHECKS = [
-        { label: 'Ordered list',   pat: /^\d+\. /m,             prompt: 'List the three primary colors as a numbered list.' },
-        { label: 'Unordered list', pat: /^- /m,                 prompt: 'List three types of fruit using bullet points.' },
-        { label: 'Code block',     pat: /^```/m,                prompt: 'Write a Python function that returns the square of a number, with a docstring.' },
-        { label: 'Inline code',    pat: /`[^`\n]+`/,            prompt: 'In one sentence, refer to the variable `count` using inline code.' },
-        { label: 'Bold',           pat: /\*\*[^*\n]+\*\*/,     prompt: 'Write one sentence where the word "important" appears in bold.' },
-        { label: 'Italic',         pat: /(?<!\*)\*[^*\s][^*\n]*\*(?!\*)/,  prompt: 'Write one sentence where the word "gently" appears in italic.' },
-        { label: 'Table',          pat: /\| ?-+ ?\|/,           prompt: 'Make a table with columns Name and Score, and two data rows.' },
-        { label: 'Blockquote',     pat: /^> /m,                 prompt: 'Write this sentence as a blockquote: To be or not to be.' },
-        { label: 'Heading',        pat: /^#{1,6} /m,            prompt: 'Write a level-2 heading "Results" followed by one sentence.' },
-    ];
-    
-    function buildDiagUI() {
-        const DIAG_ID = 'chatgpt-extractor-diag';
-        const existing = document.getElementById(DIAG_ID);
-        if (existing) { existing.remove(); return; }
-    
-        const panel = document.createElement('div');
-        panel.id = DIAG_ID;
-        Object.assign(panel.style, {
-            position: 'fixed', top: '20px', left: `${Math.max(0, window.innerWidth - 780)}px`, zIndex: '99999',
-            padding: '14px', background: '#1e1e2e', color: '#cdd6f4',
-            border: '2px solid #a6e3a1', borderRadius: '8px',
-            fontFamily: 'monospace', fontSize: '11px', width: '400px',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.5)', lineHeight: '1.5',
-            maxHeight: '85vh', overflowY: 'auto',
-        });
-    
-        const titleRow = document.createElement('div');
-        Object.assign(titleRow.style, {
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginBottom: '10px', cursor: 'move', userSelect: 'none',
-        });
-        const title = Object.assign(document.createElement('div'), { innerText: 'Compatibility Check' });
-        Object.assign(title.style, { fontWeight: 'bold', color: '#a6e3a1', fontSize: '13px' });
-        const closeBtn = Object.assign(document.createElement('button'), { innerText: '×' });
-        Object.assign(closeBtn.style, { background: 'none', border: 'none', color: '#a6e3a1', cursor: 'pointer', fontSize: '16px', fontFamily: 'monospace', padding: '0' });
-        closeBtn.onclick = () => panel.remove();
-        titleRow.append(title, closeBtn);
-    
-        { // drag
-            let ox = 0, oy = 0;
-            const onMove = e => {
-                panel.style.left = `${e.clientX - ox}px`;
-                panel.style.top  = `${e.clientY - oy}px`;
-            };
-            const onUp = () => document.removeEventListener('mousemove', onMove);
-            titleRow.addEventListener('mousedown', e => {
-                if (e.target === closeBtn) return;
-                const r = panel.getBoundingClientRect();
-                ox = e.clientX - r.left; oy = e.clientY - r.top;
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp, { once: true });
-                e.preventDefault();
-            });
-        }
-    
-        // ── Structural section ────────────────────────────────────
-        const structHead = Object.assign(document.createElement('div'), { innerText: '── Structural ──' });
-        Object.assign(structHead.style, { color: '#89b4fa', marginBottom: '6px' });
-    
-        const structLog = document.createElement('div');
-        Object.assign(structLog.style, { marginBottom: '10px' });
-    
-        const addLine = (log, ok, label, detail) => {
-            const icon  = ok === null ? '[?]' : ok ? '[✓]' : '[✗]';
-            const color = ok === null ? '#585b70' : ok ? '#a6e3a1' : '#f38ba8';
-            const row = document.createElement('div');
-            row.innerHTML = `<span style="color:${color};font-weight:bold">${icon}</span> ${label}`;
-            log.appendChild(row);
-            if (detail) {
-                const det = document.createElement('div');
-                det.innerText = '    ' + detail;
-                Object.assign(det.style, { color: '#6c7086', whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: '2px' });
-                log.appendChild(det);
-            }
-        };
-    
-        const runStructural = () => {
-            structLog.innerHTML = '';
-    
-            const container = findScrollContainer();
-            const fallback = container === document.documentElement;
-            addLine(structLog, !fallback, 'Scroll container',
-                fallback ? 'FALLBACK: using <html> — container detection may be wrong'
-                         : `<${container.tagName.toLowerCase()}> scrollH=${container.scrollHeight} clientH=${container.clientHeight}`);
-    
-            const strip = [...document.querySelectorAll('div')]
-                .find(d => d.className.includes('w-9') && d.className.includes('max-h-[50lvh]') && d.className.includes('no-scrollbar'));
-            addLine(structLog, !!strip, 'Nav menu container (primary selector)',
-                strip ? 'div.w-9.max-h-[50lvh].no-scrollbar' : 'NOT FOUND — using button-class fallback');
-    
-            const navItems = getNavMenuItems();
-            addLine(structLog, navItems.length > 0, 'Navigation menu items',
-                navItems.length > 0 ? `${navItems.length} found` : 'NOT FOUND — navigation impossible');
-            if (navItems.length > 0) {
-                const label = navItems[0].getAttribute('aria-label');
-                addLine(structLog, !!label, 'First nav item aria-label',
-                    label ? label : 'MISSING — cannot identify first user prompt');
-            }
-    
-            const msgs = document.querySelectorAll('[data-message-author-role]');
-            addLine(structLog, msgs.length > 0, '[data-message-author-role]',
-                msgs.length > 0 ? `${msgs.length} in DOM` : 'MISSING — cannot extract messages');
-    
-            const msgIds = document.querySelectorAll('[data-message-id]');
-            addLine(structLog, msgIds.length > 0, '[data-message-id]',
-                msgIds.length > 0 ? `${msgIds.length} in DOM` : 'MISSING — export TOC will have no anchors');
-    
-            // Shortest currently-mounted message height per role — the
-            // empirical floor for calibrating the chain-walk's "small extra"
-            // probe offset (must stay under this so the probe never
-            // overshoots past the immediately-adjacent message). Filtered to
-            // height>0 since a virtualized-away element reports a zero rect,
-            // which would otherwise look like a (false) shortest match.
-            for (const role of ['user', 'assistant']) {
-                const heights = [...document.querySelectorAll(`[data-message-author-role="${role}"]`)]
-                    .map(el => el.getBoundingClientRect().height)
-                    .filter(h => h > 0);
-                const min = heights.length ? Math.min(...heights) : null;
-                addLine(structLog, min !== null, `Shortest ${role} message height`,
-                    min !== null
-                        ? `${Math.round(min)}px (n=${heights.length} mounted)`
-                        : 'No mounted messages of this role to measure — scroll near some and re-check');
-            }
-    
-            const allPH   = [...document.querySelectorAll('[data-turn-id-container]')];
-            const blankPH = [...document.querySelectorAll('[data-turn-id-container][data-is-intersecting="false"]')];
-            if (allPH.length === 0) {
-                addLine(structLog, null, '[data-turn-id-container] (lazy placeholder)',
-                    'None in DOM — scroll to the middle of a long conversation and re-check');
-            } else {
-                const p = allPH[0];
-                const hasAttr = p.hasAttribute('data-is-intersecting');
-                const cssVar  = getComputedStyle(p).getPropertyValue('--last-known-height').trim();
-                addLine(structLog, hasAttr, '[data-turn-id-container] (lazy placeholder)',
-                    [
-                        `${allPH.length} total, ${blankPH.length} unloaded (blank)`,
-                        hasAttr ? 'data-is-intersecting ✓' : 'data-is-intersecting MISSING ← blank detection broken',
-                        p.className ? `class: "${p.className.slice(0, 70)}"` : 'class: (empty)',
-                        cssVar ? `--last-known-height: ${cssVar}` : '--last-known-height: not set',
-                    ].join('\n    ')
-                );
-    
-                // A live snapshot of duplicate-*sibling* severity — the same
-                // data-turn-id on multiple elements that are NOT ancestor/
-                // descendant of each other. Nested wrappers for one message
-                // (~2 containers each, already known and expected) share a
-                // turn-id too but aren't the problem; only counting groups
-                // that survive the same containment check findNextDeck uses
-                // avoids flagging that normal case as if it were the bug.
-                const turnIdGroups = new Map();
-                for (const el of allPH) {
-                    const id = el.getAttribute('data-turn-id');
-                    if (!id) continue;
-                    if (!turnIdGroups.has(id)) turnIdGroups.set(id, []);
-                    turnIdGroups.get(id).push(el);
-                }
-                let dupGroupCount = 0, maxDup = 0;
-                for (const [, els] of turnIdGroups) {
-                    // Count elements with no containment relationship to any
-                    // earlier element sharing this turn-id — survivors are
-                    // genuine siblings, not nested wrappers of one another.
-                    const unrelated = els.filter((el, i) => els.slice(0, i).every(prev => !prev.contains(el) && !el.contains(prev)));
-                    if (unrelated.length > 1) { dupGroupCount++; maxDup = Math.max(maxDup, unrelated.length); }
-                }
-                addLine(structLog, dupGroupCount === 0, 'Duplicate data-turn-id siblings',
-                    dupGroupCount === 0
-                        ? `${turnIdGroups.size} distinct turn-id(s), no sibling duplicates right now`
-                        : `${dupGroupCount}/${turnIdGroups.size} turn-id(s) have sibling duplicates, largest group has ${maxDup} element(s)`
-                );
-            }
-        };
-    
-        const recheckBtn = Object.assign(document.createElement('button'), { innerText: 'Re-check' });
-        Object.assign(recheckBtn.style, {
-            padding: '3px 8px', background: '#313244', color: '#cdd6f4',
-            border: '1px solid #585b70', borderRadius: '4px', cursor: 'pointer',
-            fontFamily: 'monospace', fontSize: '10px', marginBottom: '10px',
-        });
-        recheckBtn.onclick = runStructural;
-    
-        // ── Markup fidelity section ───────────────────────────────
-        const markupHead = Object.assign(document.createElement('div'), { innerText: '── Markup Fidelity ──' });
-        Object.assign(markupHead.style, { color: '#89b4fa', marginBottom: '6px' });
-    
-        const intro = Object.assign(document.createElement('div'), {
-            innerText: 'Start a new conversation and send these prompts one by one. After extraction, click Check:',
-        });
-        Object.assign(intro.style, { color: '#bac2de', marginBottom: '8px', lineHeight: '1.4' });
-    
-        const mkCopyBtn = (text) => {
-            const b = Object.assign(document.createElement('button'), { innerText: 'Copy' });
-            Object.assign(b.style, {
-                padding: '2px 7px', background: '#313244', color: '#cdd6f4',
-                border: '1px solid #585b70', borderRadius: '3px', cursor: 'pointer',
-                fontFamily: 'monospace', fontSize: '10px', flexShrink: '0',
-            });
-            b.onclick = () => {
-                navigator.clipboard.writeText(text);
-                b.innerText = '✓';
-                setTimeout(() => { b.innerText = 'Copy'; }, 1500);
-            };
-            return b;
-        };
-    
-        const promptsContainer = document.createElement('div');
-        Object.assign(promptsContainer.style, { marginBottom: '10px' });
-        for (let i = 0; i < _MARKUP_CHECKS.length; i++) {
-            const { label, prompt } = _MARKUP_CHECKS[i];
-            const row = document.createElement('div');
-            Object.assign(row.style, {
-                display: 'flex', alignItems: 'baseline', gap: '6px',
-                marginBottom: '4px', background: '#181825',
-                padding: '5px 7px', borderRadius: '4px',
-            });
-            const num = Object.assign(document.createElement('span'), { innerText: `${i + 1}.` });
-            Object.assign(num.style, { color: '#6c7086', flexShrink: '0', minWidth: '14px' });
-            const txt = Object.assign(document.createElement('span'), { innerText: prompt });
-            Object.assign(txt.style, { flex: '1', lineHeight: '1.4' });
-            row.append(num, txt, mkCopyBtn(prompt));
-            promptsContainer.appendChild(row);
-        }
-    
-        const checkBtn = Object.assign(document.createElement('button'), { innerText: 'Extract & Check' });
-        Object.assign(checkBtn.style, {
-            padding: '5px 12px', background: '#a6e3a1', color: '#11111b',
-            border: 'none', borderRadius: '4px', cursor: 'pointer',
-            fontWeight: 'bold', fontFamily: 'monospace', fontSize: '11px', marginBottom: '8px',
-        });
-    
-        const markupLog = document.createElement('div');
-    
-        checkBtn.onclick = async () => {
-            markupLog.innerHTML = '';
-            checkBtn.disabled = true;
-            checkBtn.innerText = 'Extracting…';
-    
-            const addLog = (msg, color = '#6c7086') => {
-                const line = document.createElement('div');
-                line.innerText = msg;
-                Object.assign(line.style, { color, fontSize: '10px', whiteSpace: 'pre-wrap' });
-                markupLog.appendChild(line);
-            };
-    
-            const diagUi = {
-                stopped: false, total: 0,
-                phase(n, label) { addLog(`Phase ${n} — ${label}`, '#89b4fa'); },
-                status() {},
-                log(msg) { addLog(`> ${msg}`); },
-            };
-    
-            try {
-                await run(diagUi, null);
-            } catch (e) {
-                addLog(`Error: ${e.message}`, '#f38ba8');
-                checkBtn.disabled = false;
-                checkBtn.innerText = 'Extract & Check';
-                return;
-            }
-    
-            if (_savedState?.stopReason) addLog(`Stopped early — diagnosis: ${_savedState.stopReason}`, '#f9e2af');
-    
-            const sep = document.createElement('div');
-            sep.innerText = '──';
-            Object.assign(sep.style, { color: '#585b70', margin: '4px 0' });
-            markupLog.appendChild(sep);
-    
-            const text = (_savedState?.allPrompts ?? []).filter(pr => pr.role === 'assistant').map(pr => pr.text).join('\n');
-            if (!text) {
-                addLog('Extraction produced no assistant content.', '#f38ba8');
-            } else {
-                for (const { label, pat } of _MARKUP_CHECKS)
-                    addLine(markupLog, pat.test(text), label, null);
-            }
-    
-            checkBtn.disabled = false;
-            checkBtn.innerText = 'Extract & Check';
-        };
-    
-        panel.append(titleRow, structHead, structLog, recheckBtn, markupHead, intro, promptsContainer, checkBtn, markupLog);
-        document.body.appendChild(panel);
-        runStructural();
-    }
-    
-    GM_registerMenuCommand('Compatibility Check', buildDiagUI);
 }
