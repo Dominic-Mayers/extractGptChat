@@ -47,8 +47,7 @@ export async function traverseConversation() {
     // current deck. Initializing both to the viewport height is
     // equivalent to introducing an imaginary slab and an imaginary
     // deck whose leading edges coincide with the trailing edge of
-    // the viewport — the same geometric condition every subsequent
-    // slab and deck is searched under, not a special case.
+    // the viewport.
     //
     let room = containerClientHeight(container);
     let deckRoom = containerClientHeight(container);
@@ -73,11 +72,8 @@ export async function traverseConversation() {
         }
 
         //
-        // See Assumption A4 (Extremity rendering).
-        // After the intended extremity has been reached,
-        // further viewport movement cannot reveal another
-        // ready deck. Skipping moveWorkZone() therefore
-        // avoids a useless geometric correction.
+        // The value room can be negative and a jump always increases it.
+        // Regarding extremityReached, see Assumption A4 (Extremity rendering).
         //
         if (
             current &&
@@ -97,20 +93,14 @@ export async function traverseConversation() {
         }
 
         //
-        // A2 is false (ASSUMPTIONS.md): a small gap alone cannot prove
-        // the deck is exhausted — real deck padding can exceed
-        // MINIMUM_SLAB_HEIGHT. Only skip nextSlab() when the gap is
-        // below the true minimum possible slab height, a sound
-        // "definitely no slab fits" shortcut. Otherwise nextSlab()
-        // itself is the source of truth.
+        // Either the we find the next slab in the current deck...  
         //
         let slab = (deck && room - deckRoom >= MINIMUM_SLAB_HEIGHT)
             ? nextSlab(room, deck)
             : null;
 
         //
-        // Current deck (if any) has no more slabs above current:
-        // move to the next ready deck.
+        // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
 

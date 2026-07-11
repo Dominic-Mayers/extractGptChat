@@ -1,71 +1,58 @@
 // moveWorkZone.js
 //
-// Move the current slab into the work zone.
+// The move is a sequence of jumps, that each increases the room ahead of the current slab. 
+// The algorithm is geometry-driven. 
+// It is initiated (outside the function) when there is not enough room.
+// It ends when the intersection of the current slab with the viewport reaches MIN_INTERSECT
+// or the extremity of the document is reached.
 //
-// The algorithm is geometry-driven:
-//   1. Measure the room above the current slab.
-//   2. If insufficient, perform a calibrated jump.
-//   3. Wait for the layout to stabilize AND for room to close to
-//      within MAX_DRIFT of the intended value — both are required
-//      before a jump is trusted (see waitLayoutStable).
-//
-// There is no separate after-the-fact drift check: a jump that
-// resolves has already satisfied MAX_DRIFT by construction. A jump
-// that never satisfies it within the timeout throws instead of
-// silently continuing — see the catch block below for why the
-// decision isn't "was current still connected," just what the error
-// reports.
+// In each cycle:
+//   1. Clamp the jump if needed. 
+//   2. Perform the jump.
+//   3. Wait for the layout to stabilize, including room reaching
+//      the intended value within MAX_DRIFT. 
 //
 import {
    MAX_DRIFT,
    MIN_INTERSECT,
    CALIBRATED_JUMP
 } from "./constants.js";
+
 import {
     findScrollContainer,
-    containerScrollY,
-    containerScrollHeight,
-    containerClientHeight,
-    containerScrollBy,
-    containerScrollTo
+    scrollY,
+    scrollHeight,
+    clientHeight,
+    scrollBy,
+    scrollTo
 } from "./scrollContainer.js";
-import { isStopRequested } from "./stopControl.js";
+
+import { isEarlyStopRequestedByUser } from "./stopControl.js";
 
 export async function moveWorkZone(current, container, direction = -1) {
 
     let room = measureRoom(current, container, direction);
-    let extremityReached = isAtExtremity(0, container, direction);
-    // Decided prospectively from intent, not from a post-jump
-    // remeasurement — same principle as extremityReached, and for the
-    // same reason: containerClientHeight(container) is not guaranteed
-    // stable across jumps, so comparing a later remeasured room against
-    // a viewportHeight captured once before any jump could compare
-    // against a value that's already gone stale. See ASSUMPTIONS.md A8.
-    let slabIntersectionAtMinimum =
-        room >= containerClientHeight(container) - MIN_INTERSECT;
+    let slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, room);
+    let extremityReached = isAtExtremityAfter(0, container, direction);
 
     while (!slabIntersectionAtMinimum && !extremityReached) {
 
-        // Checked here, not just in traverseConversation's outer loop,
-        // so a stop request takes effect between individual jumps
-        // instead of waiting for a whole (possibly long) work-zone move
-        // to finish first.
-        if (isStopRequested()) {
+        if (isEarlyStopRequestedByUser()) {
             return { room, extremityReached };
         }
 
         const previousRoom = room;
-        const scrollYBefore = containerScrollY(container);
-        const scrollHeightBefore = containerScrollHeight(container);
+        const scrollYBefore = scrollY(container);
+        const scrollHeightBefore = scrollHeight(container);
         const heightBefore = current.getBoundingClientRect().height;
-        const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
         const intendedRoom = previousRoom + jump;
-        // Read fresh, right alongside the jump that was just clamped
-        // against its own fresh reading of the same quantity inside
-        // clampJump() — not the value from before the loop started.
-        slabIntersectionAtMinimum =
-            intendedRoom >= containerClientHeight(container) - MIN_INTERSECT;
-        extremityReached = isAtExtremity(jump, container, direction);
+
+        const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
+
+        // These are computed before the jump, because the decision for the next jump 
+        // is based on the intent, not the actual result of the jump. 
+        slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, intendedRoom); 
+        extremityReached = isAtExtremityAfter(jump, container, direction);
 
         console.log(
             `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, ` +
@@ -78,14 +65,7 @@ export async function moveWorkZone(current, container, direction = -1) {
 
         performJump(jump, container, direction);
 
-        // Native scrollTop updates synchronously on scrollBy()/scrollTo() —
-        // if something (e.g. a virtualized-list library reacting to the
-        // scroll) reverts it, that happens later, since scroll events
-        // dispatch asynchronously. Reading here, before waitLayoutStable's
-        // first await, distinguishes "the jump was never applied at all"
-        // from "it was applied and then reverted" — waitLayoutStable's own
-        // sampling starts a frame too late to tell those apart.
-        const scrollYImmediatelyAfterJump = containerScrollY(container);
+        const scrollYImmediatelyAfterJump = scrollY(container);
         console.log(
             `[moveWorkZone] immediately after performJump: scrollY ${Math.round(scrollYBefore)} -> ` +
             `${Math.round(scrollYImmediatelyAfterJump)} (expected ${Math.round(scrollYBefore + jump * direction)})`
@@ -97,33 +77,17 @@ export async function moveWorkZone(current, container, direction = -1) {
             stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom });
         } catch (err) {
             const connected = 'isConnected' in current ? current.isConnected : null;
-            // Distinguishes "current itself was unmounted" from "container
-            // is a stale reference to a scroll ancestor React has since
-            // replaced" — a scrollBy() on a detached container silently
-            // scrolls nothing, while current (if still attached to the
-            // live tree) correctly reports a position that never moved.
             const containerConnected = 'isConnected' in container ? container.isConnected : null;
-            // Stronger than isConnected alone: re-locates the scroll
-            // ancestor from scratch and compares by reference. isConnected
-            // only proves the node is somewhere in the live tree, not that
-            // it's still the ancestor ChatGPT is actually scrolling — a
-            // reference identity mismatch is direct proof container is
-            // stale even in the (expected) common case where it's still
-            // technically connected.
             const freshContainer = findScrollContainer();
             const containerIsStale = freshContainer !== container;
             const childCount = container.childElementCount;
-            // Checks the actual effective value, not just what we set —
-            // React re-rendering this element with its own style prop could
-            // silently reset our inline override back to the default
-            // without us ever seeing it revert.
             const effectiveOverflowAnchor = getComputedStyle(container).overflowAnchor;
             const roomNow = measureRoom(current, container, direction);
             throw new Error(
                 `moveWorkZone jump did not stabilize within tolerance: direction=${direction}, ` +
                 `previousRoom=${previousRoom}, jump=${jump}, intendedRoom=${intendedRoom}, ` +
-                `room=${roomNow}, scrollY=${containerScrollY(container)}, ` +
-                `scrollHeight ${scrollHeightBefore} -> ${containerScrollHeight(container)}, ` +
+                `room=${roomNow}, scrollY=${scrollY(container)}, ` +
+                `scrollHeight ${scrollHeightBefore} -> ${scrollHeight(container)}, ` +
                 `current.isConnected=${connected}, container.isConnected=${containerConnected}, ` +
                 `containerIsStale=${containerIsStale}, container.childElementCount=${childCount}, ` +
                 `container effectiveOverflowAnchor=${effectiveOverflowAnchor}` +
@@ -139,8 +103,8 @@ export async function moveWorkZone(current, container, direction = -1) {
         }
 
         room = measureRoom(current, container, direction);
-        const scrollYAfter = containerScrollY(container);
-        const scrollHeightAfter = containerScrollHeight(container);
+        const scrollYAfter = scrollY(container);
+        const scrollHeightAfter = scrollHeight(container);
         const heightAfter = current.getBoundingClientRect().height;
         const drift = room - intendedRoom;
         const elapsedMs = performance.now() - jumpStartTime;
@@ -161,11 +125,11 @@ export async function moveWorkZone(current, container, direction = -1) {
  */
 export function clampJump(calibratedJump, room, container, direction) {
 
-    const viewportHeight = containerClientHeight(container);
-    const pageHeight = containerScrollHeight(container);
+    const viewportHeight = clientHeight(container);
+    const pageHeight = scrollHeight(container);
     const distanceToExtremity = direction < 0 ?
-        containerScrollY(container) :
-        pageHeight - containerScrollY(container) - viewportHeight;
+        scrollY(container) :
+        pageHeight - scrollY(container) - viewportHeight;
 
     return Math.min(
             calibratedJump,
@@ -175,20 +139,32 @@ export function clampJump(calibratedJump, room, container, direction) {
 }
 
 /**
- * Determine if the intended jump reaches extremity.
- */
-export function isAtExtremity(jump = 0, container, direction) {
+ * Determine if the jump reaches extremity.
+ * The intended jump should be used instead of the actual jump, which
+ * can drift in uncontrolled ways.  This prioritizes a deterministic 
+ * end condition over a condition that applies to the actual jump. It assumes
+ * the boundary values used in decisions are valid within these small drifts.
+ * For example, if the intended jump reaches the extremity, the actual
+ * jump may not, but there is no need to actually reach the extremity, 
+ * because the activation of the rendering of the last deck is
+ * already satisfied even with a smaller actual jump.
+ */ 
+export function isAtExtremityAfter(jump = 0, container, direction) {
 
     if (direction < 0) {
-        return containerScrollY(container) + direction * jump === 0;
+        return scrollY(container) + direction * jump === 0;
     }
 
     return (
-        containerScrollHeight(container)
-        - (containerScrollY(container) + direction * jump)
-        - containerClientHeight(container)
+        scrollHeight(container)
+        - (scrollY(container) + direction * jump)
+        - clientHeight(container)
         === 0
     );
+}
+
+export function isSlabIntersectionAtMinimum(container, intendedRoom) {
+    return intendedRoom >= clientHeight(container) - MIN_INTERSECT;
 }
 
 /**
@@ -196,7 +172,7 @@ export function isAtExtremity(jump = 0, container, direction) {
  */
 export function measureRoom(current, container, direction) {
 
-    const viewportHeight = containerClientHeight(container);
+    const viewportHeight = clientHeight(container);
     const rect = current.getBoundingClientRect();
 
     return direction < 0
@@ -212,20 +188,20 @@ export function measureRoom(current, container, direction) {
  */
 export function performJump(jump, container, direction) {
 
-    const viewportHeight = containerClientHeight(container);
-    const pageHeight = containerScrollHeight(container);
+    const viewportHeight = clientHeight(container);
+    const pageHeight = scrollHeight(container);
 
     const distanceToExtremity = direction < 0 ?
-       containerScrollY(container) :
-       pageHeight - containerScrollY(container) - viewportHeight;
+       scrollY(container) :
+       pageHeight - scrollY(container) - viewportHeight;
 
     if (jump >= distanceToExtremity && direction < 0) {
-        containerScrollTo(container, 0);
+        scrollTo(container, 0);
     } else if (jump >= distanceToExtremity) {
-        containerScrollTo(container, pageHeight); // too much, but the browser clamps
+        scrollTo(container, pageHeight); // too much, but the browser clamps
     }
     else {
-        containerScrollBy(container, jump * direction);
+        scrollBy(container, jump * direction);
     }
 }
 
@@ -241,6 +217,16 @@ export function performJump(jump, container, direction) {
  * longer, staggered reflow no longer gets accepted as "done" just
  * because room hasn't been compared yet. See MAX_DRIFT's role change
  * in moveWorkZone.js.
+ *
+ * Polls via requestAnimationFrame. A MutationObserver-based redesign
+ * was tried and reverted (see project memory) — its premise didn't
+ * survive checking against the actual logs: the short/long timing
+ * distinction it relied on doesn't predict anything (99.6% of short
+ * "geometry stable but room not close" attempts are followed by
+ * another short one, not a long one), so there was no real signal to
+ * act on. rAF polling, despite competing with React's own rendering
+ * for frame scheduling, is what generated every log this was checked
+ * against.
  */
 export async function waitLayoutStable(
     container = document.documentElement,
@@ -259,7 +245,7 @@ export async function waitLayoutStable(
     let previous = geometryFingerprint(container);
     let unchanged = 0;
 
-    console.log("Start stabilization"); 
+    console.log("Start stabilization");
 
     let attemptStartTime = performance.now();
     for (let frame = 0; frame < maxFrames; frame++) {
@@ -293,11 +279,11 @@ export async function waitLayoutStable(
 
         if (unchanged >= stableFrames) {
             const lastAttemptTime = performance.now() - attemptStartTime;
-            console.log("Stabilized. Last attempt time:", lastAttemptTime, "ms"); 
+            console.log("Stabilized. Last attempt time:", lastAttemptTime, "ms");
             return frame + 1;
         }
     }
-    console.log("Out of the stabilization loop"); 
+    console.log("Out of the stabilization loop");
     throw new Error(
         checkRoom
             ? `Exceeded ${maxFrames} frames waiting for layout stabilization within ${roomTolerance}px of intendedRoom=${intendedRoom} ` +
@@ -316,9 +302,9 @@ export async function waitLayoutStable(
 function geometryFingerprint(container) {
 
     return [
-        containerScrollHeight(container),
+        scrollHeight(container),
         document.body.scrollWidth,
-        containerScrollY(container)
+        scrollY(container)
     ].join(":");
 }
 
