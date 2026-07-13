@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      0.62
+// @version      0.72
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -44,7 +44,7 @@
   var MAX_SLAB_GAP = 160;
   var MAX_DECK_GAP = 20;
   var CALIBRATED_JUMP = 480;
-  var MAX_DRIFT = 1;
+  var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
 
   // src/dev/nextSlab.js
@@ -67,7 +67,7 @@
       console.log(
         `[nextSlab] room=${Math.round(room)}, area={top:${Math.round(area.top)}, bottom:${Math.round(area.bottom)}}, slabs.length=${slabs.length}, candidates.length=${candidates.length}` + (slabs.length > 0 ? `, slabs: ` + slabs.map((s) => {
           const r = s.getBoundingClientRect();
-          return `{type:${s.dataset?.slabType}, top:${Math.round(r.top)}, bottom:${Math.round(r.bottom)}, gap:${room - r.bottom}}`;
+          return `{top:${Math.round(r.top)}, bottom:${Math.round(r.bottom)}, gap:${room - r.bottom}}`;
         }).join(", ") : "")
       );
     }
@@ -76,13 +76,13 @@
   function getSlabsIn(deck) {
     const slabs = [];
     for (const message of deck.querySelectorAll("[data-message-id]")) {
-      slabs.push(makeSlab(message, "message"));
+      slabs.push(message);
     }
     for (const image of deck.querySelectorAll(".group\\/imagegen-image")) {
-      slabs.push(makeSlab(image, "image"));
+      slabs.push(image);
     }
     for (const canvas of deck.querySelectorAll('[id^="textdoc-message-"]')) {
-      slabs.push(makeSlab(canvas, "canvas"));
+      slabs.push(canvas);
     }
     if (slabs.length === 0) {
       slabs.push(makeEmptySlab(deck));
@@ -94,15 +94,8 @@
     });
     return slabs;
   }
-  function makeSlab(element, type) {
-    element.dataset.slabType = type;
-    return element;
-  }
   function makeEmptySlab(deck) {
     return {
-      dataset: {
-        slabType: "empty"
-      },
       getBoundingClientRect() {
         const rect = deck.getBoundingClientRect();
         return {
@@ -230,18 +223,6 @@
     target.scrollTo({ top, behavior: "instant" });
   }
 
-  // src/dev/stopControl.js
-  var stopRequested = false;
-  function requestStop() {
-    stopRequested = true;
-  }
-  function resetStop() {
-    stopRequested = false;
-  }
-  function isEarlyStopRequestedByUser() {
-    return stopRequested;
-  }
-
   // src/dev/stabilize.js
   async function waitLayoutStable(container = document.documentElement, {
     stableFrames = 2,
@@ -255,26 +236,25 @@
     let previous = geometryFingerprint(container);
     let unchanged = 0;
     console.log("Start stabilization");
-    let attemptStartTime = performance.now();
     for (let frame = 0; frame < maxFrames; frame++) {
+      const attemptTime = performance.now();
       await nextAnimationFrame();
+      const attemptDeltaTime = performance.now() - attemptTime;
       const currentGeometry = geometryFingerprint(container);
       const geometryChanged = currentGeometry !== previous;
       const roomNow = checkRoom ? measureRoom(current, container, direction) : null;
       const roomClose = !checkRoom || Math.abs(roomNow - intendedRoom) <= roomTolerance;
       if (!geometryChanged && roomClose) {
         unchanged++;
+        console.log("rAF no change:", attemptDeltaTime, "ms");
       } else {
-        const attemptTime = performance.now() - attemptStartTime;
-        attemptStartTime += attemptTime;
         const reason = geometryChanged && !checkRoom ? `geometry changed (${previous} -> ${currentGeometry})` : geometryChanged ? `geometry changed (${previous} -> ${currentGeometry}), room=${roomNow}` : `geometry stable but room not close: room=${roomNow}, intendedRoom=${intendedRoom}, drift=${(roomNow - intendedRoom).toFixed(2)}`;
-        console.log("Failed attempt at stabilization:", attemptTime, "ms \u2014", reason);
+        console.log("rAF with change:", attemptDeltaTime, "ms \u2014", reason);
         previous = currentGeometry;
         unchanged = 0;
       }
       if (unchanged >= stableFrames) {
-        const lastAttemptTime = performance.now() - attemptStartTime;
-        console.log("Stabilized. Last attempt time:", lastAttemptTime, "ms");
+        console.log("Stabilized. rAF time:", attemptDeltaTime, "ms");
         return frame + 1;
       }
     }
@@ -286,7 +266,6 @@
   function geometryFingerprint(container) {
     return [
       scrollHeight(container),
-      document.body.scrollWidth,
       scrollY(container)
     ].join(":");
   }
@@ -302,9 +281,6 @@
     let slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, room);
     let extremityReached = isAtExtremityAfter(0, container, direction);
     while (!slabIntersectionAtMinimum && !extremityReached) {
-      if (isEarlyStopRequestedByUser()) {
-        return { room, extremityReached };
-      }
       const previousRoom = room;
       const scrollYBefore = scrollY(container);
       const scrollHeightBefore = scrollHeight(container);
@@ -316,7 +292,6 @@
       console.log(
         `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, jump=${Math.round(jump)}, intendedRoom=${Math.round(intendedRoom)}, scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, current.height=${Math.round(heightBefore)}, extremityReached=${extremityReached}`
       );
-      const jumpStartTime = performance.now();
       performJump(jump, container, direction);
       const scrollYImmediatelyAfterJump = scrollY(container);
       console.log(
@@ -324,7 +299,7 @@
       );
       let stableAfterFrames;
       try {
-        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom });
+        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 5 });
       } catch (err) {
         const connected = "isConnected" in current ? current.isConnected : null;
         const containerConnected = "isConnected" in container ? container.isConnected : null;
@@ -342,9 +317,8 @@
       const scrollHeightAfter = scrollHeight(container);
       const heightAfter = current.getBoundingClientRect().height;
       const drift = room - intendedRoom;
-      const elapsedMs = performance.now() - jumpStartTime;
       console.log(
-        `[moveWorkZone] after jump: direction=${direction}, intendedRoom=${Math.round(intendedRoom)}, room=${Math.round(room)}, drift=${drift.toFixed(4)}, elapsedMs=${elapsedMs.toFixed(1)}, stableAfterFrames=${stableAfterFrames}, scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYAfter)}, scrollHeight ${Math.round(scrollHeightBefore)} -> ${Math.round(scrollHeightAfter)}, current.height ${Math.round(heightBefore)} -> ${Math.round(heightAfter)}`
+        `[moveWorkZone] after jump: direction=${direction}, intendedRoom=${Math.round(intendedRoom)}, room=${Math.round(room)}, drift=${drift.toFixed(4)} stableAfterFrames=${stableAfterFrames}, scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYAfter)}, scrollHeight ${Math.round(scrollHeightBefore)} -> ${Math.round(scrollHeightAfter)}, current.height ${Math.round(heightBefore)} -> ${Math.round(heightAfter)}`
       );
     }
     return { room, extremityReached };
@@ -435,7 +409,6 @@
 
   // src/dev/mainOrchestration.js
   async function traverseConversation() {
-    resetStop();
     const container = findScrollContainer();
     await moveViewportToBottom(container);
     console.log(
@@ -449,12 +422,6 @@
     let deckCount = 0;
     let slabCount = 0;
     while (true) {
-      if (isEarlyStopRequestedByUser()) {
-        console.log(
-          `[traverseConversation] stopped by user request after ${deckCount} deck(s), ${slabCount} slab(s). scrollY=${scrollY(container)}.`
-        );
-        return;
-      }
       if (current && room < MAX_SLAB_GAP && !extremityReached) {
         ({ room, extremityReached } = await moveWorkZone(current, container));
         console.log(
@@ -466,20 +433,22 @@
       }
       let slab = deck && room - deckRoom >= MINIMUM_SLAB_HEIGHT ? nextSlab(room, deck) : null;
       if (slab == null) {
+        const deckTime = performance.now();
         deck = await nextReadyDeck(
           deckRoom,
           container
         );
+        const deckDeltaTime = performance.now() - deckTime;
         if (deck == null) {
           console.log(
-            `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) returned null after ${deckCount} deck(s), ${slabCount} slab(s). scrollY=${scrollY(container)}, room=${Math.round(room)}.`
+            `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) returned null after ${deckCount} deck(s), ${slabCount} slab(s), scrollY=${scrollY(container)}, room=${Math.round(room)}.`
           );
           break;
         }
         deckCount++;
         deckRoom = deck.getBoundingClientRect().top;
         console.log(
-          `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, scrollY=${scrollY(container)}`
+          `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, waitDeck=${deckDeltaTime} ms, scrollY=${scrollY(container)}.`
         );
         slab = nextSlab(room, deck);
         if (!slab) throw new Error("No slab found in ready deck.");
@@ -488,7 +457,7 @@
       slabCount++;
       room = current.getBoundingClientRect().top;
       console.log(
-        `[traverseConversation] slab #${slabCount} (${current.dataset?.slabType}): room=${Math.round(room)}`
+        `[traverseConversation] slab #${slabCount}: room=${Math.round(room)}`
       );
     }
     console.log(
@@ -497,13 +466,9 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "0.62" : "unbuilt";
+  var VERSION = true ? "0.72" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   GM_registerMenuCommand(`Run dev traversal v${VERSION} (geometry only)`, () => {
     traverseConversation().then(() => console.log("[dev traversal] finished.")).catch((err) => console.error("[dev traversal] failed:", err));
-  });
-  GM_registerMenuCommand("Stop dev traversal", () => {
-    requestStop();
-    console.log("[dev traversal] stop requested.");
   });
 })();

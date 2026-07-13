@@ -9,7 +9,6 @@
 // observe the geometry layer in a real browser.
 
 import { traverseConversation } from './mainOrchestration.js';
-import { requestStop } from './stopControl.js';
 
 // Replaced at build time (scripts/build-dev-userscript.js) with the same
 // version string as the @version header — shown in the menu label so it's
@@ -24,9 +23,4 @@ GM_registerMenuCommand(`Run dev traversal v${VERSION} (geometry only)`, () => {
     traverseConversation()
         .then(() => console.log('[dev traversal] finished.'))
         .catch(err => console.error('[dev traversal] failed:', err));
-});
-
-GM_registerMenuCommand('Stop dev traversal', () => {
-    requestStop();
-    console.log('[dev traversal] stop requested.');
 });

@@ -27,8 +27,6 @@ import {
     scrollTo
 } from "./scrollContainer.js";
 
-import { isEarlyStopRequestedByUser } from "./stopControl.js";
-
 import { waitLayoutStable } from "./stabilize.js";
 
 export async function moveWorkZone(current, container, direction = -1) {
@@ -38,10 +36,6 @@ export async function moveWorkZone(current, container, direction = -1) {
     let extremityReached = isAtExtremityAfter(0, container, direction);
 
     while (!slabIntersectionAtMinimum && !extremityReached) {
-
-        if (isEarlyStopRequestedByUser()) {
-            return { room, extremityReached };
-        }
 
         const previousRoom = room;
         const scrollYBefore = scrollY(container);
@@ -53,7 +47,7 @@ export async function moveWorkZone(current, container, direction = -1) {
 
         // These are computed before the jump, because the decision for the next jump 
         // is based on the intent, not the actual result of the jump. 
-        slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, intendedRoom); 
+        slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, intendedRoom);
         extremityReached = isAtExtremityAfter(jump, container, direction);
 
         console.log(
@@ -62,8 +56,6 @@ export async function moveWorkZone(current, container, direction = -1) {
             `scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, ` +
             `current.height=${Math.round(heightBefore)}, extremityReached=${extremityReached}`
         );
-
-        const jumpStartTime = performance.now();
 
         performJump(jump, container, direction);
 
@@ -76,7 +68,7 @@ export async function moveWorkZone(current, container, direction = -1) {
         let stableAfterFrames;
 
         try {
-            stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom });
+            stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 5 });
         } catch (err) {
             const connected = 'isConnected' in current ? current.isConnected : null;
             const containerConnected = 'isConnected' in container ? container.isConnected : null;
@@ -109,10 +101,9 @@ export async function moveWorkZone(current, container, direction = -1) {
         const scrollHeightAfter = scrollHeight(container);
         const heightAfter = current.getBoundingClientRect().height;
         const drift = room - intendedRoom;
-        const elapsedMs = performance.now() - jumpStartTime;
         console.log(
             `[moveWorkZone] after jump: direction=${direction}, intendedRoom=${Math.round(intendedRoom)}, ` +
-            `room=${Math.round(room)}, drift=${drift.toFixed(4)}, elapsedMs=${elapsedMs.toFixed(1)}, ` +
+            `room=${Math.round(room)}, drift=${drift.toFixed(4)} ` +
             `stableAfterFrames=${stableAfterFrames}, ` +
             `scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYAfter)}, ` +
             `scrollHeight ${Math.round(scrollHeightBefore)} -> ${Math.round(scrollHeightAfter)}, ` +
@@ -147,7 +138,7 @@ export function clampJump(calibratedJump, room, container, direction) {
  * that reflects the actual jump after the drift. It assumes the boundary values used
  * in decisions are valid within a small drift. For example, if the intended jump
  * reaches the extremity, the actual jump may not, but there is no need to actually
- * reach the extremity, because the activation of the rendering of the last deck is
+ * reach the extremity, because the activation of the rendering of the next deck is
  * already satisfied even with a smaller actual jump.
  */ 
 export function isAtExtremityAfter(jump = 0, container, direction) {

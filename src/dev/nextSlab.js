@@ -44,7 +44,7 @@ export function nextSlab(room, deck) {
             (slabs.length > 0
                 ? `, slabs: ` + slabs.map(s => {
                     const r = s.getBoundingClientRect();
-                    return `{type:${s.dataset?.slabType}, top:${Math.round(r.top)}, bottom:${Math.round(r.bottom)}, gap:${room - r.bottom}}`;
+                    return `{top:${Math.round(r.top)}, bottom:${Math.round(r.bottom)}, gap:${room - r.bottom}}`;
                 }).join(", ")
                 : "")
         );
@@ -68,19 +68,19 @@ export function getSlabsIn(deck) {
     // Message slabs
     //
     for (const message of deck.querySelectorAll("[data-message-id]")) {
-        slabs.push(makeSlab(message, "message"));
+        slabs.push(message);
     }
 
     // Image slabs — see ASSUMPTIONS.md A11.
     for (const image of deck.querySelectorAll('.group\\/imagegen-image')) {
-        slabs.push(makeSlab(image, "image"));
+        slabs.push(image);
     }
 
     // Canvas slabs: bare `canvas` can match an inner, still-rendering
     // element (e.g. CodeMirror's own internal canvas) whose geometry
     // keeps changing — see ASSUMPTIONS.md A11.
     for (const canvas of deck.querySelectorAll('[id^="textdoc-message-"]')) {
-        slabs.push(makeSlab(canvas, "canvas"));
+        slabs.push(canvas);
     }
 
     //
@@ -107,17 +107,6 @@ export function getSlabsIn(deck) {
 
 
 /**
- * Create a slab from a DOM element.
- */
-function makeSlab(element, type) {
-
-    element.dataset.slabType = type;
-
-    return element;
-}
-
-
-/**
  * Synthetic slab representing an empty ready deck.
  *
  * Geometry comes from the deck itself.
@@ -125,10 +114,6 @@ function makeSlab(element, type) {
 function makeEmptySlab(deck) {
 
     return {
-
-        dataset: {
-            slabType: "empty"
-        },
 
         getBoundingClientRect() {
 

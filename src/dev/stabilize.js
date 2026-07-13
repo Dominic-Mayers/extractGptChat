@@ -43,9 +43,10 @@ export async function waitLayoutStable(
 
     console.log("Start stabilization");
 
-    let attemptStartTime = performance.now();
     for (let frame = 0; frame < maxFrames; frame++) {
+        const attemptTime = performance.now();
         await nextAnimationFrame();
+        const attemptDeltaTime = performance.now() - attemptTime;
 
         const currentGeometry = geometryFingerprint(container);
         const geometryChanged = currentGeometry !== previous;
@@ -55,9 +56,8 @@ export async function waitLayoutStable(
 
         if (!geometryChanged && roomClose) {
             unchanged++;
+            console.log("rAF no change:", attemptDeltaTime, "ms");
         } else {
-            const attemptTime = performance.now() - attemptStartTime;
-            attemptStartTime += attemptTime;
             // Distinguishes "still actively settling" (geometry itself is
             // changing) from "settled at the wrong place" (geometry is
             // stable but room never closed on intendedRoom) — these were
@@ -68,14 +68,13 @@ export async function waitLayoutStable(
                 : geometryChanged
                 ? `geometry changed (${previous} -> ${currentGeometry}), room=${roomNow}`
                 : `geometry stable but room not close: room=${roomNow}, intendedRoom=${intendedRoom}, drift=${(roomNow - intendedRoom).toFixed(2)}`;
-            console.log("Failed attempt at stabilization:", attemptTime, "ms —", reason);
+            console.log("rAF with change:", attemptDeltaTime, "ms —", reason);
             previous = currentGeometry;
             unchanged = 0;
         }
 
         if (unchanged >= stableFrames) {
-            const lastAttemptTime = performance.now() - attemptStartTime;
-            console.log("Stabilized. Last attempt time:", lastAttemptTime, "ms");
+            console.log("Stabilized.");
             return frame + 1;
         }
     }
@@ -99,7 +98,6 @@ function geometryFingerprint(container) {
 
     return [
         scrollHeight(container),
-        document.body.scrollWidth,
         scrollY(container)
     ].join(":");
 }
