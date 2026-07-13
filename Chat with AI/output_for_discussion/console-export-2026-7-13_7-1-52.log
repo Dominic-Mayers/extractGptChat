@@ -1,0 +1,923 @@
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 13 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 13 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2561, room=-2561, drift=0.0000 stableAfterFrames=5, scrollY 10093 -> 9613, scrollHeight 304438 -> 304438, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2561, jump=480, intendedRoom=-2081, scrollY=9613, scrollHeight=304438, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9613 -> 9133 (expected 9133) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2081, room=-2081, drift=0.0000 stableAfterFrames=5, scrollY 9613 -> 9133, scrollHeight 304438 -> 304438, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2081, jump=480, intendedRoom=-1601, scrollY=9133, scrollHeight=304438, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9133 -> 8653 (expected 8653) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1601, room=-1601, drift=-0.0001 stableAfterFrames=5, scrollY 9133 -> 8653, scrollHeight 304438 -> 304438, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1601, jump=480, intendedRoom=-1121, scrollY=8653, scrollHeight=304438, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8653 -> 8173 (expected 8173) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 20 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 13 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1121, room=-1121, drift=0.0000 stableAfterFrames=5, scrollY 8653 -> 8173, scrollHeight 304438 -> 304438, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1121, jump=480, intendedRoom=-641, scrollY=8173, scrollHeight=304438, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8173 -> 7693 (expected 7693) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 347 ms — geometry changed (304438:7693.39990234375 -> 307741:10995.900390625), room=-640.9000244140625 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 5 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-641, room=-641, drift=0.0000 stableAfterFrames=6, scrollY 8173 -> 10996, scrollHeight 304438 -> 307741, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-641, jump=480, intendedRoom=-161, scrollY=10996, scrollHeight=307741, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 10996 -> 10516 (expected 10516) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-161, room=-161, drift=0.0000 stableAfterFrames=5, scrollY 10996 -> 10516, scrollHeight 307741 -> 307741, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-161, jump=480, intendedRoom=319, scrollY=10516, scrollHeight=307741, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 10516 -> 10036 (expected 10036) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=319, room=319, drift=0.0000 stableAfterFrames=5, scrollY 10516 -> 10036, scrollHeight 307741 -> 307741, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=319, jump=376, intendedRoom=695, scrollY=10036, scrollHeight=307741, current.height=5366, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 10036 -> 9660 (expected 9660) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=-0.0667 stableAfterFrames=5, scrollY 10036 -> 9660, scrollHeight 307741 -> 307741, current.height 5366 -> 5366 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:297631, bottom:297993}, decks[0].insideContainer=true, decks[last].rect={top:-9592, bottom:-9056} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #330: deckRoom=495, waitDeck=3 ms, scrollY=9660.06640625. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #349: room=543 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=495, area={top:475, bottom:495}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:297631, bottom:297993}, decks[0].insideContainer=true, decks[last].rect={top:-9592, bottom:-9056} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #331: deckRoom=-3195, waitDeck=2 ms, scrollY=9660.06640625. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #350: room=-3195 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3195, jump=480, intendedRoom=-2715, scrollY=9660, scrollHeight=307741, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9660 -> 9180 (expected 9180) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 10 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2715, room=-2715, drift=0.0000 stableAfterFrames=5, scrollY 9660 -> 9180, scrollHeight 307741 -> 307741, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2715, jump=480, intendedRoom=-2235, scrollY=9180, scrollHeight=307741, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9180 -> 8700 (expected 8700) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2235, room=-2235, drift=0.0000 stableAfterFrames=5, scrollY 9180 -> 8700, scrollHeight 307741 -> 307741, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2235, jump=480, intendedRoom=-1755, scrollY=8700, scrollHeight=307741, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8700 -> 8220 (expected 8220) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 246 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 8 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 34 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1755, room=-1755, drift=0.0000 stableAfterFrames=5, scrollY 8700 -> 8220, scrollHeight 307741 -> 307741, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1755, jump=480, intendedRoom=-1275, scrollY=8220, scrollHeight=307741, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8220 -> 7740 (expected 7740) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1275, room=-1275, drift=0.0000 stableAfterFrames=5, scrollY 8220 -> 7740, scrollHeight 307741 -> 307741, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1275, jump=480, intendedRoom=-795, scrollY=7740, scrollHeight=307741, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7740 -> 7260 (expected 7260) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 253 ms — geometry changed (307741:7260.06689453125 -> 307726:7244.56689453125), room=-795.066650390625 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-795, room=-795, drift=0.0000 stableAfterFrames=6, scrollY 7740 -> 7245, scrollHeight 307741 -> 307726, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-795, jump=480, intendedRoom=-315, scrollY=7245, scrollHeight=307726, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7245 -> 6765 (expected 6765) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 395 ms — geometry changed (307726:6765.39990234375 -> 314553:13592.900390625), room=-315.8999938964844 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 19 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 4 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 30 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-315, room=-316, drift=-0.8333 stableAfterFrames=6, scrollY 7245 -> 13593, scrollHeight 307726 -> 314553, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-316, jump=480, intendedRoom=164, scrollY=13593, scrollHeight=314553, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 13593 -> 13113 (expected 13113) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=164, room=164, drift=0.0000 stableAfterFrames=5, scrollY 13593 -> 13113, scrollHeight 314553 -> 314553, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=164, jump=480, intendedRoom=644, scrollY=13113, scrollHeight=314553, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 13113 -> 12633 (expected 12633) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=644, room=644, drift=-0.0000 stableAfterFrames=5, scrollY 13113 -> 12633, scrollHeight 314553 -> 314553, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=644, jump=51, intendedRoom=695, scrollY=12633, scrollHeight=314553, current.height=3644, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 12633 -> 12582 (expected 12582) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 4 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=-0.0667 stableAfterFrames=5, scrollY 12633 -> 12582, scrollHeight 314553 -> 314553, current.height 3644 -> 3644 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:301521, bottom:301883}, decks[0].insideContainer=true, decks[last].rect={top:-12514, bottom:-11978} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #332: deckRoom=323, waitDeck=3 ms, scrollY=12582.06640625. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #351: room=371 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=323, area={top:303, bottom:323}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:301521, bottom:301883}, decks[0].insideContainer=true, decks[last].rect={top:-12514, bottom:-11978} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #333: deckRoom=-6892, waitDeck=2 ms, scrollY=12582.06640625. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #352: room=-6892 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-6892, jump=480, intendedRoom=-6412, scrollY=12582, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 12582 -> 12102 (expected 12102) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 10 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-6412, room=-6412, drift=0.0000 stableAfterFrames=5, scrollY 12582 -> 12102, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-6412, jump=480, intendedRoom=-5932, scrollY=12102, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 12102 -> 11622 (expected 11622) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-5932, room=-5932, drift=0.0000 stableAfterFrames=5, scrollY 12102 -> 11622, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-5932, jump=480, intendedRoom=-5452, scrollY=11622, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 11622 -> 11142 (expected 11142) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 245 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 10 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 9 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 33 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-5452, room=-5452, drift=0.0000 stableAfterFrames=5, scrollY 11622 -> 11142, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-5452, jump=480, intendedRoom=-4972, scrollY=11142, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 11142 -> 10662 (expected 10662) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 243 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 11 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4972, room=-4972, drift=0.0000 stableAfterFrames=5, scrollY 11142 -> 10662, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4972, jump=480, intendedRoom=-4492, scrollY=10662, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 10662 -> 10182 (expected 10182) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4492, room=-4492, drift=0.0000 stableAfterFrames=5, scrollY 10662 -> 10182, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4492, jump=480, intendedRoom=-4012, scrollY=10182, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 10182 -> 9702 (expected 9702) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4012, room=-4012, drift=0.0002 stableAfterFrames=5, scrollY 10182 -> 9702, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4012, jump=480, intendedRoom=-3532, scrollY=9702, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9702 -> 9222 (expected 9222) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-3532, room=-3532, drift=0.0000 stableAfterFrames=5, scrollY 9702 -> 9222, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3532, jump=480, intendedRoom=-3052, scrollY=9222, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9222 -> 8742 (expected 8742) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-3052, room=-3052, drift=0.0000 stableAfterFrames=5, scrollY 9222 -> 8742, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3052, jump=480, intendedRoom=-2572, scrollY=8742, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8742 -> 8262 (expected 8262) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2572, room=-2572, drift=0.0000 stableAfterFrames=5, scrollY 8742 -> 8262, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2572, jump=480, intendedRoom=-2092, scrollY=8262, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8262 -> 7782 (expected 7782) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2092, room=-2092, drift=0.0000 stableAfterFrames=5, scrollY 8262 -> 7782, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2092, jump=480, intendedRoom=-1612, scrollY=7782, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7782 -> 7302 (expected 7302) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1612, room=-1612, drift=0.0000 stableAfterFrames=5, scrollY 7782 -> 7302, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1612, jump=480, intendedRoom=-1132, scrollY=7302, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7302 -> 6822 (expected 6822) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1132, room=-1132, drift=0.0000 stableAfterFrames=5, scrollY 7302 -> 6822, scrollHeight 314553 -> 314553, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1132, jump=480, intendedRoom=-652, scrollY=6822, scrollHeight=314553, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6822 -> 6342 (expected 6342) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 324 ms — geometry changed (314553:6342.06689453125 -> 315732:7520.56689453125), room=-652.066650390625 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 9 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-652, room=-652, drift=0.0000 stableAfterFrames=6, scrollY 6822 -> 7521, scrollHeight 314553 -> 315732, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-652, jump=480, intendedRoom=-172, scrollY=7521, scrollHeight=315732, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7521 -> 7041 (expected 7041) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-172, room=-173, drift=-0.8333 stableAfterFrames=5, scrollY 7521 -> 7041, scrollHeight 315732 -> 315732, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-173, jump=480, intendedRoom=307, scrollY=7041, scrollHeight=315732, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7041 -> 6561 (expected 6561) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=307, room=307, drift=0.0000 stableAfterFrames=5, scrollY 7041 -> 6561, scrollHeight 315732 -> 315732, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=307, jump=388, intendedRoom=695, scrollY=6561, scrollHeight=315732, current.height=7169, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6561 -> 6173 (expected 6173) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=0.4333 stableAfterFrames=5, scrollY 6561 -> 6173, scrollHeight 315732 -> 315732, current.height 7169 -> 7169 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:309108, bottom:309470}, decks[0].insideContainer=true, decks[last].rect={top:-6105, bottom:-5569} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #334: deckRoom=495, waitDeck=2 ms, scrollY=6173.06689453125. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #353: room=543 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=495, area={top:475, bottom:495}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:309108, bottom:309470}, decks[0].insideContainer=true, decks[last].rect={top:-6105, bottom:-5569} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #335: deckRoom=-1071, waitDeck=3 ms, scrollY=6173.06689453125. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #354: room=-1071 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1071, jump=480, intendedRoom=-591, scrollY=6173, scrollHeight=315732, current.height=1520, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6173 -> 5693 (expected 5693) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 363 ms — geometry changed (315732:5693.06689453125 -> 317348:7308.7333984375), room=-590.566650390625 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 285 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 9 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 4 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 33 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 33 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-591, room=-591, drift=0.0000 stableAfterFrames=6, scrollY 6173 -> 7309, scrollHeight 315732 -> 317348, current.height 1520 -> 1520 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-591, jump=480, intendedRoom=-111, scrollY=7309, scrollHeight=317348, current.height=1520, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7309 -> 6829 (expected 6829) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 326 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 6 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-111, room=-111, drift=-0.0000 stableAfterFrames=5, scrollY 7309 -> 6829, scrollHeight 317348 -> 317348, current.height 1520 -> 1520 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-111, jump=480, intendedRoom=369, scrollY=6829, scrollHeight=317348, current.height=1520, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6829 -> 6349 (expected 6349) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 303 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 22 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 4 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 37 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=369, room=369, drift=0.0000 stableAfterFrames=5, scrollY 6829 -> 6349, scrollHeight 317348 -> 317348, current.height 1520 -> 1520 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=369, jump=326, intendedRoom=695, scrollY=6349, scrollHeight=317348, current.height=1520, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6349 -> 6024 (expected 6023) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 13 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 13 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=694, drift=-0.5667 stableAfterFrames=5, scrollY 6349 -> 6024, scrollHeight 317348 -> 317348, current.height 1520 -> 1520 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=694, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=694, area={top:674, bottom:694}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:310873, bottom:311235}, decks[0].insideContainer=true, decks[last].rect={top:-5956, bottom:-5420} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #336: deckRoom=290, waitDeck=3 ms, scrollY=6023.7333984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #355: room=338 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=290, area={top:270, bottom:290}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:310873, bottom:311235}, decks[0].insideContainer=true, decks[last].rect={top:-5956, bottom:-5420} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #337: deckRoom=-1696, waitDeck=2 ms, scrollY=6023.7333984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #356: room=-1696 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1696, jump=480, intendedRoom=-1216, scrollY=6024, scrollHeight=317348, current.height=1941, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6024 -> 5544 (expected 5544) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 19 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1216, room=-1216, drift=0.0000 stableAfterFrames=5, scrollY 6024 -> 5544, scrollHeight 317348 -> 317348, current.height 1941 -> 1941 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1216, jump=480, intendedRoom=-736, scrollY=5544, scrollHeight=317348, current.height=1941, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5544 -> 5064 (expected 5064) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 255 ms — geometry changed (317348:5063.7333984375 -> 317188:4904.2333984375), room=-736.2333374023438 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF with change: 348 ms — geometry changed (317188:4904.2333984375 -> 319125:6841.39990234375), room=-736.2333374023438 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 20 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 3 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 31 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 4 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 14 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-736, room=-736, drift=0.0001 stableAfterFrames=7, scrollY 5544 -> 6841, scrollHeight 317348 -> 319125, current.height 1941 -> 1941 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-736, jump=480, intendedRoom=-256, scrollY=6841, scrollHeight=319125, current.height=1941, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6841 -> 6361 (expected 6361) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 243 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 13 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 34 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-256, room=-256, drift=0.0000 stableAfterFrames=5, scrollY 6841 -> 6361, scrollHeight 319125 -> 319125, current.height 1941 -> 1941 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-256, jump=480, intendedRoom=224, scrollY=6361, scrollHeight=319125, current.height=1941, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6361 -> 5881 (expected 5881) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 397 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 4 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 32 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 32 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=224, room=224, drift=0.0000 stableAfterFrames=5, scrollY 6361 -> 5881, scrollHeight 319125 -> 319125, current.height 1941 -> 1941 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=224, jump=471, intendedRoom=695, scrollY=5881, scrollHeight=319125, current.height=1941, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5881 -> 5410 (expected 5410) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 24 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 6 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=0.4333 stableAfterFrames=5, scrollY 5881 -> 5410, scrollHeight 319125 -> 319125, current.height 1941 -> 1941 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:313265, bottom:313627}, decks[0].insideContainer=true, decks[last].rect={top:-5342, bottom:-4806} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #338: deckRoom=467, waitDeck=3 ms, scrollY=5409.7333984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #357: room=515 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=467, area={top:447, bottom:467}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:313265, bottom:313627}, decks[0].insideContainer=true, decks[last].rect={top:-5342, bottom:-4806} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #339: deckRoom=-1857, waitDeck=2 ms, scrollY=5409.7333984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #358: room=-1857 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1857, jump=480, intendedRoom=-1377, scrollY=5410, scrollHeight=319125, current.height=2279, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5410 -> 4930 (expected 4930) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 19 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 11 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1377, room=-1377, drift=0.0000 stableAfterFrames=5, scrollY 5410 -> 4930, scrollHeight 319125 -> 319125, current.height 2279 -> 2279 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1377, jump=480, intendedRoom=-897, scrollY=4930, scrollHeight=319125, current.height=2279, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4930 -> 4450 (expected 4450) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 316 ms — geometry changed (319125:4449.7333984375 -> 319062:4386.2333984375), room=-897.2333374023438 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 12 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 5 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-897, room=-897, drift=0.0001 stableAfterFrames=6, scrollY 4930 -> 4386, scrollHeight 319125 -> 319062, current.height 2279 -> 2279 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-897, jump=480, intendedRoom=-417, scrollY=4386, scrollHeight=319062, current.height=2279, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4386 -> 3906 (expected 3906) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 372 ms — geometry changed (319062:3906.2333984375 -> 320111:4955.39990234375), room=-417.23333740234375 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 9 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-417, room=-417, drift=0.0000 stableAfterFrames=6, scrollY 4386 -> 4955, scrollHeight 319062 -> 320111, current.height 2279 -> 2279 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-417, jump=480, intendedRoom=63, scrollY=4955, scrollHeight=320111, current.height=2279, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4955 -> 4475 (expected 4475) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=63, room=63, drift=0.0000 stableAfterFrames=5, scrollY 4955 -> 4475, scrollHeight 320111 -> 320111, current.height 2279 -> 2279 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=63, jump=480, intendedRoom=543, scrollY=4475, scrollHeight=320111, current.height=2279, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4475 -> 3995 (expected 3995) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=543, room=543, drift=0.0000 stableAfterFrames=5, scrollY 4475 -> 3995, scrollHeight 320111 -> 320111, current.height 2279 -> 2279 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=543, jump=152, intendedRoom=695, scrollY=3995, scrollHeight=320111, current.height=2279, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3995 -> 3843 (expected 3843) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=0.2667 stableAfterFrames=5, scrollY 3995 -> 3843, scrollHeight 320111 -> 320111, current.height 2279 -> 2279 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:315818, bottom:316180}, decks[0].insideContainer=true, decks[last].rect={top:-3775, bottom:-3239} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #340: deckRoom=371, waitDeck=4 ms, scrollY=3842.89990234375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #359: room=419 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=371, area={top:351, bottom:371}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:315818, bottom:316180}, decks[0].insideContainer=true, decks[last].rect={top:-3775, bottom:-3239} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #341: deckRoom=-1065, waitDeck=2 ms, scrollY=3842.89990234375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #360: room=-1065 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1065, jump=480, intendedRoom=-585, scrollY=3843, scrollHeight=320111, current.height=1391, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3843 -> 3363 (expected 3363) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 405 ms — geometry changed (320111:3362.89990234375 -> 326733:9985.81640625), room=-585.4000244140625 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 22 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-585, room=-585, drift=0.0000 stableAfterFrames=6, scrollY 3843 -> 9986, scrollHeight 320111 -> 326733, current.height 1391 -> 1391 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-585, jump=480, intendedRoom=-105, scrollY=9986, scrollHeight=326733, current.height=1391, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9986 -> 9506 (expected 9506) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-105, room=-105, drift=0.0000 stableAfterFrames=5, scrollY 9986 -> 9506, scrollHeight 326733 -> 326733, current.height 1391 -> 1391 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-105, jump=480, intendedRoom=375, scrollY=9506, scrollHeight=326733, current.height=1391, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9506 -> 9026 (expected 9026) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 263 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 9 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=375, room=375, drift=0.0000 stableAfterFrames=5, scrollY 9506 -> 9026, scrollHeight 326733 -> 326733, current.height 1391 -> 1391 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=375, jump=320, intendedRoom=695, scrollY=9026, scrollHeight=326733, current.height=1391, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9026 -> 8706 (expected 8705) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=-0.4000 stableAfterFrames=5, scrollY 9026 -> 8706, scrollHeight 326733 -> 326733, current.height 1391 -> 1391 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:317578, bottom:317940}, decks[0].insideContainer=true, decks[last].rect={top:-8638, bottom:-8102} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #342: deckRoom=431, waitDeck=2 ms, scrollY=8705.81640625. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #361: room=467 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=431, area={top:411, bottom:431}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:317578, bottom:317940}, decks[0].insideContainer=true, decks[last].rect={top:-8638, bottom:-8102} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #343: deckRoom=-6719, waitDeck=3 ms, scrollY=8705.81640625. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #362: room=-6719 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-6719, jump=480, intendedRoom=-6239, scrollY=8706, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8706 -> 8226 (expected 8226) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-6239, room=-6239, drift=0.0000 stableAfterFrames=5, scrollY 8706 -> 8226, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-6239, jump=480, intendedRoom=-5759, scrollY=8226, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8226 -> 7746 (expected 7746) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-5759, room=-5759, drift=0.0000 stableAfterFrames=5, scrollY 8226 -> 7746, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-5759, jump=480, intendedRoom=-5279, scrollY=7746, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7746 -> 7266 (expected 7266) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 242 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 10 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 13 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-5279, room=-5279, drift=0.0000 stableAfterFrames=5, scrollY 7746 -> 7266, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-5279, jump=480, intendedRoom=-4799, scrollY=7266, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7266 -> 6786 (expected 6786) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4799, room=-4799, drift=0.0000 stableAfterFrames=5, scrollY 7266 -> 6786, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4799, jump=480, intendedRoom=-4319, scrollY=6786, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6786 -> 6306 (expected 6306) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4319, room=-4319, drift=0.0000 stableAfterFrames=5, scrollY 6786 -> 6306, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4319, jump=480, intendedRoom=-3839, scrollY=6306, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6306 -> 5826 (expected 5826) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-3839, room=-3839, drift=0.0002 stableAfterFrames=5, scrollY 6306 -> 5826, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3839, jump=480, intendedRoom=-3359, scrollY=5826, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5826 -> 5346 (expected 5346) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-3359, room=-3359, drift=0.0000 stableAfterFrames=5, scrollY 5826 -> 5346, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3359, jump=480, intendedRoom=-2879, scrollY=5346, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5346 -> 4866 (expected 4866) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2879, room=-2879, drift=0.0000 stableAfterFrames=5, scrollY 5346 -> 4866, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2879, jump=480, intendedRoom=-2399, scrollY=4866, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4866 -> 4386 (expected 4386) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2399, room=-2399, drift=0.0000 stableAfterFrames=5, scrollY 4866 -> 4386, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2399, jump=480, intendedRoom=-1919, scrollY=4386, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4386 -> 3906 (expected 3906) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1919, room=-1919, drift=0.0000 stableAfterFrames=5, scrollY 4386 -> 3906, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1919, jump=480, intendedRoom=-1439, scrollY=3906, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3906 -> 3426 (expected 3426) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1439, room=-1439, drift=0.0000 stableAfterFrames=5, scrollY 3906 -> 3426, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1439, jump=480, intendedRoom=-959, scrollY=3426, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3426 -> 2946 (expected 2946) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-959, room=-959, drift=0.0000 stableAfterFrames=5, scrollY 3426 -> 2946, scrollHeight 326733 -> 326733, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-959, jump=480, intendedRoom=-479, scrollY=2946, scrollHeight=326733, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 2946 -> 2466 (expected 2466) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 321 ms — geometry changed (326733:2465.816650390625 -> 328500:4232.14990234375), room=-479.316650390625 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 10 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-479, room=-479, drift=0.0000 stableAfterFrames=6, scrollY 2946 -> 4232, scrollHeight 326733 -> 328500, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-479, jump=480, intendedRoom=1, scrollY=4232, scrollHeight=328500, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4232 -> 3752 (expected 3752) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=1, room=1, drift=-0.0000 stableAfterFrames=5, scrollY 4232 -> 3752, scrollHeight 328500 -> 328500, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=1, jump=480, intendedRoom=481, scrollY=3752, scrollHeight=328500, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3752 -> 3272 (expected 3272) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=481, room=481, drift=0.0000 stableAfterFrames=5, scrollY 3752 -> 3272, scrollHeight 328500 -> 328500, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=481, jump=214, intendedRoom=695, scrollY=3272, scrollHeight=328500, current.height=7088, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3272 -> 3058 (expected 3058) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=695, drift=-0.1500 stableAfterFrames=5, scrollY 3272 -> 3058, scrollHeight 328500 -> 328500, current.height 7088 -> 7088 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=695, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=695, area={top:675, bottom:695}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:324992, bottom:325354}, decks[0].insideContainer=true, decks[last].rect={top:-2990, bottom:-2454} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #344: deckRoom=507, waitDeck=3 ms, scrollY=3057.9833984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #363: room=543 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=507, area={top:487, bottom:507}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:324992, bottom:325354}, decks[0].insideContainer=true, decks[last].rect={top:-2990, bottom:-2454} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #345: deckRoom=-1663, waitDeck=2 ms, scrollY=3057.9833984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #364: room=-1551 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1551, jump=480, intendedRoom=-1071, scrollY=3058, scrollHeight=328500, current.height=1996, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3058 -> 2578 (expected 2578) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 13 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 14 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1071, room=-1071, drift=0.0000 stableAfterFrames=5, scrollY 3058 -> 2578, scrollHeight 328500 -> 328500, current.height 1996 -> 1996 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1071, jump=480, intendedRoom=-591, scrollY=2578, scrollHeight=328500, current.height=1996, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 2578 -> 2098 (expected 2098) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 341 ms — geometry changed (328500:2097.9833984375 -> 328504:2102.4833984375), room=-590.9833374023438 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 12 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-591, room=-591, drift=0.0001 stableAfterFrames=6, scrollY 2578 -> 2102, scrollHeight 328500 -> 328504, current.height 1996 -> 1996 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-591, jump=480, intendedRoom=-111, scrollY=2102, scrollHeight=328504, current.height=1996, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 2102 -> 1622 (expected 1622) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF with change: 468 ms — geometry changed (328504:1621.6500244140625 -> 336756:9873.31640625), room=-110.14999389648438 ChatGPT-Chat-Extractor-dev.user.js:253:17
+rAF no change: 24 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 6 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-111, room=-110, drift=0.8333 stableAfterFrames=6, scrollY 2102 -> 9873, scrollHeight 328504 -> 336756, current.height 1996 -> 1996 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-110, jump=480, intendedRoom=370, scrollY=9873, scrollHeight=336756, current.height=1996, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9873 -> 9393 (expected 9393) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=370, room=370, drift=0.0000 stableAfterFrames=5, scrollY 9873 -> 9393, scrollHeight 336756 -> 336756, current.height 1996 -> 1996 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=370, jump=325, intendedRoom=695, scrollY=9393, scrollHeight=336756, current.height=1996, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9393 -> 9067 (expected 9068) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=695, room=696, drift=0.6833 stableAfterFrames=5, scrollY 9393 -> 9067, scrollHeight 336756 -> 336756, current.height 1996 -> 1996 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=696, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:428:17
+[traverseConversation] slab #365: room=584 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=584, area={top:564, bottom:584}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:327238, bottom:327600}, decks[0].insideContainer=true, decks[last].rect={top:-8999, bottom:-8463} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #346: deckRoom=192, waitDeck=2 ms, scrollY=9067.4833984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #366: room=228 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=192, area={top:172, bottom:192}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:327238, bottom:327600}, decks[0].insideContainer=true, decks[last].rect={top:-8999, bottom:-8463} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #347: deckRoom=-8463, waitDeck=2 ms, scrollY=9067.4833984375. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #367: room=-8463 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-8463, jump=480, intendedRoom=-7983, scrollY=9067, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 9067 -> 8587 (expected 8587) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 11 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-7983, room=-7983, drift=0.8335 stableAfterFrames=5, scrollY 9067 -> 8587, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-7983, jump=480, intendedRoom=-7503, scrollY=8587, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8587 -> 8107 (expected 8107) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-7503, room=-7503, drift=0.0000 stableAfterFrames=5, scrollY 8587 -> 8107, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-7503, jump=480, intendedRoom=-7023, scrollY=8107, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 8107 -> 7627 (expected 7627) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 260 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 10 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-7023, room=-7023, drift=0.0000 stableAfterFrames=5, scrollY 8107 -> 7627, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-7023, jump=480, intendedRoom=-6543, scrollY=7627, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7627 -> 7147 (expected 7147) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 246 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 9 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 10 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-6543, room=-6543, drift=0.0000 stableAfterFrames=5, scrollY 7627 -> 7147, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-6543, jump=480, intendedRoom=-6063, scrollY=7147, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 7147 -> 6667 (expected 6667) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-6063, room=-6063, drift=0.0000 stableAfterFrames=5, scrollY 7147 -> 6667, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-6063, jump=480, intendedRoom=-5583, scrollY=6667, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6667 -> 6187 (expected 6187) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-5583, room=-5583, drift=0.0000 stableAfterFrames=5, scrollY 6667 -> 6187, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-5583, jump=480, intendedRoom=-5103, scrollY=6187, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 6187 -> 5707 (expected 5707) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-5103, room=-5103, drift=0.0000 stableAfterFrames=5, scrollY 6187 -> 5707, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-5103, jump=480, intendedRoom=-4623, scrollY=5707, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5707 -> 5227 (expected 5227) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4623, room=-4623, drift=0.0000 stableAfterFrames=5, scrollY 5707 -> 5227, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4623, jump=480, intendedRoom=-4143, scrollY=5227, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 5227 -> 4747 (expected 4747) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-4143, room=-4143, drift=0.0000 stableAfterFrames=5, scrollY 5227 -> 4747, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-4143, jump=480, intendedRoom=-3663, scrollY=4747, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4747 -> 4267 (expected 4267) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-3663, room=-3663, drift=0.0000 stableAfterFrames=5, scrollY 4747 -> 4267, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3663, jump=480, intendedRoom=-3183, scrollY=4267, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 4267 -> 3787 (expected 3787) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-3183, room=-3183, drift=0.0000 stableAfterFrames=5, scrollY 4267 -> 3787, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-3183, jump=480, intendedRoom=-2703, scrollY=3787, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3787 -> 3307 (expected 3307) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2703, room=-2703, drift=0.0000 stableAfterFrames=5, scrollY 3787 -> 3307, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2703, jump=480, intendedRoom=-2223, scrollY=3307, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 3307 -> 2827 (expected 2827) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-2223, room=-2223, drift=0.0000 stableAfterFrames=5, scrollY 3307 -> 2827, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-2223, jump=480, intendedRoom=-1743, scrollY=2827, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 2827 -> 2347 (expected 2347) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 15 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1743, room=-1743, drift=-0.0001 stableAfterFrames=5, scrollY 2827 -> 2347, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1743, jump=480, intendedRoom=-1263, scrollY=2347, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 2347 -> 1867 (expected 1867) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-1263, room=-1263, drift=0.0000 stableAfterFrames=5, scrollY 2347 -> 1867, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-1263, jump=480, intendedRoom=-783, scrollY=1867, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 1867 -> 1387 (expected 1387) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 4 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-783, room=-783, drift=0.0000 stableAfterFrames=5, scrollY 1867 -> 1387, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-783, jump=480, intendedRoom=-303, scrollY=1387, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 1387 -> 907 (expected 907) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 17 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 17 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=-303, room=-303, drift=0.0000 stableAfterFrames=5, scrollY 1387 -> 907, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=-303, jump=480, intendedRoom=177, scrollY=907, scrollHeight=336756, current.height=8593, extremityReached=false ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 907 -> 427 (expected 427) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 16 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 3 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=177, room=177, drift=0.0000 stableAfterFrames=5, scrollY 907 -> 427, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[moveWorkZone] before jump: direction=-1, previousRoom=177, jump=427, intendedRoom=604, scrollY=427, scrollHeight=336756, current.height=8593, extremityReached=true ChatGPT-Chat-Extractor-dev.user.js:293:15
+[moveWorkZone] immediately after performJump: scrollY 427 -> 0 (expected 0) ChatGPT-Chat-Extractor-dev.user.js:298:15
+Start stabilization ChatGPT-Chat-Extractor-dev.user.js:239:13
+rAF no change: 18 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 14 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 15 ms ChatGPT-Chat-Extractor-dev.user.js:250:17
+rAF no change: 16 ms 2 ChatGPT-Chat-Extractor-dev.user.js:250:17
+Stabilized. rAF time: 16 ms ChatGPT-Chat-Extractor-dev.user.js:258:17
+[moveWorkZone] after jump: direction=-1, intendedRoom=604, room=604, drift=0.0000 stableAfterFrames=5, scrollY 427 -> 0, scrollHeight 336756 -> 336756, current.height 8593 -> 8593 ChatGPT-Chat-Extractor-dev.user.js:321:15
+[traverseConversation] after moveWorkZone: room=604, extremityReached=true ChatGPT-Chat-Extractor-dev.user.js:428:17
+[nextReadyDeck] deckRoom=604, area={top:584, bottom:604}, decks.length=348, candidates.length=2, containerTop=0, insideContainer=348/348, decks[0].rect={top:336306, bottom:336668}, decks[0].insideContainer=true, decks[last].rect={top:68, bottom:604} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[traverseConversation] deck #348: deckRoom=68, waitDeck=3 ms, scrollY=0. ChatGPT-Chat-Extractor-dev.user.js:451:17
+[traverseConversation] slab #368: room=116 ChatGPT-Chat-Extractor-dev.user.js:460:15
+[nextReadyDeck] deckRoom=68, area={top:48, bottom:68}, decks.length=348, candidates.length=1, containerTop=0, insideContainer=348/348, decks[0].rect={top:336306, bottom:336668}, decks[0].insideContainer=true, decks[last].rect={top:68, bottom:604} ChatGPT-Chat-Extractor-dev.user.js:127:13
+[nextReadyDeck] closest() rejected all 1 candidate(s): {top:68, bottom:604, gap:-536} ChatGPT-Chat-Extractor-dev.user.js:137:17
+[traverseConversation] nextReadyDeck(deckRoom=68) returned null after 348 deck(s), 368 slab(s), scrollY=0, room=116. ChatGPT-Chat-Extractor-dev.user.js:444:19
+[traverseConversation] done: 348 deck(s), 368 slab(s) visited. ChatGPT-Chat-Extractor-dev.user.js:464:13
+[dev traversal] finished. ChatGPT-Chat-Extractor-dev.user.js:473:47
