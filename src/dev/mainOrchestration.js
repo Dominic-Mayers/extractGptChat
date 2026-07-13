@@ -19,13 +19,8 @@ import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants.js";
-import { resetStop, isEarlyStopRequestedByUser } from "./stopControl.js";
 
 export async function traverseConversation() {
-
-    // A stale request from a previous, already-finished run must not
-    // abort this new one before it starts.
-    resetStop();
 
     const container = findScrollContainer();
 
@@ -63,14 +58,6 @@ export async function traverseConversation() {
     //
     while (true) {
 
-        if (isEarlyStopRequestedByUser()) {
-            console.log(
-                `[traverseConversation] stopped by user request after ${deckCount} deck(s), ` +
-                `${slabCount} slab(s). scrollY=${scrollY(container)}.`
-            );
-            return;
-        }
-
         //
         // The value room can be negative and a jump always increases it.
         // Regarding extremityReached, see Assumption A4 (Extremity rendering).
@@ -103,16 +90,17 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-
+            const deckTime = performance.now();
             deck = await nextReadyDeck(
                 deckRoom,
                 container
             );
+            const deckDeltaTime = performance.now() - deckTime;
 
             if (deck == null) {
                 console.log(
                     `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) ` +
-                    `returned null after ${deckCount} deck(s), ${slabCount} slab(s). ` +
+                    `returned null after ${deckCount} deck(s), ${slabCount} slab(s), ` +
                     `scrollY=${scrollY(container)}, room=${Math.round(room)}.`
                 );
                 break;
@@ -122,7 +110,7 @@ export async function traverseConversation() {
             deckRoom = deck.getBoundingClientRect().top;
             console.log(
                 `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, ` +
-                `scrollY=${scrollY(container)}`
+                `waitDeck=${deckDeltaTime} ms, scrollY=${scrollY(container)}.`
             );
 
             slab = nextSlab(room, deck);
@@ -136,8 +124,7 @@ export async function traverseConversation() {
         room = current.getBoundingClientRect().top;
 
         console.log(
-            `[traverseConversation] slab #${slabCount} (${current.dataset?.slabType}): ` +
-            `room=${Math.round(room)}`
+            `[traverseConversation] slab #${slabCount}: room=${Math.round(room)}`
         );
 
 
