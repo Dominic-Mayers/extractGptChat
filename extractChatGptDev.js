@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      0.72
+// @version      0.73
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -254,7 +254,7 @@
         unchanged = 0;
       }
       if (unchanged >= stableFrames) {
-        console.log("Stabilized. rAF time:", attemptDeltaTime, "ms");
+        console.log("Stabilized.");
         return frame + 1;
       }
     }
@@ -299,7 +299,7 @@
       );
       let stableAfterFrames;
       try {
-        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 5 });
+        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 2 });
       } catch (err) {
         const connected = "isConnected" in current ? current.isConnected : null;
         const containerConnected = "isConnected" in container ? container.isConnected : null;
@@ -466,7 +466,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "0.72" : "unbuilt";
+  var VERSION = true ? "0.73" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   GM_registerMenuCommand(`Run dev traversal v${VERSION} (geometry only)`, () => {
     traverseConversation().then(() => console.log("[dev traversal] finished.")).catch((err) => console.error("[dev traversal] failed:", err));
