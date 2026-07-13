@@ -68,7 +68,7 @@ export async function moveWorkZone(current, container, direction = -1) {
         let stableAfterFrames;
 
         try {
-            stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 5 });
+            stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 2 });
         } catch (err) {
             const connected = 'isConnected' in current ? current.isConnected : null;
             const containerConnected = 'isConnected' in container ? container.isConnected : null;
