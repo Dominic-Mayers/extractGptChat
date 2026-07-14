@@ -80,12 +80,17 @@ does not attempt to eliminate the remaining tolerated drift.
 
 ## A5. Stable geometry
 
-Geometry is considered stable when the geometry fingerprint remains unchanged
-for three consecutive animation-frame observations.
+During work-zone movement, geometry is considered stable after the first
+animation-frame observation where the geometry fingerprint remains unchanged
+and room is within `MAX_DRIFT` of the intended value. This deliberately permits
+later rendering to adjust `scrollHeight` and `scrollY`; work-zone extremity is
+therefore never cached by the main traversal and is reevaluated on every move.
 
-The fingerprint is the scroll container's `scrollHeight`, `document.body`'s
-`scrollWidth`, and the scroll container's scroll position (`scrollY`/
-`scrollTop`).
+Other stabilization callers require two consecutive unchanged animation-frame
+observations.
+
+The fingerprint is the scroll container's `scrollHeight` and scroll position
+(`scrollY`/`scrollTop`).
 
 ## A6. Scroll container
 

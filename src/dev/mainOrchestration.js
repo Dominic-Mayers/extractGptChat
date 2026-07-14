@@ -48,8 +48,6 @@ export async function traverseConversation() {
     let deckRoom = clientHeight(container);
     let deck = null;
     let current = null;
-    let extremityReached = false;
-
     let deckCount = 0;
     let slabCount = 0;
 
@@ -60,17 +58,13 @@ export async function traverseConversation() {
 
         //
         // The value room can be negative and a jump always increases it.
-        // Regarding extremityReached, see Assumption A4 (Extremity rendering).
-        //
         if (
             current &&
-            room < MAX_SLAB_GAP &&
-            !extremityReached
+            room < MAX_SLAB_GAP
         ) {
-            ({ room, extremityReached } = await moveWorkZone(current, container));
+            room = await moveWorkZone(current, container);
             console.log(
-                `[traverseConversation] after moveWorkZone: room=${Math.round(room)}, ` +
-                `extremityReached=${extremityReached}`
+                `[traverseConversation] after moveWorkZone: room=${Math.round(room)}`
             );
         }
 
