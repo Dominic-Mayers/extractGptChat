@@ -33,9 +33,7 @@ export async function moveWorkZone(current, container, direction = -1) {
 
     let room = measureRoom(current, container, direction);
     let slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, room);
-    let extremityReached = isAtExtremityAfter(0, container, direction);
-
-    while (!slabIntersectionAtMinimum && !extremityReached) {
+    while (!slabIntersectionAtMinimum) {
 
         const previousRoom = room;
         const scrollYBefore = scrollY(container);
@@ -43,18 +41,23 @@ export async function moveWorkZone(current, container, direction = -1) {
         const heightBefore = current.getBoundingClientRect().height;
  
         const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
+
+        // No movement remains at the current document extremity. Keep this
+        // boundary decision local: delayed rendering may later create more
+        // scrollable room, and a future call must be free to observe that.
+        if (jump <= 0) break;
+
         const intendedRoom = previousRoom + jump;
 
         // These are computed before the jump, because the decision for the next jump 
         // is based on the intent, not the actual result of the jump. 
         slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, intendedRoom);
-        extremityReached = isAtExtremityAfter(jump, container, direction);
 
         console.log(
             `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, ` +
             `jump=${Math.round(jump)}, intendedRoom=${Math.round(intendedRoom)}, ` +
             `scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, ` +
-            `current.height=${Math.round(heightBefore)}, extremityReached=${extremityReached}`
+            `current.height=${Math.round(heightBefore)}`
         );
 
         performJump(jump, container, direction);
@@ -68,7 +71,7 @@ export async function moveWorkZone(current, container, direction = -1) {
         let stableAfterFrames;
 
         try {
-            stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 2 });
+            stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 1 });
         } catch (err) {
             const connected = 'isConnected' in current ? current.isConnected : null;
             const containerConnected = 'isConnected' in container ? container.isConnected : null;
@@ -110,7 +113,7 @@ export async function moveWorkZone(current, container, direction = -1) {
             `current.height ${Math.round(heightBefore)} -> ${Math.round(heightAfter)}`
         );
     }
-    return { room, extremityReached };
+    return room;
 }
 
 /**
@@ -132,33 +135,8 @@ export function clampJump(calibratedJump, room, container, direction) {
 }
 
 /**
- * Determine if the jump reaches extremity.
- * The intended jump should be used instead of the actual jump, which
- * can drift. This prioritizes a deterministic end condition over a condition
- * that reflects the actual jump after the drift. It assumes the boundary values used
- * in decisions are valid within a small drift. For example, if the intended jump
- * reaches the extremity, the actual jump may not, but there is no need to actually
- * reach the extremity, because the activation of the rendering of the next deck is
- * already satisfied even with a smaller actual jump.
- */ 
-export function isAtExtremityAfter(jump = 0, container, direction) {
-
-    if (direction < 0) {
-        return scrollY(container) + direction * jump === 0;
-    }
-
-    return (
-        scrollHeight(container)
-        - (scrollY(container) + direction * jump)
-        - clientHeight(container)
-        === 0
-    );
-}
-
-/**
  * Determine if the intersection of the current slab with the viewport is at minimum.
- * The same comment as for isAtExtremityAfter applies here: 
- * the intended jump should be used instead of the actual jump, which can drift. 
+ * The intended jump should be used instead of the actual jump, which can drift.
  */
 export function isSlabIntersectionAtMinimum(container, intendedRoom) {
     return intendedRoom >= clientHeight(container) - MIN_INTERSECT;

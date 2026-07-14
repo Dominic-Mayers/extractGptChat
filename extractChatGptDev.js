@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      0.73
+// @version      0.74
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -279,18 +279,17 @@
   async function moveWorkZone(current, container, direction = -1) {
     let room = measureRoom(current, container, direction);
     let slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, room);
-    let extremityReached = isAtExtremityAfter(0, container, direction);
-    while (!slabIntersectionAtMinimum && !extremityReached) {
+    while (!slabIntersectionAtMinimum) {
       const previousRoom = room;
       const scrollYBefore = scrollY(container);
       const scrollHeightBefore = scrollHeight(container);
       const heightBefore = current.getBoundingClientRect().height;
       const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
+      if (jump <= 0) break;
       const intendedRoom = previousRoom + jump;
       slabIntersectionAtMinimum = isSlabIntersectionAtMinimum(container, intendedRoom);
-      extremityReached = isAtExtremityAfter(jump, container, direction);
       console.log(
-        `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, jump=${Math.round(jump)}, intendedRoom=${Math.round(intendedRoom)}, scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, current.height=${Math.round(heightBefore)}, extremityReached=${extremityReached}`
+        `[moveWorkZone] before jump: direction=${direction}, previousRoom=${Math.round(previousRoom)}, jump=${Math.round(jump)}, intendedRoom=${Math.round(intendedRoom)}, scrollY=${Math.round(scrollYBefore)}, scrollHeight=${Math.round(scrollHeightBefore)}, current.height=${Math.round(heightBefore)}`
       );
       performJump(jump, container, direction);
       const scrollYImmediatelyAfterJump = scrollY(container);
@@ -299,7 +298,7 @@
       );
       let stableAfterFrames;
       try {
-        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 2 });
+        stableAfterFrames = await waitLayoutStable(container, { current, direction, intendedRoom, stableFrames: 1 });
       } catch (err) {
         const connected = "isConnected" in current ? current.isConnected : null;
         const containerConnected = "isConnected" in container ? container.isConnected : null;
@@ -321,7 +320,7 @@
         `[moveWorkZone] after jump: direction=${direction}, intendedRoom=${Math.round(intendedRoom)}, room=${Math.round(room)}, drift=${drift.toFixed(4)} stableAfterFrames=${stableAfterFrames}, scrollY ${Math.round(scrollYBefore)} -> ${Math.round(scrollYAfter)}, scrollHeight ${Math.round(scrollHeightBefore)} -> ${Math.round(scrollHeightAfter)}, current.height ${Math.round(heightBefore)} -> ${Math.round(heightAfter)}`
       );
     }
-    return { room, extremityReached };
+    return room;
   }
   function clampJump(calibratedJump, room, container, direction) {
     const viewportHeight = clientHeight(container);
@@ -332,12 +331,6 @@
       distanceToExtremity,
       viewportHeight - MIN_INTERSECT - room
     );
-  }
-  function isAtExtremityAfter(jump = 0, container, direction) {
-    if (direction < 0) {
-      return scrollY(container) + direction * jump === 0;
-    }
-    return scrollHeight(container) - (scrollY(container) + direction * jump) - clientHeight(container) === 0;
   }
   function isSlabIntersectionAtMinimum(container, intendedRoom) {
     return intendedRoom >= clientHeight(container) - MIN_INTERSECT;
@@ -418,14 +411,13 @@
     let deckRoom = clientHeight(container);
     let deck = null;
     let current = null;
-    let extremityReached = false;
     let deckCount = 0;
     let slabCount = 0;
     while (true) {
-      if (current && room < MAX_SLAB_GAP && !extremityReached) {
-        ({ room, extremityReached } = await moveWorkZone(current, container));
+      if (current && room < MAX_SLAB_GAP) {
+        room = await moveWorkZone(current, container);
         console.log(
-          `[traverseConversation] after moveWorkZone: room=${Math.round(room)}, extremityReached=${extremityReached}`
+          `[traverseConversation] after moveWorkZone: room=${Math.round(room)}`
         );
       }
       if (deck) {
@@ -466,7 +458,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "0.73" : "unbuilt";
+  var VERSION = true ? "0.74" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   GM_registerMenuCommand(`Run dev traversal v${VERSION} (geometry only)`, () => {
     traverseConversation().then(() => console.log("[dev traversal] finished.")).catch((err) => console.error("[dev traversal] failed:", err));
