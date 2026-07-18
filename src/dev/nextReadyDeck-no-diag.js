@@ -4,16 +4,11 @@ import {
     areaAhead,
     intersecting,
     closest
-} from "./geometry.js";
+} from "./geometry-no-diag.js";
 import {
    MAX_DECK_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
-} from "./constants.js";
-import {
-    recordCycleStageDiagnostics,
-    snapshotElementDiagnostics
-} from "./cycleDiagnostics.js";
-
+} from "./constants-no-diag.js";
 /**
  * Return the next ready deck above the current one.
  *
@@ -42,35 +37,15 @@ export async function nextReadyDeck(deckRoom) {
         ADJACENCY_OVERLAP_TOLERANCE
     );
 
-    recordCycleStageDiagnostics("deck-search", {
-        deckRoom,
-        area,
-        deckCount: decks.length,
-        first: snapshotElementDiagnostics(decks[0]),
-        last: snapshotElementDiagnostics(decks[decks.length - 1]),
-        candidates: candidates.map(snapshotElementDiagnostics),
-        selected: snapshotElementDiagnostics(deck),
-        readiness: deck?.getAttribute("data-is-intersecting") ?? null
-    });
-
     if (deck == null) {
 
         return null;
     }
 
-    const startedAtDiagnostics = performance.now();
-
     await waitDeckReady(deck);
-
-    recordCycleStageDiagnostics("deck-ready", {
-        waitedMs: performance.now() - startedAtDiagnostics,
-        deck: snapshotElementDiagnostics(deck),
-        readiness: deck.getAttribute("data-is-intersecting")
-    });
 
     return deck;
 }
-
 
 /**
  * Return all deck candidates, regardless of readiness (see
@@ -109,7 +84,6 @@ export function getDecks() {
     });
 }
 
-
 /**
  * Return true iff a deck is geometrically ready — see
  * ASSUMPTIONS.md A3.
@@ -121,7 +95,6 @@ function isDeckReady(deck) {
         deck.dataset.isIntersecting !== "false"
     );
 }
-
 
 /**
  * Wait until a deck becomes geometrically ready.

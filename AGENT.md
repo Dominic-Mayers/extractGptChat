@@ -2,29 +2,33 @@
 
 This is not updated to match newly written code in src/dev. The newly written code is source of truth. This is only a source of truth to plan new code. The code in src/app is used to learn about chatGpt structure and behavior and borrow some related code.
 
+## Rules
+
+* Do not add comments in the code. I will add them for human beings.
+* You can change the flow of the code as needed in a localized manner that respects the  flow that I requested.
+* Never change the flow of the code beyond what I request, unless it is localized.
+* For example, do not make a function depends on a policy unless I decide that the policy is external to the function, not hardcoded in the function. (You did that in a previous session and that surprised me a lot.)
+
 ## Objective
 
-We are refactoring a ChatGPT conversation extractor. The objective is to redesign it while making use of knowledge learned in the existing code.
+We are refactoring a ChatGPT conversation extractor.
 
 ## Current understanding
 
-Geometry:
+Geometry (movement):
 
 * room
 * jumps
-* viewport
-* work zone
+* viewport = work zone
 
-Structure:
+Structure (selection and extraction):
 
 * decks
 * slabs
 * readiness
 * extraction
 
-The boundary between the two is **deck readiness**.
-
-Once a deck is ready, slab geometry is assumed stable.
+We realized that geometry  and structure cannot be managed entirely separately, because geometry depends on elements being rendered.
 
 ---
 
@@ -35,59 +39,55 @@ The traversal currently being designed, which is the source of truth (unless sup
 ```text
 repeat
 
-    if (current && room < MIN_ROOM )
+    if (current && room <  MAX_SLAB_GAP )
 
         room = await moveWorkZone(current);
 
+    // Either find the next slab in the current deck ...
 
-    if (needsNextDeck(room, deckTop)) {
+    slab = room - deckRoom >= MINIMUM_SLAB_HEIGHT && nextSlab(current, deck);
+
+    // ... or try get the next deck, break if no deck, and find the next slab there.
+
+    if (slab == null
 
         deck = await nextReadyDeck(deckTop);
-        if (deck == null) {break;}
-        deckTop = deck.getBoundingClientRect().top;
-    }
-
-    slab = nextSlab(current, deck)
-
-    type = slabType(slab)
-
-    waitSlabReady(type, slab)
-
-    extractSlab(type, slab)
+        if (deck == null) {
+            break;
+        }
+        deckRoom = deck.getBoundingClientRect().top;
+        slab = nextSlab(room, deck);
+        if (!slab) throw new Error("No slab found in ready deck.");
 
     current = slab
+    room = current.getBoundingClientRect().top;
 
-until no next ready deck
+    //
+    // Extraction phase not implemented yet
+    //
+    // const type = slabType(current);
+    // await waitSlabReady(type, current);
+    // extractSlab(type, current);
 
 exportMarkdown()
 ```
-
-For the moment we removed
-
-```text
-waitSlabReady()
-extractSlab()
-```
-
-to simplify development.
-
 ---
 
 ## moveWorkZone(current, calibratedJump)
 
-This function will eventually be implemented entirely from scratch.
+This function cannot be entirely separated from readiness and selection of slabs. 
 
 Its structure is
 
 ```text
 room = measureRoom(current)
 
-while (room < viewportHeight - SLAB_ADJACENCY_MAX_GAP - MAX_DRIFT && 
-       scrollY > MAX_DRIFT)
+while ( ! slabIntersectionAtMinimum && !atExtremity )
 
-    jump = normalizeJump(CALIBRATED_JUMP)
-
+    const jump = clampJump(CALIBRATED_JUMP, room, container, direction);
     performJump(jump)
+    if () break;
+
 
     waitLayoutStable()
 
@@ -223,17 +223,3 @@ slabDistanceAhead()
 ```
 
 to preserve any subtle tie-breaking behavior.
-
----
-
-## Important architectural conclusion
-
-We realized that
-
-**deck readiness is the interface contract between structure and geometry.**
-
-It guarantees that
-
-* selectors are meaningful,
-* slab geometry is stable,
-* empty decks are distinguishable from incomplete rendering.

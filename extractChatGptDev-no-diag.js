@@ -1,14 +1,14 @@
 // ==UserScript==
-// @name         ChatGPT Chat Extractor (dev)
+// @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.24
+// @version      1.24-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 (() => {
-  // src/dev/geometry.js
+  // src/dev/geometry-no-diag.js
   function areaAhead(referenceTop, maxGap) {
     return {
       top: referenceTop - maxGap,
@@ -38,7 +38,7 @@
     return closest2;
   }
 
-  // src/dev/constants.js
+  // src/dev/constants-no-diag.js
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
   var MAX_SLAB_GAP = 160;
@@ -48,131 +48,7 @@
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
 
-  // src/dev/cycleDiagnostics.js
-  var previousCycle = null;
-  var currentCycle = null;
-  var SLOW_JUMP_MS = 1e3;
-  function resetCycleDiagnostics() {
-    previousCycle = null;
-    currentCycle = null;
-  }
-  function beginCycleDiagnostics(data) {
-    previousCycle = currentCycle;
-    currentCycle = {
-      ...data,
-      stages: [],
-      jumps: []
-    };
-  }
-  function beginJumpDiagnostics(data) {
-    if (!currentCycle) return;
-    currentCycle.jumps.push({
-      ...data,
-      status: "pending",
-      startedAtDiagnostics: performance.now()
-    });
-  }
-  function updateJumpDiagnostics(data) {
-    const jumpDiagnostics = currentJumpDiagnostics();
-    if (!jumpDiagnostics) return;
-    Object.assign(jumpDiagnostics, data);
-  }
-  function finishJumpDiagnostics(data = {}) {
-    const jumpDiagnostics = currentJumpDiagnostics();
-    if (!jumpDiagnostics) return null;
-    const elapsedMs = performance.now() - jumpDiagnostics.startedAtDiagnostics;
-    delete jumpDiagnostics.startedAtDiagnostics;
-    Object.assign(jumpDiagnostics, data, {
-      elapsedMs,
-      status: data.status ?? "complete"
-    });
-    return jumpDiagnostics.elapsedMs;
-  }
-  function logSlowJumpDiagnosticsIfNeeded() {
-    const jumpDiagnostics = currentJumpDiagnostics();
-    if (!jumpDiagnostics || jumpDiagnostics.elapsedMs < SLOW_JUMP_MS) return;
-    logCycleContextDiagnostics();
-  }
-  function currentJumpDiagnostics() {
-    return currentCycle?.jumps[currentCycle.jumps.length - 1] ?? null;
-  }
-  function recordCycleStageDiagnostics(stage, data = {}) {
-    if (!currentCycle) return;
-    currentCycle.stages.push({ stage, ...data });
-  }
-  function snapshotElementDiagnostics(element) {
-    if (!element?.getBoundingClientRect) return null;
-    const rect = element.getBoundingClientRect();
-    return {
-      id: element.getAttribute?.("data-message-id") ?? element.getAttribute?.("data-turn-id-container") ?? element.id ?? "synthetic",
-      top: roundDiagnostics(rect.top),
-      bottom: roundDiagnostics(rect.bottom),
-      height: roundDiagnostics(rect.height),
-      connected: element.isConnected ?? null
-    };
-  }
-  function logCycleContextDiagnostics() {
-    console.log([
-      "[traverseConversation]",
-      formatSlabDiagnostics("PREVIOUS", previousCycle),
-      "",
-      formatSlabDiagnostics("CURRENT", currentCycle)
-    ].join("\n"));
-  }
-  function formatJumpsDiagnostics(jumps) {
-    return [
-      "\u2500\u2500\u2500\u2500 JUMPS IN SLAB \u2500\u2500\u2500\u2500",
-      ...jumps.map(
-        (jump, index) => `${String(index + 1).padStart(2, "0")}  ${formatValueDiagnostics(jump)}`
-      ),
-      "\u2500\u2500\u2500\u2500 END JUMPS \u2500\u2500\u2500\u2500"
-    ].join("\n");
-  }
-  function formatSlabDiagnostics(label, cycle) {
-    if (!cycle) return `\u2550\u2550\u2550\u2550 ${label} SLAB: NONE \u2550\u2550\u2550\u2550`;
-    const state = Object.entries(cycle).filter(([key]) => key !== "stages" && key !== "jumps" && key !== "cycle").map(([key, value]) => `${key}=${formatValueDiagnostics(value)}`).join(" \u2502 ");
-    const stages = cycle.stages.flatMap(({ stage, ...data }, index) => [
-      `${String(index + 1).padStart(2, "0")} \u2192 ${stage.toUpperCase().replace(/-/g, " ")}`,
-      `     ${formatFieldsDiagnostics(data)}`
-    ]);
-    return [
-      `\u2550\u2550\u2550\u2550 ${label} SLAB ${cycle.slabCount} \u2550\u2550\u2550\u2550`,
-      `START  ${state}`,
-      formatJumpsDiagnostics(cycle.jumps),
-      ...stages,
-      `\u2550\u2550\u2550\u2550 END ${label} SLAB ${cycle.slabCount} \u2550\u2550\u2550\u2550`
-    ].join("\n");
-  }
-  function formatFieldsDiagnostics(value) {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return "-";
-    return entries.map(([key, item]) => `${key}=${formatValueDiagnostics(item)}`).join(" \u2502 ");
-  }
-  function formatValueDiagnostics(value) {
-    if (value instanceof Error) {
-      return JSON.stringify({
-        name: value.name,
-        message: value.message,
-        stack: value.stack
-      });
-    }
-    if (typeof value === "number") return String(roundDiagnostics(value));
-    if (typeof value === "string") return value;
-    if (value === null) return "null";
-    if (value === void 0) return "undefined";
-    if (Array.isArray(value)) {
-      return `[${value.map(formatValueDiagnostics).join(", ")}]`;
-    }
-    if (typeof value === "object") {
-      return `{${formatFieldsDiagnostics(value)}}`;
-    }
-    return JSON.stringify(value);
-  }
-  function roundDiagnostics(value) {
-    return Number.isFinite(value) ? Math.round(value * 100) / 100 : value;
-  }
-
-  // src/dev/nextSlab.js
+  // src/dev/nextSlab-no-diag.js
   function nextSlab(room, deck) {
     const area = areaAhead(
       room,
@@ -188,13 +64,6 @@
       candidates,
       ADJACENCY_OVERLAP_TOLERANCE
     );
-    recordCycleStageDiagnostics("slab-search", {
-      room,
-      area,
-      slabCount: slabs.length,
-      candidates: candidates.map(snapshotElementDiagnostics),
-      selected: snapshotElementDiagnostics(slab)
-    });
     return slab;
   }
   function getSlabsIn(deck) {
@@ -234,7 +103,7 @@
     };
   }
 
-  // src/dev/nextReadyDeck.js
+  // src/dev/nextReadyDeck-no-diag.js
   async function nextReadyDeck(deckRoom) {
     const area = areaAhead(
       deckRoom,
@@ -250,26 +119,10 @@
       candidates,
       ADJACENCY_OVERLAP_TOLERANCE
     );
-    recordCycleStageDiagnostics("deck-search", {
-      deckRoom,
-      area,
-      deckCount: decks.length,
-      first: snapshotElementDiagnostics(decks[0]),
-      last: snapshotElementDiagnostics(decks[decks.length - 1]),
-      candidates: candidates.map(snapshotElementDiagnostics),
-      selected: snapshotElementDiagnostics(deck),
-      readiness: deck?.getAttribute("data-is-intersecting") ?? null
-    });
     if (deck == null) {
       return null;
     }
-    const startedAtDiagnostics = performance.now();
     await waitDeckReady(deck);
-    recordCycleStageDiagnostics("deck-ready", {
-      waitedMs: performance.now() - startedAtDiagnostics,
-      deck: snapshotElementDiagnostics(deck),
-      readiness: deck.getAttribute("data-is-intersecting")
-    });
     return deck;
   }
   function getDecks() {
@@ -317,7 +170,7 @@
     }
   }
 
-  // src/dev/scrollContainer.js
+  // src/dev/scrollContainer-no-diag.js
   function findScrollContainer() {
     const messageEl = document.querySelector("[data-message-author-role]");
     if (messageEl) {
@@ -350,7 +203,7 @@
     target.scrollTo({ top, behavior: "instant" });
   }
 
-  // src/dev/stabilize.js
+  // src/dev/stabilize-no-diag.js
   async function waitLayoutStable(container = document.documentElement, {
     stableFrames = 2,
     maxFrames = 300,
@@ -362,7 +215,6 @@
     const checkRoom = current != null && intendedRoom != null;
     let previous = geometrySnapshot(container);
     let unchanged = 0;
-    const geometryChangeMagnitudesDiagnostics = [];
     for (let frame = 0; frame < maxFrames; frame++) {
       await nextAnimationFrame();
       const currentGeometry = geometrySnapshot(container);
@@ -371,18 +223,13 @@
         Math.abs(currentGeometry.scrollY - previous.scrollY)
       );
       const geometryChanged = geometryChangeMagnitude !== 0;
-      geometryChangeMagnitudesDiagnostics.push(geometryChangeMagnitude);
       const roomNow = checkRoom ? measureRoom(current, container, direction) : null;
       const roomClose = !checkRoom || Math.abs(roomNow - intendedRoom) <= roomTolerance;
       if (!geometryChanged && !roomClose) {
         return {
           frames: frame + 1,
           status: "stable-wrong-room",
-          room: roomNow,
-          geometryChangeDiagnostics: summarizeGeometryChangeDiagnostics(
-            geometryChangeMagnitudesDiagnostics,
-            stableFrames
-          )
+          room: roomNow
         };
       }
       if (!geometryChanged && roomClose) {
@@ -395,11 +242,7 @@
         return {
           frames: frame + 1,
           status: "stable",
-          room: roomNow,
-          geometryChangeDiagnostics: summarizeGeometryChangeDiagnostics(
-            geometryChangeMagnitudesDiagnostics,
-            stableFrames
-          )
+          room: roomNow
         };
       }
     }
@@ -413,84 +256,34 @@
       scrollY: scrollY(container)
     };
   }
-  function summarizeGeometryChangeDiagnostics(magnitudes, stableFrames) {
-    const changes = [];
-    if (stableFrames === 1) {
-      for (const magnitude of magnitudes) {
-        if (magnitude > 0) changes.push(magnitude);
-      }
-    } else {
-      for (let index = 1; index < magnitudes.length; index++) {
-        const magnitude = Math.max(
-          magnitudes[index - 1],
-          magnitudes[index]
-        );
-        if (magnitude > 0) changes.push(magnitude);
-      }
-    }
-    return {
-      stableFrames,
-      minimum: changes.length > 0 ? Math.min(...changes) : null,
-      maximum: changes.length > 0 ? Math.max(...changes) : null
-    };
-  }
   function nextAnimationFrame() {
     return new Promise(
       (resolve) => requestAnimationFrame(resolve)
     );
   }
 
-  // src/dev/moveSlabTopToBottom.js
+  // src/dev/moveSlabTopToBottom-no-diag.js
   async function moveSlabTopToBottom(current, container, direction = -1) {
     let room = measureRoom(current, container, direction);
     let retriedCancelledJump = false;
     while (!isSlabIntersectionAtMinimum(container, room)) {
       const jump = clampJump(CALIBRATED_JUMP, room, container);
       const scrollYBefore = scrollY(container);
-      beginJumpDiagnostics({
-        roomBefore: room,
-        jump,
-        scrollYBefore,
-        current: snapshotElementDiagnostics(current)
-      });
       performJump(jump, container, direction);
       const scrollYAfter = scrollY(container);
       const intendedRoom = measureRoom(current, container, direction);
       if (scrollYAfter === scrollYBefore) {
-        finishJumpDiagnostics({
-          scrollYAfter,
-          intendedRoom,
-          obtainedRoom: measureRoom(current, container, direction),
-          status: "no-movement"
-        });
-        logSlowJumpDiagnosticsIfNeeded();
         break;
       }
-      const immediateCurrentDiagnostics = snapshotElementDiagnostics(current);
-      updateJumpDiagnostics({
-        scrollYAfter,
-        intendedRoom,
-        immediateCurrent: immediateCurrentDiagnostics
-      });
       const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(container, direction);
       const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
-      updateJumpDiagnostics({
-        roomUntilFirstNotReadyDeck
-      });
       const stabilization = await waitLayoutStable(container, {
         current,
         direction,
         intendedRoom,
         stableFrames
       });
-      const settledCurrentDiagnostics = snapshotElementDiagnostics(current);
       const obtainedRoom = measureRoom(current, container, direction);
-      finishJumpDiagnostics({
-        stabilization,
-        obtainedRoom,
-        settledCurrent: settledCurrentDiagnostics
-      });
-      logSlowJumpDiagnosticsIfNeeded();
       if (stabilization.status === "stable-wrong-room") {
         if (obtainedRoom === room && !retriedCancelledJump) {
           retriedCancelledJump = true;
@@ -503,10 +296,6 @@
       retriedCancelledJump = false;
       room = measureRoom(current, container, direction);
     }
-    recordCycleStageDiagnostics("move-result", {
-      room,
-      current: snapshotElementDiagnostics(current)
-    });
     return room;
   }
   function clampJump(calibratedJump, room, container) {
@@ -546,7 +335,7 @@
     return roomUntilFirstNotReadyDeck;
   }
 
-  // src/dev/moveViewportToDocumentBottom.js
+  // src/dev/moveViewportToDocumentBottom-no-diag.js
   async function moveViewportToDocumentBottom(container) {
     clickBottomNavItem();
     await waitLayoutStable(container);
@@ -577,9 +366,8 @@
     );
   }
 
-  // src/dev/mainOrchestration.js
+  // src/dev/mainOrchestration-no-diag.js
   async function traverseConversation() {
-    resetCycleDiagnostics();
     try {
       const container = findScrollContainer();
       const initial = await moveViewportToDocumentBottom(container);
@@ -587,81 +375,33 @@
       let deckRoom = initial.deckRoom;
       let deck = null;
       let current = null;
-      let deckCountDiagnostics = 0;
-      let slabCountDiagnostics = 0;
-      let cycleCountDiagnostics = 0;
       while (true) {
-        cycleCountDiagnostics++;
-        beginCycleDiagnostics({
-          cycle: cycleCountDiagnostics,
-          deckCount: deckCountDiagnostics,
-          slabCount: slabCountDiagnostics,
-          room,
-          deckRoom,
-          scrollY: scrollY(container),
-          scrollHeight: scrollHeight(container),
-          clientHeight: clientHeight(container),
-          current: snapshotElementDiagnostics(current),
-          deck: snapshotElementDiagnostics(deck)
-        });
         if (current && room < MAX_SLAB_GAP) {
           room = await moveSlabTopToBottom(current, container);
-        } else {
-          recordCycleStageDiagnostics("move-skip", {
-            current: snapshotElementDiagnostics(current),
-            room
-          });
         }
         if (deck) {
           deckRoom = deck.getBoundingClientRect().top;
         }
-        recordCycleStageDiagnostics("deck-room", {
-          deckRoom,
-          deck: snapshotElementDiagnostics(deck)
-        });
         let slab = deck && room - deckRoom >= MINIMUM_SLAB_HEIGHT ? nextSlab(room, deck) : null;
-        recordCycleStageDiagnostics("deck-decision", {
-          room,
-          deckRoom,
-          available: room - deckRoom,
-          minimum: MINIMUM_SLAB_HEIGHT,
-          needsDeck: slab == null
-        });
         if (slab == null) {
           deck = await nextReadyDeck(deckRoom);
           if (deck == null) {
-            recordCycleStageDiagnostics("stop", {
-              reason: "no-next-deck"
-            });
             break;
           }
-          deckCountDiagnostics++;
           deckRoom = deck.getBoundingClientRect().top;
           slab = nextSlab(room, deck);
           if (!slab) throw new Error("No slab found in ready deck.");
         }
         current = slab;
-        slabCountDiagnostics++;
         room = current.getBoundingClientRect().top;
-        recordCycleStageDiagnostics("selected", {
-          slabCount: slabCountDiagnostics,
-          deckCount: deckCountDiagnostics,
-          room,
-          slab: snapshotElementDiagnostics(current),
-          deck: snapshotElementDiagnostics(deck)
-        });
       }
     } catch (error) {
-      recordCycleStageDiagnostics("error", {
-        name: error.name,
-        message: error.message
-      });
       throw error;
     }
   }
 
-  // src/dev/bootstrap.js
-  var VERSION = true ? "1.24" : "unbuilt";
+  // src/dev/bootstrap-no-diag.js
+  var VERSION = true ? "1.24-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

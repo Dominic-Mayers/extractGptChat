@@ -4,17 +4,11 @@ import {
     areaAhead,
     intersecting,
     closest
-} from "./geometry.js";
+} from "./geometry-no-diag.js";
 import {
    MAX_SLAB_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
-} from "./constants.js";
-import {
-    recordCycleStageDiagnostics,
-    snapshotElementDiagnostics
-} from "./cycleDiagnostics.js";
-
-
+} from "./constants-no-diag.js";
 /**
  * Return the slab immediately above the current slab
  * in the current ready deck.
@@ -41,17 +35,8 @@ export function nextSlab(room, deck) {
         ADJACENCY_OVERLAP_TOLERANCE
     );
 
-    recordCycleStageDiagnostics("slab-search", {
-        room,
-        area,
-        slabCount: slabs.length,
-        candidates: candidates.map(snapshotElementDiagnostics),
-        selected: snapshotElementDiagnostics(slab)
-    });
-
     return slab;
 }
-
 
 /**
  * Return all slabs contained in a ready deck.
@@ -103,7 +88,6 @@ export function getSlabsIn(deck) {
 
     return slabs;
 }
-
 
 /**
  * Synthetic slab representing an empty ready deck.

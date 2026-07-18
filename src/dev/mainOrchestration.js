@@ -7,8 +7,8 @@
 
 import { nextSlab } from "./nextSlab.js";
 import { nextReadyDeck } from "./nextReadyDeck.js";
-import { moveWorkZone } from "./moveWorkZone.js";
-import { moveViewportToBottom } from "./moveViewportToBottom.js";
+import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
+import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
 import {
     findScrollContainer,
     scrollY,
@@ -19,42 +19,50 @@ import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants.js";
+import {
+    resetCycleDiagnostics,
+    beginCycleDiagnostics,
+    recordCycleStageDiagnostics,
+    snapshotElementDiagnostics
+} from "./cycleDiagnostics.js";
 
 export async function traverseConversation() {
 
+    resetCycleDiagnostics();
+
+    try {
+
     const container = findScrollContainer();
 
-    // Establishes the starting position; see ASSUMPTIONS.md A9.
-    await moveViewportToBottom(container);
+    // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
+    const initial = await moveViewportToDocumentBottom(container);
 
-    console.log(
-        `[traverseConversation] after moveViewportToBottom: ` +
-        `container=${container === document.documentElement ? "window" : container.className}, ` +
-        `scrollY=${scrollY(container)}, scrollHeight=${scrollHeight(container)}, ` +
-        `clientHeight=${clientHeight(container)}`
-    );
-
-    //
-    // Initial state.
-    //
-    // room and deckRoom are parallel quantities: room is the room
-    // ahead of the current slab, deckRoom is the room ahead of the
-    // current deck. Initializing both to the viewport height is
-    // equivalent to introducing an imaginary slab and an imaginary
-    // deck whose leading edges coincide with the trailing edge of
-    // the viewport.
-    //
-    let room = clientHeight(container);
-    let deckRoom = clientHeight(container);
+    let room = initial.room;
+    let deckRoom = initial.deckRoom;
     let deck = null;
     let current = null;
-    let deckCount = 0;
-    let slabCount = 0;
+    let deckCountDiagnostics = 0;
+    let slabCountDiagnostics = 0;
+    let cycleCountDiagnostics = 0;
 
     //
     // Main traversal.
     //
     while (true) {
+
+        cycleCountDiagnostics++;
+        beginCycleDiagnostics({
+            cycle: cycleCountDiagnostics,
+            deckCount: deckCountDiagnostics,
+            slabCount: slabCountDiagnostics,
+            room,
+            deckRoom,
+            scrollY: scrollY(container),
+            scrollHeight: scrollHeight(container),
+            clientHeight: clientHeight(container),
+            current: snapshotElementDiagnostics(current),
+            deck: snapshotElementDiagnostics(deck)
+        });
 
         //
         // The value room can be negative and a jump always increases it.
@@ -62,16 +70,23 @@ export async function traverseConversation() {
             current &&
             room < MAX_SLAB_GAP
         ) {
-            room = await moveWorkZone(current, container);
-            console.log(
-                `[traverseConversation] after moveWorkZone: room=${Math.round(room)}`
-            );
+            room = await moveSlabTopToBottom(current, container);
+        } else {
+            recordCycleStageDiagnostics("move-skip", {
+                current: snapshotElementDiagnostics(current),
+                room
+            });
         }
 
         // See ASSUMPTIONS.md A8.
         if (deck) {
             deckRoom = deck.getBoundingClientRect().top;
         }
+
+        recordCycleStageDiagnostics("deck-room", {
+            deckRoom,
+            deck: snapshotElementDiagnostics(deck)
+        });
 
         //
         // Either the we find the next slab in the current deck...  
@@ -80,57 +95,62 @@ export async function traverseConversation() {
             ? nextSlab(room, deck)
             : null;
 
+        recordCycleStageDiagnostics("deck-decision", {
+            room,
+            deckRoom,
+            available: room - deckRoom,
+            minimum: MINIMUM_SLAB_HEIGHT,
+            needsDeck: slab == null
+        });
+
         //
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            const deckTime = performance.now();
-            deck = await nextReadyDeck(
-                deckRoom,
-                container
-            );
-            const deckDeltaTime = performance.now() - deckTime;
+            deck = await nextReadyDeck(deckRoom);
 
             if (deck == null) {
-                console.log(
-                    `[traverseConversation] nextReadyDeck(deckRoom=${Math.round(deckRoom)}) ` +
-                    `returned null after ${deckCount} deck(s), ${slabCount} slab(s), ` +
-                    `scrollY=${scrollY(container)}, room=${Math.round(room)}.`
-                );
+                recordCycleStageDiagnostics("stop", {
+                    reason: "no-next-deck"
+                });
                 break;
             }
 
-            deckCount++;
+            deckCountDiagnostics++;
             deckRoom = deck.getBoundingClientRect().top;
-            console.log(
-                `[traverseConversation] deck #${deckCount}: deckRoom=${Math.round(deckRoom)}, ` +
-                `waitDeck=${deckDeltaTime} ms, scrollY=${scrollY(container)}.`
-            );
-
             slab = nextSlab(room, deck);
 
             if (!slab) throw new Error("No slab found in ready deck.");
         }
 
         current = slab;
-        slabCount++;
+        slabCountDiagnostics++;
 
         room = current.getBoundingClientRect().top;
 
-        console.log(
-            `[traverseConversation] slab #${slabCount}: room=${Math.round(room)}`
-        );
+        recordCycleStageDiagnostics("selected", {
+            slabCount: slabCountDiagnostics,
+            deckCount: deckCountDiagnostics,
+            room,
+            slab: snapshotElementDiagnostics(current),
+            deck: snapshotElementDiagnostics(deck)
+        });
 
 
         //
-        // Extraction phase.
+        // // Conceptually, the extraction phase goes here :
         //
         // const type = slabType(current);
         // await waitSlabReady(type, current);
         // extractSlab(type, current);
     }
-    console.log(
-        `[traverseConversation] done: ${deckCount} deck(s), ${slabCount} slab(s) visited.`
-    );
     // exportMarkdown();
+
+    } catch (error) {
+        recordCycleStageDiagnostics("error", {
+            name: error.name,
+            message: error.message
+        });
+        throw error;
+    }
 }

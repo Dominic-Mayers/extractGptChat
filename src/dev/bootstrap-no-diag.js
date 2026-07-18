@@ -8,7 +8,7 @@
 // (see mainOrchestration.js) — this build exists to exercise and
 // observe the geometry layer in a real browser.
 
-import { traverseConversation } from './mainOrchestration.js';
+import { traverseConversation } from './mainOrchestration-no-diag.js';
 
 // Replaced at build time (scripts/build-dev-userscript.js) with the same
 // version string as the @version header — shown in the menu label so it's
