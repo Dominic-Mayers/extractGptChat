@@ -4,6 +4,7 @@
   "scripts": {
     "build": "node scripts/build-userscript.js",
     "build:dev": "node scripts/build-dev-userscript.js",
+    "build:no-diag": "node scripts/build-no-diagnostics.js",
     "check": "node --check extractChatGpt.js"
   },
   "devDependencies": {

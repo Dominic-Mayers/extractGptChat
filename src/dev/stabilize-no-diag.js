@@ -1,6 +1,6 @@
-import { MAX_DRIFT } from "./constants.js";
-import { scrollY, scrollHeight } from "./scrollContainer.js";
-import { measureRoom } from "./moveSlabTopToBottom.js";
+import { MAX_DRIFT } from "./constants-no-diag.js";
+import { scrollY, scrollHeight } from "./scrollContainer-no-diag.js";
+import { measureRoom } from "./moveSlabTopToBottom-no-diag.js";
 
 export async function waitLayoutStable(
     container = document.documentElement,
@@ -18,7 +18,6 @@ export async function waitLayoutStable(
 
     let previous = geometrySnapshot(container);
     let unchanged = 0;
-    const geometryChangeMagnitudesDiagnostics = [];
 
     for (let frame = 0; frame < maxFrames; frame++) {
         await nextAnimationFrame();
@@ -29,7 +28,7 @@ export async function waitLayoutStable(
             Math.abs(currentGeometry.scrollY - previous.scrollY)
         );
         const geometryChanged = geometryChangeMagnitude !== 0;
-        geometryChangeMagnitudesDiagnostics.push(geometryChangeMagnitude);
+
         const roomNow = checkRoom ? measureRoom(current, container, direction) : null;
         const roomClose = !checkRoom ||
             Math.abs(roomNow - intendedRoom) <= roomTolerance;
@@ -39,12 +38,7 @@ export async function waitLayoutStable(
                 frames: frame + 1,
                 status: "stable-wrong-room",
                 room: roomNow,
-                geometryChangeDiagnostics:
-                    summarizeGeometryChangeDiagnostics(
-                        geometryChangeMagnitudesDiagnostics,
-                        stableFrames
-                    )
-            };
+};
         }
 
         if (!geometryChanged && roomClose) {
@@ -59,12 +53,7 @@ export async function waitLayoutStable(
                 frames: frame + 1,
                 status: "stable",
                 room: roomNow,
-                geometryChangeDiagnostics:
-                    summarizeGeometryChangeDiagnostics(
-                        geometryChangeMagnitudesDiagnostics,
-                        stableFrames
-                    )
-            };
+};
         }
     }
     throw new Error(
@@ -74,7 +63,6 @@ export async function waitLayoutStable(
             : `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
 }
-
 
 /**
  * Return a fingerprint of the current geometry.
@@ -89,32 +77,6 @@ function geometrySnapshot(container) {
         scrollY: scrollY(container)
     };
 }
-
-function summarizeGeometryChangeDiagnostics(magnitudes, stableFrames) {
-
-    const changes = [];
-
-    if (stableFrames === 1) {
-        for (const magnitude of magnitudes) {
-            if (magnitude > 0) changes.push(magnitude);
-        }
-    } else {
-        for (let index = 1; index < magnitudes.length; index++) {
-            const magnitude = Math.max(
-                magnitudes[index - 1],
-                magnitudes[index]
-            );
-            if (magnitude > 0) changes.push(magnitude);
-        }
-    }
-
-    return {
-        stableFrames,
-        minimum: changes.length > 0 ? Math.min(...changes) : null,
-        maximum: changes.length > 0 ? Math.max(...changes) : null
-    };
-}
-
 
 /**
  * Wait for the next animation frame.

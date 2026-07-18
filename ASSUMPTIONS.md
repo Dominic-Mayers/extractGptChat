@@ -71,20 +71,19 @@ an explicit `"false"`.
 The deck-readiness mechanism remains valid at the extremities of the
 conversation.
 
-Consequently, once an intended viewport move reaches a conversation
-extremity, a remaining positioning error bounded by `MAX_DRIFT` cannot
-prevent the final required deck from becoming ready.
-
-The geometry layer therefore considers the intended extremity sufficient and
-does not attempt to eliminate the remaining tolerated drift.
+Browser clamping is synchronous. After every viewport move, including one
+that reaches a conversation extremity, the resulting slab position is used as
+the intended room for the subsequent stability check.
 
 ## A5. Stable geometry
 
-During work-zone movement, geometry is considered stable after the first
-animation-frame observation where the geometry fingerprint remains unchanged
-and room is within `MAX_DRIFT` of the intended value. This deliberately permits
-later rendering to adjust `scrollHeight` and `scrollY`; work-zone extremity is
-therefore never cached by the main traversal and is reevaluated on every move.
+Work-zone movement requires two consecutive unchanged animation-frame
+observations when the first not-ready deck ahead is within 1000px of the
+viewport, and one observation otherwise.
+Work-zone extremity is never cached by the main traversal and is reevaluated on
+every move.
+A non-extremity jump that stabilizes outside the intended room tolerance is an
+error.
 
 Other stabilization callers require two consecutive unchanged animation-frame
 observations.
@@ -116,14 +115,15 @@ A position derived from `getBoundingClientRect()` is valid only until the
 next scroll. `room`/`deckTop` are remeasured immediately before each use,
 never reused from an earlier point in the traversal.
 
-## A9. Work-zone bottom alignment
+## A9. Measured bottom boundary
 
 At the bottom of the conversation, the last deck's bottom edge is not
 guaranteed to reach the work zone's own bottom edge — a composer sharing the
 scroll container can permanently occupy part of it, even at the browser's
-true maximum scroll position. `moveViewportToBottom()` aligns the last deck's
-bottom edge exactly with the work zone's bottom edge, which the traversal's
-initial `deckTop` placeholder assumes.
+true maximum scroll position. After moving to the literal bottom,
+`moveViewportToDocumentBottom()` measures the last deck's bottom edge and returns it as
+both initial search boundaries. Traversal therefore starts from actual geometry
+instead of moving the viewport to satisfy a fixed `clientHeight` boundary.
 
 ## A10. Deck identity
 
