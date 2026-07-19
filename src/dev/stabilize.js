@@ -1,6 +1,15 @@
-import { MAX_DRIFT } from "./constants.js";
 import { scrollY, scrollHeight } from "./scrollContainer.js";
-import { measureRoom } from "./moveSlabTopToBottom.js";
+import { MIN_SCROLL_HEIGHT_CHANGE } from "./constants.js";
+import {
+    beginStabilizationDiagnostics,
+    finishStabilizationDiagnostics,
+    beginRafDiagnostics,
+    finishRafWaitDiagnostics,
+    recordRafTelemetryDiagnostics,
+    beginYieldDiagnostics,
+    finishYieldDiagnostics,
+    finishRafDiagnostics
+} from "./cycleDiagnostics.js";
 
 export async function waitLayoutStable(
     container = document.documentElement,
@@ -9,69 +18,100 @@ export async function waitLayoutStable(
         maxFrames = 300,
         current = null,
         direction = null,
-        intendedRoom = null,
-        roomTolerance = MAX_DRIFT
+        measureReferenceRoom = null,
+        phase = "layout"
     } = {}
 ) {
 
-    const checkRoom = current != null && intendedRoom != null;
+    const checkAnchor = current != null && measureReferenceRoom != null;
 
     let previous = geometrySnapshot(container);
     let unchanged = 0;
-    const geometryChangeMagnitudesDiagnostics = [];
+    beginStabilizationDiagnostics({ phase, stableFrames });
 
     for (let frame = 0; frame < maxFrames; frame++) {
+        beginRafDiagnostics({ frame: frame + 1 });
         await nextAnimationFrame();
+        finishRafWaitDiagnostics();
 
         const currentGeometry = geometrySnapshot(container);
+        const scrollHeightChange = Math.abs(
+            currentGeometry.scrollHeight - previous.scrollHeight
+        );
+        const scrollYChange = Math.abs(
+            currentGeometry.scrollY - previous.scrollY
+        );
+        const effectiveScrollHeightChange =
+            scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE
+                ? 0
+                : scrollHeightChange;
         const geometryChangeMagnitude = Math.max(
-            Math.abs(currentGeometry.scrollHeight - previous.scrollHeight),
-            Math.abs(currentGeometry.scrollY - previous.scrollY)
+            effectiveScrollHeightChange,
+            scrollYChange
         );
         const geometryChanged = geometryChangeMagnitude !== 0;
-        geometryChangeMagnitudesDiagnostics.push(geometryChangeMagnitude);
-        const roomNow = checkRoom ? measureRoom(current, container, direction) : null;
-        const roomClose = !checkRoom ||
-            Math.abs(roomNow - intendedRoom) <= roomTolerance;
+        const roomAtFrame = checkAnchor
+            ? measureReferenceRoom(current, container, direction)
+            : null;
+        recordRafTelemetryDiagnostics({
+            geometryChangeMagnitude,
+            scrollHeightChange,
+            scrollHeightChangeIgnored:
+                scrollHeightChange > 0 && effectiveScrollHeightChange === 0,
+            scrollYChange,
+            scrollHeight: currentGeometry.scrollHeight,
+            scrollY: currentGeometry.scrollY,
+            anchorRoom: roomAtFrame
+        });
 
-        if (!geometryChanged && !roomClose) {
-            return {
-                frames: frame + 1,
-                status: "stable-wrong-room",
-                room: roomNow,
-                geometryChangeDiagnostics:
-                    summarizeGeometryChangeDiagnostics(
-                        geometryChangeMagnitudesDiagnostics,
-                        stableFrames
-                    )
-            };
-        }
-
-        if (!geometryChanged && roomClose) {
-            unchanged++;
-        } else {
+        if (geometryChanged) {
+            finishRafDiagnostics({ status: "geometry-changed" });
             previous = currentGeometry;
             unchanged = 0;
+            continue;
         }
 
+        const anchorStable = await checkAnchorAcrossYields(
+            current,
+            container,
+            direction,
+            measureReferenceRoom,
+            frame,
+            roomAtFrame
+        );
+        const roomNow = checkAnchor
+            ? measureReferenceRoom(current, container, direction)
+            : null;
+
+        if (!anchorStable) {
+            finishRafDiagnostics({ status: "anchor-changed" });
+            previous = currentGeometry;
+            unchanged = 0;
+            continue;
+        }
+
+        unchanged++;
+        finishRafDiagnostics({ status: "stable", unchanged });
+
         if (unchanged >= stableFrames) {
+            finishStabilizationDiagnostics({
+                status: "stable",
+                frames: frame + 1,
+                room: roomNow
+            });
             return {
                 frames: frame + 1,
                 status: "stable",
-                room: roomNow,
-                geometryChangeDiagnostics:
-                    summarizeGeometryChangeDiagnostics(
-                        geometryChangeMagnitudesDiagnostics,
-                        stableFrames
-                    )
+                room: roomNow
             };
         }
     }
+    finishStabilizationDiagnostics({
+        status: "exceeded-max-frames",
+        frames: maxFrames
+    });
     throw new Error(
-        checkRoom
-            ? `Exceeded ${maxFrames} frames waiting for layout stabilization within ${roomTolerance}px of intendedRoom=${intendedRoom} ` +
-              `(last room=${measureRoom(current, container, direction)}).`
-            : `Exceeded ${maxFrames} frames waiting for layout stabilization.`
+        `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
 }
 
@@ -90,36 +130,49 @@ function geometrySnapshot(container) {
     };
 }
 
-function summarizeGeometryChangeDiagnostics(magnitudes, stableFrames) {
+async function checkAnchorAcrossYields(
+    current,
+    container,
+    direction,
+    measureReferenceRoom,
+    frame,
+    roomAtFrame
+) {
+    let previousRoom = roomAtFrame;
+    let stable = true;
 
-    const changes = [];
+    for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
+        beginYieldDiagnostics({ index: yieldIndex, roomBefore: previousRoom });
+        await yieldToScheduler();
+        const room = current != null && measureReferenceRoom != null
+            ? measureReferenceRoom(current, container, direction)
+            : null;
+        const change = room == null || previousRoom == null
+            ? 0
+            : Math.abs(room - previousRoom);
+        const changed = change !== 0;
+        finishYieldDiagnostics({ roomAfter: room, change, changed });
 
-    if (stableFrames === 1) {
-        for (const magnitude of magnitudes) {
-            if (magnitude > 0) changes.push(magnitude);
-        }
-    } else {
-        for (let index = 1; index < magnitudes.length; index++) {
-            const magnitude = Math.max(
-                magnitudes[index - 1],
-                magnitudes[index]
-            );
-            if (magnitude > 0) changes.push(magnitude);
-        }
+        if (changed) stable = false;
+        previousRoom = room;
     }
 
-    return {
-        stableFrames,
-        minimum: changes.length > 0 ? Math.min(...changes) : null,
-        maximum: changes.length > 0 ? Math.max(...changes) : null
-    };
+    return stable;
+}
+
+async function yieldToScheduler() {
+    if (typeof globalThis.scheduler?.yield === "function") {
+        await globalThis.scheduler.yield();
+        return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
 }
 
 
 /**
  * Wait for the next animation frame.
  */
-function nextAnimationFrame() {
+export function nextAnimationFrame() {
 
     return new Promise(resolve =>
         requestAnimationFrame(resolve)

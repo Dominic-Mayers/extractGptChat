@@ -63,7 +63,7 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            deck = await nextReadyDeck(deckRoom);
+            deck = await nextReadyDeck(deckRoom, deck);
 
             if (deck == null) {
 

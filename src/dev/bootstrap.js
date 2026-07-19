@@ -9,6 +9,9 @@
 // observe the geometry layer in a real browser.
 
 import { traverseConversation } from './mainOrchestration.js';
+import {
+    logActiveTraversalDiagnostics
+} from './cycleDiagnostics.js';
 
 // Replaced at build time (scripts/build-dev-userscript.js) with the same
 // version string as the @version header — shown in the menu label so it's
@@ -24,14 +27,18 @@ let activeRuns = 0;
 const runTraversal = async () => {
     if (activeRuns > 0) {
         console.log('[dev traversal] ignored: a traversal is already in progress.');
+        logActiveTraversalDiagnostics();
         return;
     }
 
     activeRuns++;
     console.log('[dev traversal] started.');
-    await traverseConversation();
-    activeRuns--;
-    console.log('[dev traversal] finished.');
+    try {
+        await traverseConversation();
+        console.log('[dev traversal] finished.');
+    } finally {
+        activeRuns--;
+    }
 };
 
 const menuLabel = `Run dev traversal v${VERSION} (geometry only)`;

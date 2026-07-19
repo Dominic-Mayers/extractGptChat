@@ -23,7 +23,10 @@ import {
     resetCycleDiagnostics,
     beginCycleDiagnostics,
     recordCycleStageDiagnostics,
-    snapshotElementDiagnostics
+    snapshotElementDiagnostics,
+    logCycleContextDiagnostics,
+    flushCycleDiagnostics,
+    selectCurrentJumpDiagnostics
 } from "./cycleDiagnostics.js";
 
 export async function traverseConversation() {
@@ -107,7 +110,7 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            deck = await nextReadyDeck(deckRoom);
+            deck = await nextReadyDeck(deckRoom, deck);
 
             if (deck == null) {
                 recordCycleStageDiagnostics("stop", {
@@ -145,12 +148,15 @@ export async function traverseConversation() {
         // extractSlab(type, current);
     }
     // exportMarkdown();
+    flushCycleDiagnostics();
 
     } catch (error) {
+        selectCurrentJumpDiagnostics("error");
         recordCycleStageDiagnostics("error", {
             name: error.name,
             message: error.message
         });
+        logCycleContextDiagnostics();
         throw error;
     }
 }
