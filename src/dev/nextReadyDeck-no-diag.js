@@ -17,7 +17,7 @@ import {
  * the deck-level counterpart of the slab-level room in
  * moveSlabTopToBottom.js's measureRoom().
  */
-export async function nextReadyDeck(deckRoom) {
+export async function nextReadyDeck(deckRoom, currentDeck = null) {
 
     const area = areaAhead(
         deckRoom,
@@ -29,7 +29,7 @@ export async function nextReadyDeck(deckRoom) {
     const candidates = intersecting(
         area,
         decks
-    );
+    ).filter(candidate => candidate !== currentDeck);
 
     const deck = closest(
         deckRoom,

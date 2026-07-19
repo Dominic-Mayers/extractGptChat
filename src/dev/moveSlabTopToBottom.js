@@ -1,175 +1,112 @@
+import { clientHeight } from "./scrollContainer.js";
+import { moveAnchorToBottom } from "./moveAnchorToBottom.js";
+import { slabType } from "./slabType.js";
+import { getAnchorsIn } from "./getAnchorsIn.js";
 import {
-   MIN_INTERSECT,
-   CALIBRATED_JUMP,
-   ACTIVATION_DISTANCE
-} from "./constants.js";
-
-import {
-    scrollY,
-    clientHeight,
-    scrollBy
-} from "./scrollContainer.js";
-
-import { waitLayoutStable } from "./stabilize.js";
-import {
-    beginJumpDiagnostics,
-    updateJumpDiagnostics,
-    finishJumpDiagnostics,
-    logSlowJumpDiagnosticsIfNeeded,
-    recordCycleStageDiagnostics,
+    beginPendingAwaitDiagnostics,
+    finishPendingAwaitDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 
 export async function moveSlabTopToBottom(current, container, direction = -1) {
+    const type = slabType(current);
+
+    if (type === "unknown") {
+        throw new Error("Cannot move an unknown slab type.");
+    }
+
+    if (type === "image" || type === "empty") {
+        beginPendingAwaitDiagnostics("image-readiness", {
+            slab: snapshotElementDiagnostics(current),
+            type
+        });
+        await waitImageReady(current);
+        finishPendingAwaitDiagnostics({
+            slab: snapshotElementDiagnostics(current),
+            type
+        });
+        return moveAnchorToBottom(
+            current,
+            container,
+            direction,
+            measureRoom,
+            Infinity
+        );
+    }
 
     let room = measureRoom(current, container, direction);
-    let retriedCancelledJump = false;
 
-    while (!isSlabIntersectionAtMinimum(container, room)) {
-
-        const jump = clampJump(CALIBRATED_JUMP, room, container);
-
-        const scrollYBefore = scrollY(container);
-
-        beginJumpDiagnostics({
-            roomBefore: room,
-            jump,
-            scrollYBefore,
-            current: snapshotElementDiagnostics(current)
-        });
-
-        performJump(jump, container, direction);
-
-        const scrollYAfter = scrollY(container);
-        const intendedRoom = measureRoom(current, container, direction);
-
-        if (scrollYAfter === scrollYBefore) {
-            finishJumpDiagnostics({
-                scrollYAfter,
-                intendedRoom,
-                obtainedRoom: measureRoom(current, container, direction),
-                status: "no-movement"
-            });
-            logSlowJumpDiagnosticsIfNeeded();
-            break;
+    while (room < 0) {
+        const anchors = getAnchorsIn(current, container, direction);
+        const anchor = anchors[0];
+        if (!anchor) {
+            throw new Error("No ready visible anchor found in current slab.");
         }
 
-        const immediateCurrentDiagnostics = snapshotElementDiagnostics(current);
-
-        updateJumpDiagnostics({
-            scrollYAfter,
-            intendedRoom,
-            immediateCurrent: immediateCurrentDiagnostics
-        });
-
-        const roomUntilFirstNotReadyDeck =
-            measureRoomUntilFirstNotReadyDeck(container, direction);
-        const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE
-            ? 2
-            : 1;
-
-        updateJumpDiagnostics({
-            roomUntilFirstNotReadyDeck
-        });
-
-        const stabilization = await waitLayoutStable(container, {
-            current,
+        await moveAnchorToBottom(
+            anchor,
+            container,
             direction,
-            intendedRoom,
-            stableFrames
-        });
-
-        const settledCurrentDiagnostics = snapshotElementDiagnostics(current);
-        const obtainedRoom = measureRoom(current, container, direction);
-        finishJumpDiagnostics({
-            stabilization,
-            obtainedRoom,
-            settledCurrent: settledCurrentDiagnostics
-        });
-
-        logSlowJumpDiagnosticsIfNeeded();
-
-        if (stabilization.status === "stable-wrong-room") {
-            if (obtainedRoom === room && !retriedCancelledJump) {
-                retriedCancelledJump = true;
-                continue;
-            }
-            throw new Error(
-                `Geometry stabilized at room=${stabilization.room}; ` +
-                `expected room=${intendedRoom}.`
-            );
-        }
-
-        retriedCancelledJump = false;
+            measureAnchorRoom
+        );
         room = measureRoom(current, container, direction);
     }
 
-    recordCycleStageDiagnostics("move-result", {
-        room,
-        current: snapshotElementDiagnostics(current)
+    const anchors = getAnchorsIn(current, container, direction);
+    const currentRect = current.getBoundingClientRect();
+    const anchor = anchors.find(candidate => {
+        const boundary = candidate.getBoundingClientRect().top;
+        return boundary >= currentRect.top && boundary <= currentRect.bottom;
     });
-
-    return room;
-}
-
-export function clampJump(calibratedJump, room, container) {
-
-    const viewportHeight = clientHeight(container);
-
-    return Math.min(
-            calibratedJump,
-            (viewportHeight - MIN_INTERSECT) - room
+    if (!anchor) {
+        throw new Error(
+            "No ready visible anchor found for final slab movement."
         );
-}
+    }
 
-export function isSlabIntersectionAtMinimum(container, intendedRoom) {
-    return intendedRoom >= clientHeight(container) - MIN_INTERSECT;
+    await moveAnchorToBottom(
+        anchor,
+        container,
+        direction,
+        measureAnchorRoom
+    );
+    return measureRoom(current, container, direction);
 }
 
 export function measureRoom(current, container, direction) {
-
     const viewportHeight = clientHeight(container);
     const rect = current.getBoundingClientRect();
-
     return direction < 0
         ? rect.top
         : viewportHeight - rect.bottom;
 }
 
-export function performJump(jump, container, direction) {
-    scrollBy(container, jump * direction);
-}
-
-export function measureRoomUntilFirstNotReadyDeck(container, direction) {
-
+export function measureAnchorRoom(anchor, container, direction) {
+    const viewportHeight = clientHeight(container);
     const viewportTop = container === document.documentElement
         ? 0
         : container.getBoundingClientRect().top;
-    const viewportBoundary = direction < 0
-        ? viewportTop
-        : viewportTop + clientHeight(container);
+    const rect = anchor.element.getBoundingClientRect();
+    const boundary = rect[anchor.edge];
+    return direction < 0
+        ? boundary - viewportTop
+        : viewportTop + viewportHeight - boundary;
+}
 
-    let roomUntilFirstNotReadyDeck = Infinity;
+async function waitImageReady(current) {
+    const images = current.matches?.("img")
+        ? [current]
+        : current.querySelectorAll
+            ? [...current.querySelectorAll("img")]
+            : [];
 
-    for (const deck of document.querySelectorAll(
-        '[data-turn-id-container][data-is-intersecting="false"]'
-    )) {
-        const rect = deck.getBoundingClientRect();
-        const isAhead = direction < 0
-            ? rect.top < viewportBoundary
-            : rect.bottom > viewportBoundary;
-
-        if (!isAhead) continue;
-
-        const roomUntilDeck = direction < 0
-            ? viewportBoundary - rect.bottom
-            : rect.top - viewportBoundary;
-
-        roomUntilFirstNotReadyDeck = Math.min(
-            roomUntilFirstNotReadyDeck,
-            roomUntilDeck
-        );
+    for (const image of images) {
+        if (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
+            await new Promise((resolve, reject) => {
+                image.addEventListener("load", resolve, { once: true });
+                image.addEventListener("error", reject, { once: true });
+            });
+        }
+        if (typeof image.decode === "function") await image.decode();
     }
-
-    return roomUntilFirstNotReadyDeck;
 }

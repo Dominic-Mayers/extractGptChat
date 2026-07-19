@@ -10,6 +10,8 @@ import {
    ADJACENCY_OVERLAP_TOLERANCE
 } from "./constants.js";
 import {
+    beginPendingAwaitDiagnostics,
+    finishPendingAwaitDiagnostics,
     recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
@@ -22,7 +24,7 @@ import {
  * the deck-level counterpart of the slab-level room in
  * moveSlabTopToBottom.js's measureRoom().
  */
-export async function nextReadyDeck(deckRoom) {
+export async function nextReadyDeck(deckRoom, currentDeck = null) {
 
     const area = areaAhead(
         deckRoom,
@@ -34,7 +36,7 @@ export async function nextReadyDeck(deckRoom) {
     const candidates = intersecting(
         area,
         decks
-    );
+    ).filter(candidate => candidate !== currentDeck);
 
     const deck = closest(
         deckRoom,
@@ -49,6 +51,7 @@ export async function nextReadyDeck(deckRoom) {
         first: snapshotElementDiagnostics(decks[0]),
         last: snapshotElementDiagnostics(decks[decks.length - 1]),
         candidates: candidates.map(snapshotElementDiagnostics),
+        excludedCurrent: snapshotElementDiagnostics(currentDeck),
         selected: snapshotElementDiagnostics(deck),
         readiness: deck?.getAttribute("data-is-intersecting") ?? null
     });
@@ -60,7 +63,15 @@ export async function nextReadyDeck(deckRoom) {
 
     const startedAtDiagnostics = performance.now();
 
+    beginPendingAwaitDiagnostics("deck-readiness", {
+        deck: snapshotElementDiagnostics(deck),
+        readiness: deck.getAttribute("data-is-intersecting")
+    });
     await waitDeckReady(deck);
+    finishPendingAwaitDiagnostics({
+        deck: snapshotElementDiagnostics(deck),
+        readiness: deck.getAttribute("data-is-intersecting")
+    });
 
     recordCycleStageDiagnostics("deck-ready", {
         waitedMs: performance.now() - startedAtDiagnostics,
