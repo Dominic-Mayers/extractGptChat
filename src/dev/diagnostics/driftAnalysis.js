@@ -2,17 +2,16 @@
 // Keep this analysis out of moveSlabTopToBottom() and remove this module once the
 // relationship between the cursor, visible viewport, and anchoring is known.
 import {
-    clientHeight,
-    scrollHeight,
-    scrollY
+    supplyHeight,
+    workZonePosition,
+    workZoneTop
 } from "../scrollContainer.js";
 
-export function captureDriftSnapshot(current, container) {
+export function captureDriftSnapshot(current, supplier) {
+    const { supplyArea, workZone } = supplier;
     const rect = current.getBoundingClientRect();
-    const viewportTop = container === document.documentElement
-        ? 0
-        : container.getBoundingClientRect().top;
-    const viewportBottom = viewportTop + clientHeight(container);
+    const viewportTop = workZoneTop(workZone);
+    const viewportBottom = viewportTop + workZone.height;
     const deck = current.closest?.("[data-turn-id-container]") ?? null;
     const deckRect = deck?.getBoundingClientRect() ?? null;
 
@@ -24,8 +23,8 @@ export function captureDriftSnapshot(current, container) {
             0,
             Math.min(rect.bottom, viewportBottom) - Math.max(rect.top, viewportTop)
         ),
-        scrollY: scrollY(container),
-        scrollHeight: scrollHeight(container),
+        scrollY: workZonePosition(supplyArea, workZone),
+        scrollHeight: supplyHeight(supplyArea),
         deckId: deck?.getAttribute("data-turn-id-container") ?? "none",
         deckReadiness: deck?.getAttribute("data-is-intersecting") ?? "absent",
         deckTop: deckRect?.top ?? null,

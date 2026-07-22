@@ -9,8 +9,10 @@ import { nextSlab } from "./nextSlab-no-diag.js";
 import { nextActiveDeck } from "./nextActiveDeck-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
+import { boundaryAnchor } from "./getAnchorsIn-no-diag.js";
 import {
-    findSupplyArea
+    observeSupplier,
+    roomAhead
 } from "./scrollContainer-no-diag.js";
 import {
     MAX_SLAB_GAP,
@@ -20,11 +22,11 @@ export async function traverseConversation() {
 
     try {
 
-    const supplyArea = findSupplyArea();
-    const workZone = supplyArea.workZone;
+    const supplier = observeSupplier();
+    const { workZone } = supplier;
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
-    const initial = await moveViewportToDocumentBottom(workZone);
+    const initial = await moveViewportToDocumentBottom(supplier);
 
     let room = initial.room;
     let deckRoom = initial.deckRoom;
@@ -42,12 +44,15 @@ export async function traverseConversation() {
             current &&
             room < MAX_SLAB_GAP
         ) {
-            room = await moveSlabTopToBottom(current, workZone);
+            room = await moveSlabTopToBottom(current, supplier);
         }
 
         // See ASSUMPTIONS.md A8.
         if (deck) {
-            deckRoom = deck.getBoundingClientRect().top;
+            deckRoom = roomAhead(
+                boundaryAnchor(deck, "top"),
+                workZone
+            );
         }
 
         //
@@ -61,14 +66,17 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            deck = await nextActiveDeck(deckRoom, deck);
+            deck = await nextActiveDeck(deckRoom, deck, supplier);
 
             if (deck == null) {
 
                 break;
             }
 
-            deckRoom = deck.getBoundingClientRect().top;
+            deckRoom = roomAhead(
+                boundaryAnchor(deck, "top"),
+                workZone
+            );
             slab = nextSlab(room, deck);
 
             if (!slab) throw new Error("No slab found in active deck.");
@@ -76,7 +84,10 @@ export async function traverseConversation() {
 
         current = slab;
 
-        room = current.getBoundingClientRect().top;
+        room = roomAhead(
+            boundaryAnchor(current, "top"),
+            workZone
+        );
 
         //
         // // Conceptually, the extraction phase goes here :

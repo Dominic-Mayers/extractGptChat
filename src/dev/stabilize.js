@@ -1,5 +1,10 @@
 import { MIN_SCROLL_HEIGHT_CHANGE } from "./constants.js";
 import {
+    supplyHeight,
+    viewportPosition,
+    workZonePosition
+} from "./scrollContainer.js";
+import {
     beginStabilizationDiagnostics,
     finishStabilizationDiagnostics,
     beginRafDiagnostics,
@@ -11,27 +16,26 @@ import {
 } from "./cycleDiagnostics.js";
 
 export async function waitLayoutStable(
+    supplyArea,
     workZone,
     {
         stableFrames = 2,
         maxFrames = 300,
-        current = null,
-        phase = "layout"
+        current = null
     } = {}
 ) {
-
     const checkAnchor = current != null;
 
-    let previous = geometrySnapshot(workZone);
+    let previous = geometrySnapshot(supplyArea, workZone);
     let unchanged = 0;
-    beginStabilizationDiagnostics({ phase, stableFrames });
+    beginStabilizationDiagnostics({ stableFrames });
 
     for (let frame = 0; frame < maxFrames; frame++) {
         beginRafDiagnostics({ frame: frame + 1 });
         await nextAnimationFrame();
         finishRafWaitDiagnostics();
 
-        const currentGeometry = geometrySnapshot(workZone);
+        const currentGeometry = geometrySnapshot(supplyArea, workZone);
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
         );
@@ -47,8 +51,8 @@ export async function waitLayoutStable(
             scrollYChange
         );
         const geometryChanged = geometryChangeMagnitude !== 0;
-        const roomAtFrame = checkAnchor
-            ? workZone.roomAheadOf(current)
+        const positionAtFrame = checkAnchor
+            ? viewportPosition(current, workZone)
             : null;
         recordRafTelemetryDiagnostics({
             geometryChangeMagnitude,
@@ -58,7 +62,7 @@ export async function waitLayoutStable(
             scrollYChange,
             scrollHeight: currentGeometry.scrollHeight,
             scrollY: currentGeometry.scrollY,
-            anchorRoom: roomAtFrame
+            anchorPosition: positionAtFrame
         });
 
         if (geometryChanged) {
@@ -71,11 +75,10 @@ export async function waitLayoutStable(
         const anchorStable = await checkAnchorAcrossYields(
             current,
             workZone,
-            frame,
-            roomAtFrame
+            positionAtFrame
         );
-        const roomNow = checkAnchor
-            ? workZone.roomAheadOf(current)
+        const positionNow = checkAnchor
+            ? viewportPosition(current, workZone)
             : null;
 
         if (!anchorStable) {
@@ -92,12 +95,12 @@ export async function waitLayoutStable(
             finishStabilizationDiagnostics({
                 status: "stable",
                 frames: frame + 1,
-                room: roomNow
+                position: positionNow
             });
             return {
                 frames: frame + 1,
                 status: "stable",
-                room: roomNow
+                position: positionNow
             };
         }
     }
@@ -117,37 +120,39 @@ export async function waitLayoutStable(
  * Any geometric change that matters to traversal should
  * modify at least one of these quantities.
  */
-function geometrySnapshot(workZone) {
+function geometrySnapshot(supplyArea, workZone) {
 
     return {
-        scrollHeight: workZone.supplyHeight,
-        scrollY: workZone.position
+        scrollHeight: supplyHeight(supplyArea),
+        scrollY: workZonePosition(supplyArea, workZone)
     };
 }
 
 async function checkAnchorAcrossYields(
     current,
     workZone,
-    frame,
-    roomAtFrame
+    positionAtFrame
 ) {
-    let previousRoom = roomAtFrame;
+    let previousPosition = positionAtFrame;
     let stable = true;
 
     for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
-        beginYieldDiagnostics({ index: yieldIndex, roomBefore: previousRoom });
+        beginYieldDiagnostics({
+            index: yieldIndex,
+            positionBefore: previousPosition
+        });
         await yieldToScheduler();
-        const room = current != null
-            ? workZone.roomAheadOf(current)
+        const position = current != null
+            ? viewportPosition(current, workZone)
             : null;
-        const change = room == null || previousRoom == null
+        const change = position == null || previousPosition == null
             ? 0
-            : Math.abs(room - previousRoom);
+            : Math.abs(position - previousPosition);
         const changed = change !== 0;
-        finishYieldDiagnostics({ roomAfter: room, change, changed });
+        finishYieldDiagnostics({ positionAfter: position, change, changed });
 
         if (changed) stable = false;
-        previousRoom = room;
+        previousPosition = position;
     }
 
     return stable;

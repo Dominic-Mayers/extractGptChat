@@ -9,8 +9,10 @@ import { nextSlab } from "./nextSlab.js";
 import { nextActiveDeck } from "./nextActiveDeck.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
+import { boundaryAnchor } from "./getAnchorsIn.js";
 import {
-    findSupplyArea
+    observeSupplier,
+    roomAhead
 } from "./scrollContainer.js";
 import {
     MAX_SLAB_GAP,
@@ -23,7 +25,8 @@ import {
     snapshotElementDiagnostics,
     logCycleContextDiagnostics,
     flushCycleDiagnostics,
-    selectCurrentJumpDiagnostics
+    selectCurrentJumpDiagnostics,
+    snapshotSupplierDiagnostics
 } from "./cycleDiagnostics.js";
 
 export async function traverseConversation() {
@@ -32,11 +35,11 @@ export async function traverseConversation() {
 
     try {
 
-    const supplyArea = findSupplyArea();
-    const workZone = supplyArea.workZone;
+    const supplier = observeSupplier();
+    const { workZone } = supplier;
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
-    const initial = await moveViewportToDocumentBottom(workZone);
+    const initial = await moveViewportToDocumentBottom(supplier);
 
     let room = initial.room;
     let deckRoom = initial.deckRoom;
@@ -58,8 +61,7 @@ export async function traverseConversation() {
             slabCount: slabCountDiagnostics,
             room,
             deckRoom,
-            scrollY: workZone.position,
-            scrollHeight: workZone.supplyHeight,
+            ...snapshotSupplierDiagnostics(supplier.supplyArea, workZone),
             clientHeight: workZone.height,
             current: snapshotElementDiagnostics(current),
             deck: snapshotElementDiagnostics(deck)
@@ -71,7 +73,7 @@ export async function traverseConversation() {
             current &&
             room < MAX_SLAB_GAP
         ) {
-            room = await moveSlabTopToBottom(current, workZone);
+            room = await moveSlabTopToBottom(current, supplier);
         } else {
             recordCycleStageDiagnostics("move-skip", {
                 current: snapshotElementDiagnostics(current),
@@ -81,7 +83,10 @@ export async function traverseConversation() {
 
         // See ASSUMPTIONS.md A8.
         if (deck) {
-            deckRoom = deck.getBoundingClientRect().top;
+            deckRoom = roomAhead(
+                boundaryAnchor(deck, "top"),
+                workZone
+            );
         }
 
         recordCycleStageDiagnostics("deck-room", {
@@ -108,7 +113,7 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            deck = await nextActiveDeck(deckRoom, deck);
+            deck = await nextActiveDeck(deckRoom, deck, supplier);
 
             if (deck == null) {
                 recordCycleStageDiagnostics("stop", {
@@ -118,7 +123,10 @@ export async function traverseConversation() {
             }
 
             deckCountDiagnostics++;
-            deckRoom = deck.getBoundingClientRect().top;
+            deckRoom = roomAhead(
+                boundaryAnchor(deck, "top"),
+                workZone
+            );
             slab = nextSlab(room, deck);
 
             if (!slab) throw new Error("No slab found in active deck.");
@@ -127,7 +135,10 @@ export async function traverseConversation() {
         current = slab;
         slabCountDiagnostics++;
 
-        room = current.getBoundingClientRect().top;
+        room = roomAhead(
+            boundaryAnchor(current, "top"),
+            workZone
+        );
 
         recordCycleStageDiagnostics("selected", {
             slabCount: slabCountDiagnostics,

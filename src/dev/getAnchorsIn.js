@@ -1,5 +1,6 @@
 import { MIN_INTERSECT, MAX_DRIFT } from "./constants.js";
 import { slabType } from "./slabType.js";
+import { roomAhead, workZoneTop } from "./scrollContainer.js";
 
 const TEXT_ANCHOR_SELECTOR = [
     "p",
@@ -23,7 +24,9 @@ export function getAnchorsIn(
 ) {
     const type = slabType(slab);
 
-    if (type === "image" || type === "empty") return [slab];
+    if (type === "image" || type === "empty") {
+        return [boundaryAnchor(slab, "top")];
+    }
     if (type === "message" || type === "canvas") {
         return getTextAnchorsIn(slab, workZone);
     }
@@ -31,7 +34,7 @@ export function getAnchorsIn(
 }
 
 function getTextAnchorsIn(slab, workZone) {
-    const viewportTop = workZone.top;
+    const viewportTop = workZoneTop(workZone);
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const descendants = [];
@@ -65,7 +68,7 @@ function getTextAnchorsIn(slab, workZone) {
     for (const candidate of [...descendants, slab]) {
         const rect = candidate.getBoundingClientRect();
         const anchor = boundaryAnchor(candidate, "top");
-        const topRoom = workZone.roomAheadOf(anchor);
+        const topRoom = roomAhead(anchor, workZone);
         const bottomRoom = rect.bottom - viewportTop;
         if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
             recordNegativeAnchorDiagnostics(
@@ -77,8 +80,8 @@ function getTextAnchorsIn(slab, workZone) {
     }
 
     return coveringAnchors.sort((a, b) => {
-        const aRoom = workZone.roomAheadOf(a);
-        const bRoom = workZone.roomAheadOf(b);
+        const aRoom = roomAhead(a, workZone);
+        const bRoom = roomAhead(b, workZone);
         return bRoom - aRoom;
     });
 }
@@ -92,7 +95,7 @@ function normalBoundaryAnchors(
     for (const element of elements) {
         for (const edge of ["top", "bottom"]) {
             const anchor = boundaryAnchor(element, edge);
-            const room = workZone.roomAheadOf(anchor);
+            const room = roomAhead(anchor, workZone);
             if (room >= 0 && room < targetRoom - MAX_DRIFT) {
                 anchors.push(anchor);
             }
@@ -100,8 +103,8 @@ function normalBoundaryAnchors(
     }
 
     return anchors.sort((a, b) => {
-        const aRoom = workZone.roomAheadOf(a);
-        const bRoom = workZone.roomAheadOf(b);
+        const aRoom = roomAhead(a, workZone);
+        const bRoom = roomAhead(b, workZone);
         if (aRoom !== bRoom) return aRoom - bRoom;
         return a.edge === "bottom" ? -1 : 1;
     });
@@ -110,22 +113,7 @@ function normalBoundaryAnchors(
 export function boundaryAnchor(element, edge) {
     return {
         element,
-        edge,
-        get isConnected() {
-            return element.isConnected;
-        },
-        getBoundingClientRect() {
-            const rect = element.getBoundingClientRect();
-            const boundary = rect[edge];
-            return {
-                top: boundary,
-                bottom: boundary,
-                left: rect.left,
-                right: rect.right,
-                width: rect.width,
-                height: 0
-            };
-        }
+        edge
     };
 }
 

@@ -6,6 +6,11 @@
 
 import { waitLayoutStable } from "./stabilize-no-diag.js";
 import { getDecks } from "./nextActiveDeck-no-diag.js";
+import { boundaryAnchor } from "./getAnchorsIn-no-diag.js";
+import {
+    moveWorkZoneToSupplyEnd,
+    roomAhead
+} from "./scrollContainer-no-diag.js";
 
 /**
  * Move the viewport to the bottom of the conversation.
@@ -17,20 +22,21 @@ import { getDecks } from "./nextActiveDeck-no-diag.js";
  * 5. Use the bottom-most deck's measured bottom edge as the initial
  *    slab/deck search boundary (A9).
  */
-export async function moveViewportToDocumentBottom(workZone) {
+export async function moveViewportToDocumentBottom(supplier) {
+    const { supplyArea, workZone } = supplier;
 
     clickBottomNavItem();
 
-    await waitLayoutStable(workZone);
+    await waitLayoutStable(supplyArea, workZone);
 
-    workZone.moveToSupplyEnd();
+    moveWorkZoneToSupplyEnd(supplyArea, workZone);
 
-    await waitLayoutStable(workZone);
+    await waitLayoutStable(supplyArea, workZone);
 
-    const decks = getDecks();
+    const decks = getDecks(supplyArea);
 
     const boundary = decks.length > 0
-        ? decks[0].getBoundingClientRect().bottom
+        ? roomAhead(boundaryAnchor(decks[0], "bottom"), workZone)
         : workZone.height;
 
     return {

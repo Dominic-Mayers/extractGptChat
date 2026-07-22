@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.81-no-diag
+// @version      1.82-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -105,13 +105,114 @@
     };
   }
 
+  // src/dev/scrollContainer-no-diag.js
+  var containers = /* @__PURE__ */ new WeakMap();
+  function findScrollContainer() {
+    const messageEl = document.querySelector("[data-message-author-role]");
+    if (messageEl) {
+      let el = messageEl.parentElement;
+      while (el && el !== document.body) {
+        const { overflowY } = getComputedStyle(el);
+        if ((overflowY === "auto" || overflowY === "scroll") && el.scrollHeight > el.clientHeight) {
+          return el;
+        }
+        el = el.parentElement;
+      }
+    }
+    return document.documentElement;
+  }
+  function observeSupplier() {
+    return createSupplier(findScrollContainer());
+  }
+  function createSupplier(container) {
+    const supplyArea = {};
+    const activeArea = {};
+    const workZone = {
+      get height() {
+        return clientHeight(container);
+      }
+    };
+    containers.set(supplyArea, container);
+    containers.set(activeArea, container);
+    containers.set(workZone, container);
+    return { supplyArea, activeArea, workZone };
+  }
+  function roomAhead(anchor, workZone) {
+    return boundaryPosition(anchor) - workZoneTop(workZone);
+  }
+  function viewportPosition(anchor, workZone) {
+    return boundaryPosition(anchor) - workZoneTop(workZone);
+  }
+  function workZonePosition(supplyArea, workZone) {
+    const container = commonContainer(supplyArea, workZone);
+    return scrollY(container);
+  }
+  function supplyHeight(supplyArea) {
+    return scrollHeight(containerFor(supplyArea));
+  }
+  function moveWorkZone(distance, supplyArea, workZone) {
+    const container = commonContainer(supplyArea, workZone);
+    scrollBy(container, -distance);
+  }
+  function moveWorkZoneToSupplyEnd(supplyArea, workZone) {
+    const container = commonContainer(supplyArea, workZone);
+    scrollTo(container, scrollHeight(container));
+  }
+  function isAtSupplyBoundary(supplyArea, workZone) {
+    return workZonePosition(supplyArea, workZone) <= 0;
+  }
+  function elementsIn(area, selector) {
+    return containerFor(area).querySelectorAll(selector);
+  }
+  function contains(area, element) {
+    return containerFor(area).contains(element);
+  }
+  function workZoneTop(workZone) {
+    const container = containerFor(workZone);
+    return container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+  }
+  function boundaryPosition(anchor) {
+    const rect = anchor.element.getBoundingClientRect();
+    return rect[anchor.edge];
+  }
+  function commonContainer(first, second) {
+    const container = containerFor(first);
+    if (container !== containerFor(second)) {
+      throw new Error("Supplier areas belong to different environments.");
+    }
+    return container;
+  }
+  function containerFor(area) {
+    const container = containers.get(area);
+    if (!container) throw new Error("Unknown Supplier area.");
+    return container;
+  }
+  function scrollY(container) {
+    return container === document.documentElement ? window.scrollY : container.scrollTop;
+  }
+  function scrollHeight(container) {
+    return container === document.documentElement ? document.body.scrollHeight : container.scrollHeight;
+  }
+  function clientHeight(container) {
+    return container === document.documentElement ? document.documentElement.clientHeight : container.clientHeight;
+  }
+  function scrollBy(container, top) {
+    const target = container === document.documentElement ? window : container;
+    target.scrollBy({ top, behavior: "instant" });
+  }
+  function scrollTo(container, top) {
+    const target = container === document.documentElement ? window : container;
+    target.scrollTo({ top, behavior: "instant" });
+  }
+
   // src/dev/nextActiveDeck-no-diag.js
-  async function nextActiveDeck(deckRoom, currentDeck = null) {
+  async function nextActiveDeck(deckRoom, currentDeck, supplier) {
+    const { supplyArea, activeArea } = supplier;
     const area = areaAhead(
       deckRoom,
       MAX_DECK_GAP
     );
-    const decks = getDecks();
+    const decks = getDecks(supplyArea);
     const candidates = intersecting(
       area,
       decks
@@ -124,12 +225,12 @@
     if (deck == null) {
       return null;
     }
-    await waitDeckActive(deck);
+    await waitDeckActive(deck, activeArea);
     return deck;
   }
-  function getDecks() {
+  function getDecks(supplyArea) {
     const byId = /* @__PURE__ */ new Map();
-    for (const el of document.querySelectorAll("[data-turn-id-container]")) {
+    for (const el of elementsIn(supplyArea, "[data-turn-id-container]")) {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
       const id = el.getAttribute("data-turn-id-container");
@@ -144,18 +245,18 @@
       return rb.bottom - ra.bottom;
     });
   }
-  function isDeckActive(deck) {
-    return deck.dataset.isIntersecting !== void 0 && deck.dataset.isIntersecting !== "false";
+  function isDeckActive(deck, activeArea) {
+    return contains(activeArea, deck) && deck.dataset.isIntersecting !== void 0 && deck.dataset.isIntersecting !== "false";
   }
-  async function waitDeckActive(deck, {
+  async function waitDeckActive(deck, activeArea, {
     timeout = 1e4,
     poll = 100
   } = {}) {
-    if (isDeckActive(deck)) {
+    if (isDeckActive(deck, activeArea)) {
       return;
     }
     const deadline = Date.now() + timeout;
-    while (!isDeckActive(deck)) {
+    while (!isDeckActive(deck, activeArea)) {
       if (!deck.isConnected) {
         throw new Error(
           "Deck detached while waiting for readiness."
@@ -173,18 +274,17 @@
   }
 
   // src/dev/stabilize-no-diag.js
-  async function waitLayoutStable(workZone, {
+  async function waitLayoutStable(supplyArea, workZone, {
     stableFrames = 2,
     maxFrames = 300,
-    current = null,
-    phase = "layout"
+    current = null
   } = {}) {
     const checkAnchor = current != null;
-    let previous = geometrySnapshot(workZone);
+    let previous = geometrySnapshot(supplyArea, workZone);
     let unchanged = 0;
     for (let frame = 0; frame < maxFrames; frame++) {
       await nextAnimationFrame();
-      const currentGeometry = geometrySnapshot(workZone);
+      const currentGeometry = geometrySnapshot(supplyArea, workZone);
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
@@ -197,7 +297,7 @@
         scrollYChange
       );
       const geometryChanged = geometryChangeMagnitude !== 0;
-      const roomAtFrame = checkAnchor ? workZone.roomAheadOf(current) : null;
+      const positionAtFrame = checkAnchor ? viewportPosition(current, workZone) : null;
       if (geometryChanged) {
         previous = currentGeometry;
         unchanged = 0;
@@ -206,10 +306,9 @@
       const anchorStable = await checkAnchorAcrossYields(
         current,
         workZone,
-        frame,
-        roomAtFrame
+        positionAtFrame
       );
-      const roomNow = checkAnchor ? workZone.roomAheadOf(current) : null;
+      const positionNow = checkAnchor ? viewportPosition(current, workZone) : null;
       if (!anchorStable) {
         previous = currentGeometry;
         unchanged = 0;
@@ -220,7 +319,7 @@
         return {
           frames: frame + 1,
           status: "stable",
-          room: roomNow
+          position: positionNow
         };
       }
     }
@@ -228,22 +327,22 @@
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
   }
-  function geometrySnapshot(workZone) {
+  function geometrySnapshot(supplyArea, workZone) {
     return {
-      scrollHeight: workZone.supplyHeight,
-      scrollY: workZone.position
+      scrollHeight: supplyHeight(supplyArea),
+      scrollY: workZonePosition(supplyArea, workZone)
     };
   }
-  async function checkAnchorAcrossYields(current, workZone, frame, roomAtFrame) {
-    let previousRoom = roomAtFrame;
+  async function checkAnchorAcrossYields(current, workZone, positionAtFrame) {
+    let previousPosition = positionAtFrame;
     let stable = true;
     for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
       await yieldToScheduler();
-      const room = current != null ? workZone.roomAheadOf(current) : null;
-      const change = room == null || previousRoom == null ? 0 : Math.abs(room - previousRoom);
+      const position = current != null ? viewportPosition(current, workZone) : null;
+      const change = position == null || previousPosition == null ? 0 : Math.abs(position - previousPosition);
       const changed = change !== 0;
       if (changed) stable = false;
-      previousRoom = room;
+      previousPosition = position;
     }
     return stable;
   }
@@ -261,40 +360,40 @@
   }
 
   // src/dev/moveAnchorToBottom-no-diag.js
-  async function moveAnchorToBottom(anchor, workZone, calibratedJump = CALIBRATED_JUMP) {
-    if (workZone.isAtSupplyBoundary()) {
-      const room2 = workZone.roomAheadOf(anchor);
+  async function moveAnchorToBottom(anchor, supplier, calibratedJump = CALIBRATED_JUMP) {
+    const { supplyArea, activeArea, workZone } = supplier;
+    if (isAtSupplyBoundary(supplyArea, workZone)) {
+      const room2 = roomAhead(anchor, workZone);
       return room2;
     }
-    let room = workZone.roomAheadOf(anchor);
+    let room = roomAhead(anchor, workZone);
     let retriedErasedJump = false;
-    let anchorAtBottom = measuredAnchorBottomCheck(
-      workZone,
-      room
-    );
+    let anchorAtBottom = isAnchorAtBottom(workZone, room);
     if (anchorAtBottom) {
       return room;
     }
     while (!anchorAtBottom) {
-      if (workZone.isAtSupplyBoundary()) {
+      if (isAtSupplyBoundary(supplyArea, workZone)) {
         return room;
       }
       const jump = clampJump(calibratedJump, room, workZone);
-      const scrollYBefore = workZone.position;
-      workZone.moveBy(jump);
-      const scrollYAfter = workZone.position;
-      const intendedRoom = workZone.roomAheadOf(anchor);
+      const scrollYBefore = workZonePosition(supplyArea, workZone);
+      moveWorkZone(jump, supplyArea, workZone);
+      const scrollYAfter = workZonePosition(supplyArea, workZone);
       if (scrollYAfter === scrollYBefore) {
         break;
       }
-      const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(workZone);
+      const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
       const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
-      const postJumpStabilization = await waitLayoutStable(workZone, {
-        current: anchor,
-        stableFrames,
-        phase: "post-jump"
-      });
-      const obtainedRoom = workZone.roomAheadOf(anchor);
+      const postJumpStabilization = await waitLayoutStable(
+        supplyArea,
+        workZone,
+        {
+          current: anchor,
+          stableFrames
+        }
+      );
+      const obtainedRoom = roomAhead(anchor, workZone);
       const jumpWasErased = obtainedRoom === room;
       if (jumpWasErased && retriedErasedJump) {
         throw new Error(
@@ -303,18 +402,9 @@
       }
       retriedErasedJump = jumpWasErased;
       room = obtainedRoom;
-      anchorAtBottom = measuredAnchorBottomCheck(
-        workZone,
-        room
-      );
+      anchorAtBottom = isAnchorAtBottom(workZone, room);
     }
     return room;
-  }
-  function measuredAnchorBottomCheck(workZone, room) {
-    const viewportHeight = workZone.height;
-    const targetRoom = viewportHeight - MIN_INTERSECT;
-    const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
-    return atBottom;
   }
   function clampJump(calibratedJump, room, workZone) {
     return Math.min(
@@ -322,10 +412,15 @@
       workZone.height - MIN_INTERSECT - room
     );
   }
-  function measureRoomUntilFirstNotReadyDeck(workZone) {
-    const viewportBoundary = workZone.top;
+  function isAnchorAtBottom(workZone, room) {
+    const targetRoom = workZone.height - MIN_INTERSECT;
+    return room >= targetRoom - TOLERATED_ROUNDING;
+  }
+  function measureRoomUntilFirstNotReadyDeck(activeArea, workZone) {
+    const viewportBoundary = workZoneTop(workZone);
     let roomUntilFirstNotReadyDeck = Infinity;
-    for (const deck of document.querySelectorAll(
+    for (const deck of elementsIn(
+      activeArea,
       '[data-turn-id-container][data-is-intersecting="false"]'
     )) {
       const rect = deck.getBoundingClientRect();
@@ -367,14 +462,16 @@
   ].join(",");
   function getAnchorsIn(slab, workZone) {
     const type = slabType(slab);
-    if (type === "image" || type === "empty") return [slab];
+    if (type === "image" || type === "empty") {
+      return [boundaryAnchor(slab, "top")];
+    }
     if (type === "message" || type === "canvas") {
       return getTextAnchorsIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
   }
   function getTextAnchorsIn(slab, workZone) {
-    const viewportTop = workZone.top;
+    const viewportTop = workZoneTop(workZone);
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const descendants = [];
@@ -402,15 +499,15 @@
     for (const candidate of [...descendants, slab]) {
       const rect = candidate.getBoundingClientRect();
       const anchor = boundaryAnchor(candidate, "top");
-      const topRoom = workZone.roomAheadOf(anchor);
+      const topRoom = roomAhead(anchor, workZone);
       const bottomRoom = rect.bottom - viewportTop;
       if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
         coveringAnchors.push(anchor);
       }
     }
     return coveringAnchors.sort((a, b) => {
-      const aRoom = workZone.roomAheadOf(a);
-      const bRoom = workZone.roomAheadOf(b);
+      const aRoom = roomAhead(a, workZone);
+      const bRoom = roomAhead(b, workZone);
       return bRoom - aRoom;
     });
   }
@@ -419,15 +516,15 @@
     for (const element of elements) {
       for (const edge of ["top", "bottom"]) {
         const anchor = boundaryAnchor(element, edge);
-        const room = workZone.roomAheadOf(anchor);
+        const room = roomAhead(anchor, workZone);
         if (room >= 0 && room < targetRoom - MAX_DRIFT) {
           anchors.push(anchor);
         }
       }
     }
     return anchors.sort((a, b) => {
-      const aRoom = workZone.roomAheadOf(a);
-      const bRoom = workZone.roomAheadOf(b);
+      const aRoom = roomAhead(a, workZone);
+      const bRoom = roomAhead(b, workZone);
       if (aRoom !== bRoom) return aRoom - bRoom;
       return a.edge === "bottom" ? -1 : 1;
     });
@@ -435,27 +532,13 @@
   function boundaryAnchor(element, edge) {
     return {
       element,
-      edge,
-      get isConnected() {
-        return element.isConnected;
-      },
-      getBoundingClientRect() {
-        const rect = element.getBoundingClientRect();
-        const boundary = rect[edge];
-        return {
-          top: boundary,
-          bottom: boundary,
-          left: rect.left,
-          right: rect.right,
-          width: rect.width,
-          height: 0
-        };
-      }
+      edge
     };
   }
 
   // src/dev/moveSlabTopToBottom-no-diag.js
-  async function moveSlabTopToBottom(current, workZone) {
+  async function moveSlabTopToBottom(current, supplier) {
+    const { workZone } = supplier;
     const type = slabType(current);
     const slabTop = boundaryAnchor(current, "top");
     if (type === "unknown") {
@@ -465,11 +548,11 @@
       await waitImageReady(current);
       return moveAnchorToBottom(
         slabTop,
-        workZone,
+        supplier,
         Infinity
       );
     }
-    let room = workZone.roomAheadOf(slabTop);
+    let room = roomAhead(slabTop, workZone);
     while (room < 0) {
       const anchors = getAnchorsIn(current, workZone);
       const anchor = anchors[0];
@@ -478,15 +561,15 @@
       }
       await moveAnchorToBottom(
         anchor,
-        workZone
+        supplier
       );
-      room = workZone.roomAheadOf(slabTop);
+      room = roomAhead(slabTop, workZone);
     }
     await moveAnchorToBottom(
       slabTop,
-      workZone
+      supplier
     );
-    return workZone.roomAheadOf(slabTop);
+    return roomAhead(slabTop, workZone);
   }
   async function waitImageReady(current) {
     const images = current.matches?.("img") ? [current] : current.querySelectorAll ? [...current.querySelectorAll("img")] : [];
@@ -502,13 +585,14 @@
   }
 
   // src/dev/moveViewportToDocumentBottom-no-diag.js
-  async function moveViewportToDocumentBottom(workZone) {
+  async function moveViewportToDocumentBottom(supplier) {
+    const { supplyArea, workZone } = supplier;
     clickBottomNavItem();
-    await waitLayoutStable(workZone);
-    workZone.moveToSupplyEnd();
-    await waitLayoutStable(workZone);
-    const decks = getDecks();
-    const boundary = decks.length > 0 ? decks[0].getBoundingClientRect().bottom : workZone.height;
+    await waitLayoutStable(supplyArea, workZone);
+    moveWorkZoneToSupplyEnd(supplyArea, workZone);
+    await waitLayoutStable(supplyArea, workZone);
+    const decks = getDecks(supplyArea);
+    const boundary = decks.length > 0 ? roomAhead(boundaryAnchor(decks[0], "bottom"), workZone) : workZone.height;
     return {
       room: boundary,
       deckRoom: boundary
@@ -532,101 +616,44 @@
     );
   }
 
-  // src/dev/scrollContainer-no-diag.js
-  function findScrollContainer() {
-    const messageEl = document.querySelector("[data-message-author-role]");
-    if (messageEl) {
-      let el = messageEl.parentElement;
-      while (el && el !== document.body) {
-        const { overflowY } = getComputedStyle(el);
-        if ((overflowY === "auto" || overflowY === "scroll") && el.scrollHeight > el.clientHeight) {
-          return el;
-        }
-        el = el.parentElement;
-      }
-    }
-    return document.documentElement;
-  }
-  function findSupplyArea() {
-    return createSupplyArea(findScrollContainer());
-  }
-  function createSupplyArea(container) {
-    const workZone = {
-      get height() {
-        return clientHeight(container);
-      },
-      get top() {
-        return container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-      },
-      get position() {
-        return scrollY(container);
-      },
-      get supplyHeight() {
-        return scrollHeight(container);
-      },
-      roomAheadOf(anchor) {
-        const rect = anchor.element.getBoundingClientRect();
-        return rect[anchor.edge] - this.top;
-      },
-      moveBy(distance) {
-        scrollBy(container, -distance);
-      },
-      moveToSupplyEnd() {
-        scrollTo(container, scrollHeight(container));
-      },
-      isAtSupplyBoundary() {
-        return scrollY(container) <= 0;
-      }
-    };
-    return { workZone };
-  }
-  function scrollY(container) {
-    return container === document.documentElement ? window.scrollY : container.scrollTop;
-  }
-  function scrollHeight(container) {
-    return container === document.documentElement ? document.body.scrollHeight : container.scrollHeight;
-  }
-  function clientHeight(container) {
-    return container === document.documentElement ? document.documentElement.clientHeight : container.clientHeight;
-  }
-  function scrollBy(container, top) {
-    const target = container === document.documentElement ? window : container;
-    target.scrollBy({ top, behavior: "instant" });
-  }
-  function scrollTo(container, top) {
-    const target = container === document.documentElement ? window : container;
-    target.scrollTo({ top, behavior: "instant" });
-  }
-
   // src/dev/mainOrchestration-no-diag.js
   async function traverseConversation() {
     try {
-      const supplyArea = findSupplyArea();
-      const workZone = supplyArea.workZone;
-      const initial = await moveViewportToDocumentBottom(workZone);
+      const supplier = observeSupplier();
+      const { workZone } = supplier;
+      const initial = await moveViewportToDocumentBottom(supplier);
       let room = initial.room;
       let deckRoom = initial.deckRoom;
       let deck = null;
       let current = null;
       while (true) {
         if (current && room < MAX_SLAB_GAP) {
-          room = await moveSlabTopToBottom(current, workZone);
+          room = await moveSlabTopToBottom(current, supplier);
         }
         if (deck) {
-          deckRoom = deck.getBoundingClientRect().top;
+          deckRoom = roomAhead(
+            boundaryAnchor(deck, "top"),
+            workZone
+          );
         }
         let slab = deck && room - deckRoom >= MINIMUM_SLAB_HEIGHT ? nextSlab(room, deck) : null;
         if (slab == null) {
-          deck = await nextActiveDeck(deckRoom, deck);
+          deck = await nextActiveDeck(deckRoom, deck, supplier);
           if (deck == null) {
             break;
           }
-          deckRoom = deck.getBoundingClientRect().top;
+          deckRoom = roomAhead(
+            boundaryAnchor(deck, "top"),
+            workZone
+          );
           slab = nextSlab(room, deck);
           if (!slab) throw new Error("No slab found in active deck.");
         }
         current = slab;
-        room = current.getBoundingClientRect().top;
+        room = roomAhead(
+          boundaryAnchor(current, "top"),
+          workZone
+        );
       }
     } catch (error) {
       throw error;
@@ -634,7 +661,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.81-no-diag" : "unbuilt";
+  var VERSION = true ? "1.82-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

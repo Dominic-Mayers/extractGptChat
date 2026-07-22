@@ -1,3 +1,8 @@
+import {
+    supplyHeight,
+    workZonePosition
+} from "./scrollContainer.js";
+
 let previousCycle = null;
 let currentCycle = null;
 let runPerformanceOriginDiagnostics = 0;
@@ -308,11 +313,20 @@ function clockDiagnostics() {
 }
 
 export function snapshotElementDiagnostics(element) {
-    if (!element?.getBoundingClientRect) return null;
+    const source = element?.element ?? element;
+    if (!source?.getBoundingClientRect) return null;
 
-    const rect = element.getBoundingClientRect();
-    const source = element.element ?? element;
-    const sourceRect = source.getBoundingClientRect?.() ?? rect;
+    const sourceRect = source.getBoundingClientRect();
+    const boundary = element.edge == null
+        ? null
+        : sourceRect[element.edge];
+    const rect = boundary == null
+        ? sourceRect
+        : {
+            top: boundary,
+            bottom: boundary,
+            height: 0
+        };
 
     return {
         id: source.getAttribute?.("data-message-id") ??
@@ -330,7 +344,14 @@ export function snapshotElementDiagnostics(element) {
         sourceTop: roundDiagnostics(sourceRect.top),
         sourceBottom: roundDiagnostics(sourceRect.bottom),
         sourceHeight: roundDiagnostics(sourceRect.height),
-        connected: element.isConnected ?? null
+        connected: source.isConnected ?? null
+    };
+}
+
+export function snapshotSupplierDiagnostics(supplyArea, workZone) {
+    return {
+        scrollY: workZonePosition(supplyArea, workZone),
+        scrollHeight: supplyHeight(supplyArea)
     };
 }
 
@@ -508,7 +529,6 @@ function emitSlabDiagnostics(cycle, context, selectedOnly = false) {
 function relevantStagesDiagnostics(cycle) {
     const relevantStages = new Set(["selected", "stop", "error", "slow-slab"]);
     const slowSlabTimingStages = new Set([
-        "anchor-bottom-check",
         "deck-room",
         "deck-decision",
         "deck-search",
@@ -519,19 +539,10 @@ function relevantStagesDiagnostics(cycle) {
         .map((stage, index) => ({ stage, index }))
         .filter(({ stage }) =>
             relevantStages.has(stage.stage) ||
-            (isSlowSlab && slowSlabTimingStages.has(stage.stage) &&
-                stageIsUsefulSlowTimingDiagnostics(stage)) ||
+            (isSlowSlab && slowSlabTimingStages.has(stage.stage)) ||
             (stage.stage === "deck-active" &&
                 Math.max(stage.waitedMs ?? 0, 0) >= SLOW_AWAIT_MS)
         );
-}
-
-function stageIsUsefulSlowTimingDiagnostics(stage) {
-    if (stage.stage === "anchor-bottom-check") {
-        return Math.max(stage.elapsedMs ?? 0, stage.wallElapsedMs ?? 0) >=
-            SLOW_AWAIT_MS;
-    }
-    return true;
 }
 
 function selectedJumpIndexesDiagnostics(cycle) {

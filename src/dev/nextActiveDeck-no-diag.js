@@ -9,6 +9,8 @@ import {
    MAX_DECK_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
 } from "./constants-no-diag.js";
+import { contains, elementsIn } from "./scrollContainer-no-diag.js";
+
 /**
  * Return the next active deck above the current one.
  *
@@ -17,14 +19,15 @@ import {
  * the deck-level counterpart of the slab-level room in
  * moveSlabTopToBottom.js's measureRoom().
  */
-export async function nextActiveDeck(deckRoom, currentDeck = null) {
+export async function nextActiveDeck(deckRoom, currentDeck, supplier) {
+    const { supplyArea, activeArea } = supplier;
 
     const area = areaAhead(
         deckRoom,
         MAX_DECK_GAP
     );
 
-    const decks = getDecks();
+    const decks = getDecks(supplyArea);
 
     const candidates = intersecting(
         area,
@@ -42,7 +45,7 @@ export async function nextActiveDeck(deckRoom, currentDeck = null) {
         return null;
     }
 
-    await waitDeckActive(deck);
+    await waitDeckActive(deck, activeArea);
 
     return deck;
 }
@@ -54,11 +57,11 @@ export async function nextActiveDeck(deckRoom, currentDeck = null) {
  *
  * Borrowed from extractor-app.js's queryDeckSequenceContainers().
  */
-export function getDecks() {
+export function getDecks(supplyArea) {
 
     const byId = new Map();
 
-    for (const el of document.querySelectorAll("[data-turn-id-container]")) {
+    for (const el of elementsIn(supplyArea, "[data-turn-id-container]")) {
 
         const rect = el.getBoundingClientRect();
 
@@ -88,9 +91,10 @@ export function getDecks() {
  * Return true iff a deck is active — see
  * ASSUMPTIONS.md A3.
  */
-function isDeckActive(deck) {
+function isDeckActive(deck, activeArea) {
 
     return (
+        contains(activeArea, deck) &&
         deck.dataset.isIntersecting !== undefined &&
         deck.dataset.isIntersecting !== "false"
     );
@@ -107,19 +111,20 @@ function isDeckActive(deck) {
  */
 export async function waitDeckActive(
     deck,
+    activeArea,
     {
         timeout = 10000,
         poll = 100
     } = {}
 ) {
 
-    if (isDeckActive(deck)) {
+    if (isDeckActive(deck, activeArea)) {
         return;
     }
 
     const deadline = Date.now() + timeout;
 
-    while (!isDeckActive(deck)) {
+    while (!isDeckActive(deck, activeArea)) {
 
         if (!deck.isConnected) {
             throw new Error(

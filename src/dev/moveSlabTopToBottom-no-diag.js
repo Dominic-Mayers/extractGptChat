@@ -1,7 +1,9 @@
 import { moveAnchorToBottom } from "./moveAnchorToBottom-no-diag.js";
 import { slabType } from "./slabType-no-diag.js";
 import { boundaryAnchor, getAnchorsIn } from "./getAnchorsIn-no-diag.js";
-export async function moveSlabTopToBottom(current, workZone) {
+import { roomAhead } from "./scrollContainer-no-diag.js";
+export async function moveSlabTopToBottom(current, supplier) {
+    const { workZone } = supplier;
     const type = slabType(current);
     const slabTop = boundaryAnchor(current, "top");
 
@@ -15,12 +17,12 @@ export async function moveSlabTopToBottom(current, workZone) {
 
         return moveAnchorToBottom(
             slabTop,
-            workZone,
+            supplier,
             Infinity
         );
     }
 
-    let room = workZone.roomAheadOf(slabTop);
+    let room = roomAhead(slabTop, workZone);
 
     while (room < 0) {
         const anchors = getAnchorsIn(current, workZone);
@@ -31,16 +33,16 @@ export async function moveSlabTopToBottom(current, workZone) {
 
         await moveAnchorToBottom(
             anchor,
-            workZone
+            supplier
         );
-        room = workZone.roomAheadOf(slabTop);
+        room = roomAhead(slabTop, workZone);
     }
 
     await moveAnchorToBottom(
         slabTop,
-        workZone
+        supplier
     );
-    return workZone.roomAheadOf(slabTop);
+    return roomAhead(slabTop, workZone);
 }
 
 async function waitImageReady(current) {

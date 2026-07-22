@@ -6,22 +6,30 @@ import {
 } from "./constants.js";
 import { waitLayoutStable } from "./stabilize.js";
 import {
+    elementsIn,
+    isAtSupplyBoundary,
+    moveWorkZone,
+    roomAhead,
+    workZonePosition,
+    workZoneTop
+} from "./scrollContainer.js";
+import {
     beginJumpDiagnostics,
     beginOrContinueJumpDiagnostics,
     updateJumpDiagnostics,
     finishJumpDiagnostics,
     logSlowJumpDiagnosticsIfNeeded,
     logStabilizedJumpDiagnosticsIfNeeded,
-    recordCycleStageDiagnostics,
     selectCurrentJumpDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 
 export async function moveAnchorToBottom(
     anchor,
-    workZone,
+    supplier,
     calibratedJump = CALIBRATED_JUMP
 ) {
+    const { supplyArea, activeArea, workZone } = supplier;
     beginJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchor)
@@ -30,25 +38,22 @@ export async function moveAnchorToBottom(
     // At a hard scroll boundary there is no movement to prepare or perform.
     // Skip the movement helper before any movement-related await; its caller
     // continues slab/deck traversal (and, eventually, extraction).
-    if (workZone.isAtSupplyBoundary()) {
-        const room = workZone.roomAheadOf(anchor);
+    if (isAtSupplyBoundary(supplyArea, workZone)) {
+        const room = roomAhead(anchor, workZone);
         finishJumpDiagnostics({
             roomBefore: room,
             obtainedRoom: room,
-            scrollYAfter: workZone.position,
+            scrollYAfter: workZonePosition(supplyArea, workZone),
             status: "movement-impossible"
         });
         logSlowJumpDiagnosticsIfNeeded();
         return room;
     }
 
-    let room = workZone.roomAheadOf(anchor);
+    let room = roomAhead(anchor, workZone);
     let retriedErasedJump = false;
 
-    let anchorAtBottom = measuredAnchorBottomCheck(
-        workZone,
-        room
-    );
+    let anchorAtBottom = isAnchorAtBottom(workZone, room);
     if (anchorAtBottom) {
         finishJumpDiagnostics({
             roomBefore: room,
@@ -65,11 +70,11 @@ export async function moveAnchorToBottom(
             anchor: snapshotElementDiagnostics(anchor)
         });
 
-        if (workZone.isAtSupplyBoundary()) {
+        if (isAtSupplyBoundary(supplyArea, workZone)) {
             finishJumpDiagnostics({
                 roomBefore: room,
                 obtainedRoom: room,
-                scrollYAfter: workZone.position,
+                scrollYAfter: workZonePosition(supplyArea, workZone),
                 status: "movement-impossible"
             });
             logSlowJumpDiagnosticsIfNeeded();
@@ -77,7 +82,7 @@ export async function moveAnchorToBottom(
         }
 
         const jump = clampJump(calibratedJump, room, workZone);
-        const scrollYBefore = workZone.position;
+        const scrollYBefore = workZonePosition(supplyArea, workZone);
 
         beginOrContinueJumpDiagnostics({
             kind: "anchor-move",
@@ -87,16 +92,14 @@ export async function moveAnchorToBottom(
             scrollYBefore
         });
 
-        workZone.moveBy(jump);
+        moveWorkZone(jump, supplyArea, workZone);
 
-        const scrollYAfter = workZone.position;
-        const intendedRoom = workZone.roomAheadOf(anchor);
+        const scrollYAfter = workZonePosition(supplyArea, workZone);
 
         if (scrollYAfter === scrollYBefore) {
             finishJumpDiagnostics({
                 scrollYAfter,
-                intendedRoom,
-                obtainedRoom: workZone.roomAheadOf(anchor),
+                obtainedRoom: roomAhead(anchor, workZone),
                 status: "no-movement"
             });
             logSlowJumpDiagnosticsIfNeeded();
@@ -105,25 +108,27 @@ export async function moveAnchorToBottom(
 
         updateJumpDiagnostics({
             scrollYAfter,
-            intendedRoom,
             immediateAnchor: snapshotElementDiagnostics(anchor)
         });
 
         const roomUntilFirstNotReadyDeck =
-            measureRoomUntilFirstNotReadyDeck(workZone);
+            measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
         const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE
             ? 2
             : 1;
 
         updateJumpDiagnostics({ roomUntilFirstNotReadyDeck });
 
-        const postJumpStabilization = await waitLayoutStable(workZone, {
-            current: anchor,
-            stableFrames,
-            phase: "post-jump"
-        });
+        const postJumpStabilization = await waitLayoutStable(
+            supplyArea,
+            workZone,
+            {
+                current: anchor,
+                stableFrames
+            }
+        );
 
-        const obtainedRoom = workZone.roomAheadOf(anchor);
+        const obtainedRoom = roomAhead(anchor, workZone);
         finishJumpDiagnostics({
             postJumpStabilization,
             obtainedRoom,
@@ -152,32 +157,10 @@ export async function moveAnchorToBottom(
 
         retriedErasedJump = jumpWasErased;
         room = obtainedRoom;
-        anchorAtBottom = measuredAnchorBottomCheck(
-            workZone,
-            room
-        );
+        anchorAtBottom = isAnchorAtBottom(workZone, room);
     }
 
     return room;
-}
-
-function measuredAnchorBottomCheck(workZone, room) {
-    const startedAtDiagnostics = performance.now();
-    const startedWallAtDiagnostics = Date.now();
-    const viewportHeight = workZone.height;
-    const targetRoom = viewportHeight - MIN_INTERSECT;
-    //const atBottom = room >= targetRoom;
-    const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
-    recordCycleStageDiagnostics("anchor-bottom-check", {
-        elapsedMs: performance.now() - startedAtDiagnostics,
-        wallElapsedMs: Date.now() - startedWallAtDiagnostics,
-        room,
-        viewportHeight,
-        targetRoom,
-        toleratedRounding: TOLERATED_ROUNDING,
-        atBottom
-    });
-    return atBottom;
 }
 
 export function clampJump(calibratedJump, room, workZone) {
@@ -189,15 +172,14 @@ export function clampJump(calibratedJump, room, workZone) {
 
 export function isAnchorAtBottom(workZone, room) {
     const targetRoom = workZone.height - MIN_INTERSECT;
-    //return room >= targetRoom;
     return room >= targetRoom - TOLERATED_ROUNDING;
 }
 
-export function measureRoomUntilFirstNotReadyDeck(workZone) {
-    const viewportBoundary = workZone.top;
+export function measureRoomUntilFirstNotReadyDeck(activeArea, workZone) {
+    const viewportBoundary = workZoneTop(workZone);
     let roomUntilFirstNotReadyDeck = Infinity;
 
-    for (const deck of document.querySelectorAll(
+    for (const deck of elementsIn(activeArea,
         '[data-turn-id-container][data-is-intersecting="false"]'
     )) {
         const rect = deck.getBoundingClientRect();

@@ -12,7 +12,9 @@
  * ancestor. Falls back to document.documentElement if nothing
  * suitable is found.
  */
-export function findScrollContainer() {
+const containers = new WeakMap();
+
+function findScrollContainer() {
 
     const messageEl = document.querySelector("[data-message-author-role]");
 
@@ -38,72 +40,119 @@ export function findScrollContainer() {
     return document.documentElement;
 }
 
-export function findSupplyArea() {
-    return createSupplyArea(findScrollContainer());
+export function observeSupplier() {
+    return createSupplier(findScrollContainer());
 }
 
-export function createSupplyArea(container) {
+export function createSupplier(container) {
+    const supplyArea = {};
+    const activeArea = {};
     const workZone = {
         get height() {
             return clientHeight(container);
-        },
-        get top() {
-            return container === document.documentElement
-                ? 0
-                : container.getBoundingClientRect().top;
-        },
-        get position() {
-            return scrollY(container);
-        },
-        get supplyHeight() {
-            return scrollHeight(container);
-        },
-        roomAheadOf(anchor) {
-            const rect = anchor.element.getBoundingClientRect();
-            return rect[anchor.edge] - this.top;
-        },
-        moveBy(distance) {
-            scrollBy(container, -distance);
-        },
-        moveToSupplyEnd() {
-            scrollTo(container, scrollHeight(container));
-        },
-        isAtSupplyBoundary() {
-            return scrollY(container) <= 0;
         }
     };
 
-    return { workZone };
+    containers.set(supplyArea, container);
+    containers.set(activeArea, container);
+    containers.set(workZone, container);
+
+    return { supplyArea, activeArea, workZone };
 }
 
-export function scrollY(container) {
+export function roomAhead(anchor, workZone) {
+    return boundaryPosition(anchor) - workZoneTop(workZone);
+}
+
+export function viewportPosition(anchor, workZone) {
+    return boundaryPosition(anchor) - workZoneTop(workZone);
+}
+
+export function workZonePosition(supplyArea, workZone) {
+    const container = commonContainer(supplyArea, workZone);
+    return scrollY(container);
+}
+
+export function supplyHeight(supplyArea) {
+    return scrollHeight(containerFor(supplyArea));
+}
+
+export function moveWorkZone(distance, supplyArea, workZone) {
+    const container = commonContainer(supplyArea, workZone);
+    scrollBy(container, -distance);
+}
+
+export function moveWorkZoneToSupplyEnd(supplyArea, workZone) {
+    const container = commonContainer(supplyArea, workZone);
+    scrollTo(container, scrollHeight(container));
+}
+
+export function isAtSupplyBoundary(supplyArea, workZone) {
+    return workZonePosition(supplyArea, workZone) <= 0;
+}
+
+export function elementsIn(area, selector) {
+    return containerFor(area).querySelectorAll(selector);
+}
+
+export function contains(area, element) {
+    return containerFor(area).contains(element);
+}
+
+export function workZoneTop(workZone) {
+    const container = containerFor(workZone);
+    return container === document.documentElement
+        ? 0
+        : container.getBoundingClientRect().top;
+}
+
+function boundaryPosition(anchor) {
+    const rect = anchor.element.getBoundingClientRect();
+    return rect[anchor.edge];
+}
+
+function commonContainer(first, second) {
+    const container = containerFor(first);
+    if (container !== containerFor(second)) {
+        throw new Error("Supplier areas belong to different environments.");
+    }
+    return container;
+}
+
+function containerFor(area) {
+    const container = containers.get(area);
+    if (!container) throw new Error("Unknown Supplier area.");
+    return container;
+}
+
+function scrollY(container) {
 
     return container === document.documentElement
         ? window.scrollY
         : container.scrollTop;
 }
 
-export function scrollHeight(container) {
+function scrollHeight(container) {
 
     return container === document.documentElement
         ? document.body.scrollHeight
         : container.scrollHeight;
 }
 
-export function clientHeight(container) {
+function clientHeight(container) {
 
     return container === document.documentElement
         ? document.documentElement.clientHeight
         : container.clientHeight;
 }
 
-export function scrollBy(container, top) {
+function scrollBy(container, top) {
 
     const target = container === document.documentElement ? window : container;
     target.scrollBy({ top, behavior: "instant" });
 }
 
-export function scrollTo(container, top) {
+function scrollTo(container, top) {
 
     const target = container === document.documentElement ? window : container;
     target.scrollTo({ top, behavior: "instant" });
