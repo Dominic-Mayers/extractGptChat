@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.83-no-diag
+// @version      1.84-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -15,28 +15,6 @@
       bottom: referenceTop
     };
   }
-  function intersecting(area, elements) {
-    return elements.filter((element) => {
-      const rect = element.getBoundingClientRect();
-      return rect.bottom >= area.top && rect.top <= area.bottom;
-    });
-  }
-  function closest(referenceTop, candidates, tolerance = 0) {
-    let closest2 = null;
-    let smallestGap = Infinity;
-    for (const candidate of candidates) {
-      const rect = candidate.getBoundingClientRect();
-      const gap = referenceTop - rect.bottom;
-      if (gap < -tolerance) {
-        continue;
-      }
-      if (gap < smallestGap) {
-        smallestGap = gap;
-        closest2 = candidate;
-      }
-    }
-    return closest2;
-  }
 
   // src/dev/constants-no-diag.js
   var MINIMUM_SLAB_HEIGHT = 90;
@@ -49,61 +27,6 @@
   var MIN_SCROLL_HEIGHT_CHANGE = 20;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 3e3;
-
-  // src/dev/nextSlab-no-diag.js
-  function nextSlab(room, deck) {
-    const area = areaAhead(
-      room,
-      MAX_SLAB_GAP
-    );
-    const slabs = getSlabsIn(deck);
-    const candidates = intersecting(
-      area,
-      slabs
-    );
-    const slab = closest(
-      room,
-      candidates,
-      ADJACENCY_OVERLAP_TOLERANCE
-    );
-    return slab;
-  }
-  function getSlabsIn(deck) {
-    const slabs = [];
-    for (const message of deck.querySelectorAll("[data-message-id]")) {
-      slabs.push(message);
-    }
-    for (const image of deck.querySelectorAll(".group\\/imagegen-image")) {
-      slabs.push(image);
-    }
-    for (const canvas of deck.querySelectorAll('[id^="textdoc-message-"]')) {
-      slabs.push(canvas);
-    }
-    if (slabs.length === 0) {
-      slabs.push(makeEmptySlab(deck));
-    }
-    slabs.sort((a, b) => {
-      const ra = a.getBoundingClientRect();
-      const rb = b.getBoundingClientRect();
-      return rb.bottom - ra.bottom;
-    });
-    return slabs;
-  }
-  function makeEmptySlab(deck) {
-    return {
-      getBoundingClientRect() {
-        const rect = deck.getBoundingClientRect();
-        return {
-          top: rect.top,
-          bottom: rect.top,
-          left: rect.left,
-          right: rect.right,
-          width: rect.width,
-          height: 0
-        };
-      }
-    };
-  }
 
   // src/dev/scrollContainer-no-diag.js
   var containers = /* @__PURE__ */ new WeakMap();
@@ -205,34 +128,74 @@
     target.scrollTo({ top, behavior: "instant" });
   }
 
-  // src/dev/nextActiveDeck-no-diag.js
-  async function nextActiveDeck(deckRoom, currentDeck, supplier) {
+  // src/dev/boundary-no-diag.js
+  function boundaryOf(element, edge) {
+    return { element, edge };
+  }
+
+  // src/dev/getNextDeckIn-no-diag.js
+  async function getNextDeckIn(deckRoom, supplier) {
     const { supplyArea, activeArea } = supplier;
+    const { workZone } = supplier;
     const area = areaAhead(
       deckRoom,
       MAX_DECK_GAP
     );
     const decks = getDecks(supplyArea);
-    const candidates = intersecting(
-      area,
-      decks
-    ).filter((candidate) => candidate !== currentDeck);
-    const deck = closest(
-      deckRoom,
-      candidates,
-      ADJACENCY_OVERLAP_TOLERANCE
-    );
+    const candidates = decks.filter((candidate) => {
+      const geometry2 = deckGeometry(candidate, workZone);
+      const intersects = geometry2.bottomRoom >= area.top && geometry2.room <= area.bottom;
+      return intersects;
+    });
+    const deck = closestDeck(deckRoom, candidates, workZone);
     if (deck == null) {
       return null;
     }
     await waitDeckActive(deck, activeArea);
-    return deck;
+    const geometry = deckGeometry(deck, workZone);
+    return {
+      deckRoom: geometry.room,
+      deckHeight: geometry.height
+    };
+  }
+  function getDeckIn(deckRoom, supplier) {
+    const { supplyArea, workZone } = supplier;
+    let selected = null;
+    let smallestRoomDifference = Infinity;
+    for (const deck of getDecks(supplyArea)) {
+      const geometry = deckGeometry(deck, workZone);
+      const roomDifference = Math.abs(geometry.room - deckRoom);
+      if (roomDifference >= smallestRoomDifference) continue;
+      selected = deck;
+      smallestRoomDifference = roomDifference;
+    }
+    return selected;
+  }
+  function closestDeck(referenceRoom, candidates, workZone) {
+    let selected = null;
+    let smallestGap = Infinity;
+    for (const candidate of candidates) {
+      const gap = referenceRoom - deckGeometry(candidate, workZone).bottomRoom;
+      if (gap < -ADJACENCY_OVERLAP_TOLERANCE) continue;
+      if (gap >= smallestGap) continue;
+      smallestGap = gap;
+      selected = candidate;
+    }
+    return selected;
+  }
+  function deckGeometry(deck, workZone) {
+    const rect = deck.getBoundingClientRect();
+    return {
+      room: roomAhead(boundaryOf(deck, "top"), workZone),
+      bottomRoom: roomAhead(boundaryOf(deck, "bottom"), workZone),
+      height: rect.height
+    };
   }
   function getDecks(supplyArea) {
     const byId = /* @__PURE__ */ new Map();
     for (const el of elementsIn(supplyArea, "[data-turn-id-container]")) {
       const rect = el.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) continue;
+      if (rect.height === 0) continue;
       const id = el.getAttribute("data-turn-id-container");
       const existing = byId.get(id);
       if (!existing || el.contains(existing)) {
@@ -271,6 +234,100 @@
         (resolve) => setTimeout(resolve, poll)
       );
     }
+  }
+
+  // src/dev/getNextSlabIn-no-diag.js
+  function getNextSlabIn(slabRoom, deckRoom, supplier) {
+    const { workZone } = supplier;
+    const deck = getDeckIn(deckRoom, supplier);
+    if (!deck) throw new Error("No deck found at the current geometry.");
+    const area = areaAhead(
+      slabRoom,
+      MAX_SLAB_GAP
+    );
+    const slabs = getSlabsIn(deck);
+    const candidates = slabs.filter((candidate) => {
+      const geometry2 = slabGeometry(candidate, workZone);
+      return geometry2.bottomRoom >= area.top && geometry2.room <= area.bottom;
+    });
+    const slab = closestSlab(slabRoom, candidates, workZone);
+    if (slab == null) return null;
+    const geometry = slabGeometry(slab, workZone);
+    return {
+      slabRoom: geometry.room,
+      slabHeight: geometry.height
+    };
+  }
+  function getSlabIn(slabRoom, deckRoom, supplier) {
+    const { workZone } = supplier;
+    const deck = getDeckIn(deckRoom, supplier);
+    if (!deck) return null;
+    let selected = null;
+    let smallestRoomDifference = Infinity;
+    for (const slab of getSlabsIn(deck)) {
+      const geometry = slabGeometry(slab, workZone);
+      const roomDifference = Math.abs(geometry.room - slabRoom);
+      if (roomDifference >= smallestRoomDifference) continue;
+      selected = slab;
+      smallestRoomDifference = roomDifference;
+    }
+    return selected;
+  }
+  function closestSlab(referenceRoom, candidates, workZone) {
+    let selected = null;
+    let smallestGap = Infinity;
+    for (const candidate of candidates) {
+      const gap = referenceRoom - slabGeometry(candidate, workZone).bottomRoom;
+      if (gap < -ADJACENCY_OVERLAP_TOLERANCE) continue;
+      if (gap >= smallestGap) continue;
+      smallestGap = gap;
+      selected = candidate;
+    }
+    return selected;
+  }
+  function slabGeometry(slab, workZone) {
+    const rect = slab.getBoundingClientRect();
+    return {
+      room: roomAhead(boundaryOf(slab, "top"), workZone),
+      bottomRoom: roomAhead(boundaryOf(slab, "bottom"), workZone),
+      height: rect.height
+    };
+  }
+  function getSlabsIn(deck) {
+    const slabs = [];
+    for (const message of deck.querySelectorAll("[data-message-id]")) {
+      slabs.push(message);
+    }
+    for (const image of deck.querySelectorAll(".group\\/imagegen-image")) {
+      slabs.push(image);
+    }
+    for (const canvas of deck.querySelectorAll('[id^="textdoc-message-"]')) {
+      slabs.push(canvas);
+    }
+    if (slabs.length === 0) {
+      slabs.push(makeEmptySlab(deck));
+    }
+    slabs.sort((a, b) => {
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      return rb.bottom - ra.bottom;
+    });
+    return slabs;
+  }
+  function makeEmptySlab(deck) {
+    return {
+      getBoundingClientRect() {
+        const rect = deck.getBoundingClientRect();
+        return {
+          top: rect.top,
+          bottom: rect.top,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: 0
+        };
+      }
+    };
   }
 
   // src/dev/stabilize-no-diag.js
@@ -444,7 +501,7 @@
     return "unknown";
   }
 
-  // src/dev/getAnchorsIn-no-diag.js
+  // src/dev/getNextAnchorIn-no-diag.js
   var TEXT_ANCHOR_SELECTOR = [
     "p",
     "h1",
@@ -460,17 +517,24 @@
     "td",
     "th"
   ].join(",");
-  function getAnchorIn(slab, workZone) {
+  function getNextAnchorIn(slabRoom, deckRoom, supplier) {
+    const { workZone } = supplier;
+    const slab = getSlabIn(
+      slabRoom,
+      deckRoom,
+      supplier
+    );
+    if (!slab) throw new Error("No slab found at the current geometry.");
     const type = slabType(slab);
     if (type === "image" || type === "empty") {
-      return boundaryAnchor(slab, "top");
+      return boundaryOf(slab, "top");
     }
     if (type === "message" || type === "canvas") {
-      return getTextAnchorIn(slab, workZone);
+      return getNextTextAnchorIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
   }
-  function getTextAnchorIn(slab, workZone) {
+  function getNextTextAnchorIn(slab, workZone) {
     const viewportTop = workZoneTop(workZone);
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
@@ -498,7 +562,7 @@
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
       const rect = candidate.getBoundingClientRect();
-      const anchor = boundaryAnchor(candidate, "top");
+      const anchor = boundaryOf(candidate, "top");
       const topRoom = roomAhead(anchor, workZone);
       const bottomRoom = rect.bottom - viewportTop;
       if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
@@ -515,7 +579,7 @@
     const anchors = [];
     for (const element of elements) {
       for (const edge of ["top", "bottom"]) {
-        const anchor = boundaryAnchor(element, edge);
+        const anchor = boundaryOf(element, edge);
         const room = roomAhead(anchor, workZone);
         if (room >= 0 && room < targetRoom - MAX_DRIFT) {
           anchors.push(anchor);
@@ -529,32 +593,40 @@
       return a.edge === "bottom" ? -1 : 1;
     });
   }
-  function boundaryAnchor(element, edge) {
-    return {
-      element,
-      edge
-    };
-  }
 
   // src/dev/moveSlabTopToBottom-no-diag.js
-  async function moveSlabTopToBottom(current, supplier) {
+  async function moveSlabTopToBottom(state, supplier) {
     const { workZone } = supplier;
-    const type = slabType(current);
-    const slabTop = boundaryAnchor(current, "top");
+    const slab = getSlabIn(
+      state.slabRoom,
+      state.deckRoom,
+      supplier
+    );
+    const deck = getDeckIn(state.deckRoom, supplier);
+    if (!slab) throw new Error("No slab found at the current geometry.");
+    if (!deck) throw new Error("No deck found at the current geometry.");
+    const type = slabType(slab);
+    const slabTop = boundaryOf(slab, "top");
     if (type === "unknown") {
       throw new Error("Cannot move an unknown slab type.");
     }
     if (type === "image" || type === "empty") {
-      await waitImageReady(current);
-      return moveAnchorToBottom(
+      await waitImageReady(slab);
+      await moveAnchorToBottom(
         slabTop,
         supplier,
         Infinity
       );
+      return geometryOf(slab, deck, workZone);
     }
     let room = roomAhead(slabTop, workZone);
     while (room < 0) {
-      const anchor = getAnchorIn(current, workZone);
+      const geometry = geometryOf(slab, deck, workZone);
+      const anchor = getNextAnchorIn(
+        geometry.slabRoom,
+        geometry.deckRoom,
+        supplier
+      );
       if (!anchor) {
         throw new Error("No ready visible anchor found in current slab.");
       }
@@ -568,10 +640,18 @@
       slabTop,
       supplier
     );
-    return roomAhead(slabTop, workZone);
+    return geometryOf(slab, deck, workZone);
   }
-  async function waitImageReady(current) {
-    const images = current.matches?.("img") ? [current] : current.querySelectorAll ? [...current.querySelectorAll("img")] : [];
+  function geometryOf(slab, deck, workZone) {
+    return {
+      slabRoom: roomAhead(boundaryOf(slab, "top"), workZone),
+      slabHeight: slab.getBoundingClientRect().height,
+      deckRoom: roomAhead(boundaryOf(deck, "top"), workZone),
+      deckHeight: deck.getBoundingClientRect().height
+    };
+  }
+  async function waitImageReady(slab) {
+    const images = slab.matches?.("img") ? [slab] : slab.querySelectorAll ? [...slab.querySelectorAll("img")] : [];
     for (const image of images) {
       if (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
         await new Promise((resolve, reject) => {
@@ -591,7 +671,7 @@
     moveWorkZoneToSupplyEnd(supplyArea, workZone);
     await waitLayoutStable(supplyArea, workZone);
     const decks = getDecks(supplyArea);
-    const boundary = decks.length > 0 ? roomAhead(boundaryAnchor(decks[0], "bottom"), workZone) : workZone.height;
+    const boundary = decks.length > 0 ? roomAhead(boundaryOf(decks[0], "bottom"), workZone) : workZone.height;
     return {
       room: boundary,
       deckRoom: boundary
@@ -621,38 +701,50 @@
       const supplier = observeSupplier();
       const { workZone } = supplier;
       const initial = await moveViewportToDocumentBottom(supplier);
-      let room = initial.room;
+      let slabRoom = initial.room;
+      let slabHeight = null;
       let deckRoom = initial.deckRoom;
-      let deck = null;
-      let current = null;
+      let deckHeight = null;
       while (true) {
-        if (current && room < MAX_SLAB_GAP) {
-          room = await moveSlabTopToBottom(current, supplier);
+        if (slabHeight != null && slabRoom < MAX_SLAB_GAP) {
+          ({
+            slabRoom,
+            slabHeight,
+            deckRoom,
+            deckHeight
+          } = await moveSlabTopToBottom({
+            slabRoom,
+            slabHeight,
+            deckRoom,
+            deckHeight
+          }, supplier));
         }
-        if (deck) {
-          deckRoom = roomAhead(
-            boundaryAnchor(deck, "top"),
-            workZone
+        let nextSlabGeometry = deckHeight != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? getNextSlabIn(
+          slabRoom,
+          deckRoom,
+          supplier
+        ) : null;
+        if (nextSlabGeometry == null) {
+          const nextDeckGeometry = await getNextDeckIn(
+            deckRoom,
+            supplier
           );
-        }
-        let slab = deck && room - deckRoom >= MINIMUM_SLAB_HEIGHT ? nextSlab(room, deck) : null;
-        if (slab == null) {
-          deck = await nextActiveDeck(deckRoom, deck, supplier);
-          if (deck == null) {
+          if (nextDeckGeometry == null) {
             break;
           }
-          deckRoom = roomAhead(
-            boundaryAnchor(deck, "top"),
-            workZone
+          deckRoom = nextDeckGeometry.deckRoom;
+          deckHeight = nextDeckGeometry.deckHeight;
+          nextSlabGeometry = getNextSlabIn(
+            slabRoom,
+            deckRoom,
+            supplier
           );
-          slab = nextSlab(room, deck);
-          if (!slab) throw new Error("No slab found in active deck.");
+          if (!nextSlabGeometry) {
+            throw new Error("No slab found in active deck.");
+          }
         }
-        current = slab;
-        room = roomAhead(
-          boundaryAnchor(current, "top"),
-          workZone
-        );
+        slabRoom = nextSlabGeometry.slabRoom;
+        slabHeight = nextSlabGeometry.slabHeight;
       }
     } catch (error) {
       throw error;
@@ -660,7 +752,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.83-no-diag" : "unbuilt";
+  var VERSION = true ? "1.84-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

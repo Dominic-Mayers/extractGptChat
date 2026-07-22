@@ -1,17 +1,28 @@
 import { moveAnchorToBottom } from "./moveAnchorToBottom.js";
 import { slabType } from "./slabType.js";
-import { boundaryAnchor, getAnchorIn } from "./getAnchorsIn.js";
+import { getNextAnchorIn } from "./getNextAnchorIn.js";
+import { boundaryOf } from "./boundary.js";
 import { roomAhead } from "./scrollContainer.js";
+import { getSlabIn } from "./getNextSlabIn.js";
+import { getDeckIn } from "./getNextDeckIn.js";
 import {
     beginPendingAwaitDiagnostics,
     finishPendingAwaitDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 
-export async function moveSlabTopToBottom(current, supplier) {
+export async function moveSlabTopToBottom(state, supplier) {
     const { workZone } = supplier;
-    const type = slabType(current);
-    const slabTop = boundaryAnchor(current, "top");
+    const slab = getSlabIn(
+        state.slabRoom,
+        state.deckRoom,
+        supplier
+    );
+    const deck = getDeckIn(state.deckRoom, supplier);
+    if (!slab) throw new Error("No slab found at the current geometry.");
+    if (!deck) throw new Error("No deck found at the current geometry.");
+    const type = slabType(slab);
+    const slabTop = boundaryOf(slab, "top");
 
     if (type === "unknown") {
         throw new Error("Cannot move an unknown slab type.");
@@ -19,25 +30,31 @@ export async function moveSlabTopToBottom(current, supplier) {
 
     if (type === "image" || type === "empty") {
         beginPendingAwaitDiagnostics("image-readiness", {
-            slab: snapshotElementDiagnostics(current),
+            slab: snapshotElementDiagnostics(slab),
             type
         });
-        await waitImageReady(current);
+        await waitImageReady(slab);
         finishPendingAwaitDiagnostics({
-            slab: snapshotElementDiagnostics(current),
+            slab: snapshotElementDiagnostics(slab),
             type
         });
-        return moveAnchorToBottom(
+        await moveAnchorToBottom(
             slabTop,
             supplier,
             Infinity
         );
+        return geometryOf(slab, deck, workZone);
     }
 
     let room = roomAhead(slabTop, workZone);
 
     while (room < 0) {
-        const anchor = getAnchorIn(current, workZone);
+        const geometry = geometryOf(slab, deck, workZone);
+        const anchor = getNextAnchorIn(
+            geometry.slabRoom,
+            geometry.deckRoom,
+            supplier
+        );
         if (!anchor) {
             throw new Error("No ready visible anchor found in current slab.");
         }
@@ -53,14 +70,23 @@ export async function moveSlabTopToBottom(current, supplier) {
         slabTop,
         supplier
     );
-    return roomAhead(slabTop, workZone);
+    return geometryOf(slab, deck, workZone);
 }
 
-async function waitImageReady(current) {
-    const images = current.matches?.("img")
-        ? [current]
-        : current.querySelectorAll
-            ? [...current.querySelectorAll("img")]
+function geometryOf(slab, deck, workZone) {
+    return {
+        slabRoom: roomAhead(boundaryOf(slab, "top"), workZone),
+        slabHeight: slab.getBoundingClientRect().height,
+        deckRoom: roomAhead(boundaryOf(deck, "top"), workZone),
+        deckHeight: deck.getBoundingClientRect().height
+    };
+}
+
+async function waitImageReady(slab) {
+    const images = slab.matches?.("img")
+        ? [slab]
+        : slab.querySelectorAll
+            ? [...slab.querySelectorAll("img")]
             : [];
 
     for (const image of images) {

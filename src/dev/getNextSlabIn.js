@@ -1,10 +1,6 @@
-// nextSlab.js
+// getNextSlabIn.js
 
-import {
-    areaAhead,
-    intersecting,
-    closest
-} from "./geometry.js";
+import { areaAhead } from "./geometry.js";
 import {
    MAX_SLAB_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
@@ -13,6 +9,9 @@ import {
     recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
+import { roomAhead } from "./scrollContainer.js";
+import { boundaryOf } from "./boundary.js";
+import { getDeckIn } from "./getNextDeckIn.js";
 
 
 /**
@@ -21,35 +20,89 @@ import {
  *
  * room is the top coordinate of the current slab.
  */
-export function nextSlab(room, deck) {
+export function getNextSlabIn(
+    slabRoom,
+    deckRoom,
+    supplier
+) {
+    const { workZone } = supplier;
+    const deck = getDeckIn(deckRoom, supplier);
+    if (!deck) throw new Error("No deck found at the current geometry.");
 
     const area = areaAhead(
-        room,
+        slabRoom,
         MAX_SLAB_GAP
     );
 
     const slabs = getSlabsIn(deck);
 
-    const candidates = intersecting(
-        area,
-        slabs
-    );
+    const candidates = slabs.filter(candidate => {
+        const geometry = slabGeometry(candidate, workZone);
+        return geometry.bottomRoom >= area.top && geometry.room <= area.bottom;
+    });
 
-    const slab = closest(
-        room,
-        candidates,
-        ADJACENCY_OVERLAP_TOLERANCE
-    );
+    const slab = closestSlab(slabRoom, candidates, workZone);
 
     recordCycleStageDiagnostics("slab-search", {
-        room,
+        room: slabRoom,
         area,
         slabCount: slabs.length,
         candidates: candidates.map(snapshotElementDiagnostics),
         selected: snapshotElementDiagnostics(slab)
     });
 
-    return slab;
+    if (slab == null) return null;
+    const geometry = slabGeometry(slab, workZone);
+    return {
+        slabRoom: geometry.room,
+        slabHeight: geometry.height
+    };
+}
+
+export function getSlabIn(
+    slabRoom,
+    deckRoom,
+    supplier
+) {
+    const { workZone } = supplier;
+    const deck = getDeckIn(deckRoom, supplier);
+    if (!deck) return null;
+    let selected = null;
+    let smallestRoomDifference = Infinity;
+
+    for (const slab of getSlabsIn(deck)) {
+        const geometry = slabGeometry(slab, workZone);
+        const roomDifference = Math.abs(geometry.room - slabRoom);
+        if (roomDifference >= smallestRoomDifference) continue;
+        selected = slab;
+        smallestRoomDifference = roomDifference;
+    }
+
+    return selected;
+}
+
+function closestSlab(referenceRoom, candidates, workZone) {
+    let selected = null;
+    let smallestGap = Infinity;
+
+    for (const candidate of candidates) {
+        const gap = referenceRoom - slabGeometry(candidate, workZone).bottomRoom;
+        if (gap < -ADJACENCY_OVERLAP_TOLERANCE) continue;
+        if (gap >= smallestGap) continue;
+        smallestGap = gap;
+        selected = candidate;
+    }
+
+    return selected;
+}
+
+function slabGeometry(slab, workZone) {
+    const rect = slab.getBoundingClientRect();
+    return {
+        room: roomAhead(boundaryOf(slab, "top"), workZone),
+        bottomRoom: roomAhead(boundaryOf(slab, "bottom"), workZone),
+        height: rect.height
+    };
 }
 
 

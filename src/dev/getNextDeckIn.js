@@ -1,10 +1,6 @@
-// nextActiveDeck.js
+// getNextDeckIn.js
 
-import {
-    areaAhead,
-    intersecting,
-    closest
-} from "./geometry.js";
+import { areaAhead } from "./geometry.js";
 import {
    MAX_DECK_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
@@ -15,7 +11,12 @@ import {
     recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
-import { contains, elementsIn } from "./scrollContainer.js";
+import {
+    contains,
+    elementsIn,
+    roomAhead
+} from "./scrollContainer.js";
+import { boundaryOf } from "./boundary.js";
 
 /**
  * Return the next active deck above the current one.
@@ -25,8 +26,9 @@ import { contains, elementsIn } from "./scrollContainer.js";
  * the deck-level counterpart of the slab-level room in
  * moveSlabTopToBottom.js's measureRoom().
  */
-export async function nextActiveDeck(deckRoom, currentDeck, supplier) {
+export async function getNextDeckIn(deckRoom, supplier) {
     const { supplyArea, activeArea } = supplier;
+    const { workZone } = supplier;
 
     const area = areaAhead(
         deckRoom,
@@ -35,16 +37,14 @@ export async function nextActiveDeck(deckRoom, currentDeck, supplier) {
 
     const decks = getDecks(supplyArea);
 
-    const candidates = intersecting(
-        area,
-        decks
-    ).filter(candidate => candidate !== currentDeck);
+    const candidates = decks.filter(candidate => {
+        const geometry = deckGeometry(candidate, workZone);
+        const intersects = geometry.bottomRoom >= area.top &&
+            geometry.room <= area.bottom;
+        return intersects;
+    });
 
-    const deck = closest(
-        deckRoom,
-        candidates,
-        ADJACENCY_OVERLAP_TOLERANCE
-    );
+    const deck = closestDeck(deckRoom, candidates, workZone);
 
     recordCycleStageDiagnostics("deck-search", {
         deckRoom,
@@ -53,7 +53,6 @@ export async function nextActiveDeck(deckRoom, currentDeck, supplier) {
         first: snapshotElementDiagnostics(decks[0]),
         last: snapshotElementDiagnostics(decks[decks.length - 1]),
         candidates: candidates.map(snapshotElementDiagnostics),
-        excludedCurrent: snapshotElementDiagnostics(currentDeck),
         selected: snapshotElementDiagnostics(deck),
         activation: deck?.getAttribute("data-is-intersecting") ?? null
     });
@@ -81,7 +80,51 @@ export async function nextActiveDeck(deckRoom, currentDeck, supplier) {
         activation: deck.getAttribute("data-is-intersecting")
     });
 
-    return deck;
+    const geometry = deckGeometry(deck, workZone);
+    return {
+        deckRoom: geometry.room,
+        deckHeight: geometry.height
+    };
+}
+
+export function getDeckIn(deckRoom, supplier) {
+    const { supplyArea, workZone } = supplier;
+    let selected = null;
+    let smallestRoomDifference = Infinity;
+
+    for (const deck of getDecks(supplyArea)) {
+        const geometry = deckGeometry(deck, workZone);
+        const roomDifference = Math.abs(geometry.room - deckRoom);
+        if (roomDifference >= smallestRoomDifference) continue;
+        selected = deck;
+        smallestRoomDifference = roomDifference;
+    }
+
+    return selected;
+}
+
+function closestDeck(referenceRoom, candidates, workZone) {
+    let selected = null;
+    let smallestGap = Infinity;
+
+    for (const candidate of candidates) {
+        const gap = referenceRoom - deckGeometry(candidate, workZone).bottomRoom;
+        if (gap < -ADJACENCY_OVERLAP_TOLERANCE) continue;
+        if (gap >= smallestGap) continue;
+        smallestGap = gap;
+        selected = candidate;
+    }
+
+    return selected;
+}
+
+function deckGeometry(deck, workZone) {
+    const rect = deck.getBoundingClientRect();
+    return {
+        room: roomAhead(boundaryOf(deck, "top"), workZone),
+        bottomRoom: roomAhead(boundaryOf(deck, "bottom"), workZone),
+        height: rect.height
+    };
 }
 
 
@@ -100,7 +143,7 @@ export function getDecks(supplyArea) {
 
         const rect = el.getBoundingClientRect();
 
-        if (rect.width === 0 && rect.height === 0) continue;
+        if (rect.height === 0) continue;
 
         const id = el.getAttribute("data-turn-id-container");
         const existing = byId.get(id);

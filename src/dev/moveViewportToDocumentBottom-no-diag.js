@@ -5,8 +5,8 @@
 // ASSUMPTIONS.md A9.
 
 import { waitLayoutStable } from "./stabilize-no-diag.js";
-import { getDecks } from "./nextActiveDeck-no-diag.js";
-import { boundaryAnchor } from "./getAnchorsIn-no-diag.js";
+import { getDecks } from "./getNextDeckIn-no-diag.js";
+import { boundaryOf } from "./boundary-no-diag.js";
 import {
     moveWorkZoneToSupplyEnd,
     roomAhead
@@ -36,7 +36,7 @@ export async function moveViewportToDocumentBottom(supplier) {
     const decks = getDecks(supplyArea);
 
     const boundary = decks.length > 0
-        ? roomAhead(boundaryAnchor(decks[0], "bottom"), workZone)
+        ? roomAhead(boundaryOf(decks[0], "bottom"), workZone)
         : workZone.height;
 
     return {

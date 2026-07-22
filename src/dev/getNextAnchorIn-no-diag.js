@@ -1,6 +1,8 @@
-import { MIN_INTERSECT, MAX_DRIFT } from "./constants.js";
-import { slabType } from "./slabType.js";
-import { roomAhead, workZoneTop } from "./scrollContainer.js";
+import { MIN_INTERSECT, MAX_DRIFT } from "./constants-no-diag.js";
+import { slabType } from "./slabType-no-diag.js";
+import { roomAhead, workZoneTop } from "./scrollContainer-no-diag.js";
+import { getSlabIn } from "./getNextSlabIn-no-diag.js";
+import { boundaryOf } from "./boundary-no-diag.js";
 
 const TEXT_ANCHOR_SELECTOR = [
     "p",
@@ -18,22 +20,30 @@ const TEXT_ANCHOR_SELECTOR = [
     "th"
 ].join(",");
 
-export function getAnchorIn(
-    slab,
-    workZone
+export function getNextAnchorIn(
+    slabRoom,
+    deckRoom,
+    supplier
 ) {
+    const { workZone } = supplier;
+    const slab = getSlabIn(
+        slabRoom,
+        deckRoom,
+        supplier
+    );
+    if (!slab) throw new Error("No slab found at the current geometry.");
     const type = slabType(slab);
 
     if (type === "image" || type === "empty") {
-        return boundaryAnchor(slab, "top");
+        return boundaryOf(slab, "top");
     }
     if (type === "message" || type === "canvas") {
-        return getTextAnchorIn(slab, workZone);
+        return getNextTextAnchorIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
 }
 
-function getTextAnchorIn(slab, workZone) {
+function getNextTextAnchorIn(slab, workZone) {
     const viewportTop = workZoneTop(workZone);
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
@@ -60,21 +70,18 @@ function getTextAnchorIn(slab, workZone) {
         workZone
     );
     if (slabAnchors.length > 0) {
-        recordSlabFallbackDiagnostics(slabAnchors);
+
         return slabAnchors[0];
     }
 
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
         const rect = candidate.getBoundingClientRect();
-        const anchor = boundaryAnchor(candidate, "top");
+        const anchor = boundaryOf(candidate, "top");
         const topRoom = roomAhead(anchor, workZone);
         const bottomRoom = rect.bottom - viewportTop;
         if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
-            recordNegativeAnchorDiagnostics(
-                anchor,
-                "covers-viewport-work-zone"
-            );
+
             coveringAnchors.push(anchor);
         }
     }
@@ -94,7 +101,7 @@ function normalBoundaryAnchors(
     const anchors = [];
     for (const element of elements) {
         for (const edge of ["top", "bottom"]) {
-            const anchor = boundaryAnchor(element, edge);
+            const anchor = boundaryOf(element, edge);
             const room = roomAhead(anchor, workZone);
             if (room >= 0 && room < targetRoom - MAX_DRIFT) {
                 anchors.push(anchor);
@@ -108,23 +115,4 @@ function normalBoundaryAnchors(
         if (aRoom !== bRoom) return aRoom - bRoom;
         return a.edge === "bottom" ? -1 : 1;
     });
-}
-
-export function boundaryAnchor(element, edge) {
-    return {
-        element,
-        edge
-    };
-}
-
-function recordNegativeAnchorDiagnostics(anchor, acceptanceReason) {
-    anchor.acceptedNegative = true;
-    anchor.acceptanceReason = acceptanceReason;
-    anchor.fallbackKind = "negative-covering-anchor";
-}
-
-function recordSlabFallbackDiagnostics(anchors) {
-    for (const anchor of anchors) {
-        anchor.fallbackKind = "slab-boundary";
-    }
 }
