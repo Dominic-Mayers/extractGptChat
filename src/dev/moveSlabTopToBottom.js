@@ -1,6 +1,6 @@
 import { moveAnchorToBottom } from "./moveAnchorToBottom.js";
 import { slabType } from "./slabType.js";
-import { boundaryAnchor, getAnchorsIn } from "./getAnchorsIn.js";
+import { boundaryAnchor, getAnchorIn } from "./getAnchorsIn.js";
 import { roomAhead } from "./scrollContainer.js";
 import {
     beginPendingAwaitDiagnostics,
@@ -37,8 +37,7 @@ export async function moveSlabTopToBottom(current, supplier) {
     let room = roomAhead(slabTop, workZone);
 
     while (room < 0) {
-        const anchors = getAnchorsIn(current, workZone);
-        const anchor = anchors[0];
+        const anchor = getAnchorIn(current, workZone);
         if (!anchor) {
             throw new Error("No ready visible anchor found in current slab.");
         }

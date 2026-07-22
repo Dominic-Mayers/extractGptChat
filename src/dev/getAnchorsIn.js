@@ -18,22 +18,22 @@ const TEXT_ANCHOR_SELECTOR = [
     "th"
 ].join(",");
 
-export function getAnchorsIn(
+export function getAnchorIn(
     slab,
     workZone
 ) {
     const type = slabType(slab);
 
     if (type === "image" || type === "empty") {
-        return [boundaryAnchor(slab, "top")];
+        return boundaryAnchor(slab, "top");
     }
     if (type === "message" || type === "canvas") {
-        return getTextAnchorsIn(slab, workZone);
+        return getTextAnchorIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
 }
 
-function getTextAnchorsIn(slab, workZone) {
+function getTextAnchorIn(slab, workZone) {
     const viewportTop = workZoneTop(workZone);
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
@@ -52,7 +52,7 @@ function getTextAnchorsIn(slab, workZone) {
         targetRoom,
         workZone
     );
-    if (descendantAnchors.length > 0) return descendantAnchors;
+    if (descendantAnchors.length > 0) return descendantAnchors[0];
 
     const slabAnchors = normalBoundaryAnchors(
         [slab],
@@ -61,7 +61,7 @@ function getTextAnchorsIn(slab, workZone) {
     );
     if (slabAnchors.length > 0) {
         recordSlabFallbackDiagnostics(slabAnchors);
-        return slabAnchors;
+        return slabAnchors[0];
     }
 
     const coveringAnchors = [];
@@ -83,7 +83,7 @@ function getTextAnchorsIn(slab, workZone) {
         const aRoom = roomAhead(a, workZone);
         const bRoom = roomAhead(b, workZone);
         return bRoom - aRoom;
-    });
+    })[0] ?? null;
 }
 
 function normalBoundaryAnchors(

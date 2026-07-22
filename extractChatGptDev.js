@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.82
+// @version      1.83
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1112,17 +1112,17 @@
     "td",
     "th"
   ].join(",");
-  function getAnchorsIn(slab, workZone) {
+  function getAnchorIn(slab, workZone) {
     const type = slabType(slab);
     if (type === "image" || type === "empty") {
-      return [boundaryAnchor(slab, "top")];
+      return boundaryAnchor(slab, "top");
     }
     if (type === "message" || type === "canvas") {
-      return getTextAnchorsIn(slab, workZone);
+      return getTextAnchorIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
   }
-  function getTextAnchorsIn(slab, workZone) {
+  function getTextAnchorIn(slab, workZone) {
     const viewportTop = workZoneTop(workZone);
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
@@ -1138,7 +1138,7 @@
       targetRoom,
       workZone
     );
-    if (descendantAnchors.length > 0) return descendantAnchors;
+    if (descendantAnchors.length > 0) return descendantAnchors[0];
     const slabAnchors = normalBoundaryAnchors(
       [slab],
       targetRoom,
@@ -1146,7 +1146,7 @@
     );
     if (slabAnchors.length > 0) {
       recordSlabFallbackDiagnostics(slabAnchors);
-      return slabAnchors;
+      return slabAnchors[0];
     }
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
@@ -1166,7 +1166,7 @@
       const aRoom = roomAhead(a, workZone);
       const bRoom = roomAhead(b, workZone);
       return bRoom - aRoom;
-    });
+    })[0] ?? null;
   }
   function normalBoundaryAnchors(elements, targetRoom, workZone) {
     const anchors = [];
@@ -1229,8 +1229,7 @@
     }
     let room = roomAhead(slabTop, workZone);
     while (room < 0) {
-      const anchors = getAnchorsIn(current, workZone);
-      const anchor = anchors[0];
+      const anchor = getAnchorIn(current, workZone);
       if (!anchor) {
         throw new Error("No ready visible anchor found in current slab.");
       }
@@ -1387,7 +1386,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.82" : "unbuilt";
+  var VERSION = true ? "1.83" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
