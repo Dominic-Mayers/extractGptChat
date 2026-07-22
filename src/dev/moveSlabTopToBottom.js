@@ -4,7 +4,6 @@ import { boundaryAnchor, getAnchorsIn } from "./getAnchorsIn.js";
 import {
     beginPendingAwaitDiagnostics,
     finishPendingAwaitDiagnostics,
-    recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 
@@ -36,10 +35,7 @@ export async function moveSlabTopToBottom(current, workZone) {
     let room = workZone.roomAheadOf(slabTop);
 
     while (room < 0) {
-        const anchors = measuredAnchorSearch(
-            current,
-            workZone
-        );
+        const anchors = getAnchorsIn(current, workZone);
         const anchor = anchors[0];
         if (!anchor) {
             throw new Error("No ready visible anchor found in current slab.");
@@ -57,18 +53,6 @@ export async function moveSlabTopToBottom(current, workZone) {
         workZone
     );
     return workZone.roomAheadOf(slabTop);
-}
-
-function measuredAnchorSearch(current, workZone) {
-    const startedAtDiagnostics = performance.now();
-    const startedWallAtDiagnostics = Date.now();
-    const anchors = getAnchorsIn(current, workZone);
-    recordCycleStageDiagnostics("anchor-search", {
-        elapsedMs: performance.now() - startedAtDiagnostics,
-        wallElapsedMs: Date.now() - startedWallAtDiagnostics,
-        anchorCount: anchors.length
-    });
-    return anchors;
 }
 
 async function waitImageReady(current) {

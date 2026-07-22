@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.80
+// @version      1.81
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -476,7 +476,6 @@
     const relevantStages = /* @__PURE__ */ new Set(["selected", "stop", "error", "slow-slab"]);
     const slowSlabTimingStages = /* @__PURE__ */ new Set([
       "anchor-bottom-check",
-      "anchor-search",
       "deck-room",
       "deck-decision",
       "deck-search",
@@ -488,10 +487,7 @@
     );
   }
   function stageIsUsefulSlowTimingDiagnostics(stage) {
-    if ([
-      "anchor-bottom-check",
-      "anchor-search"
-    ].includes(stage.stage)) {
+    if (stage.stage === "anchor-bottom-check") {
       return Math.max(stage.elapsedMs ?? 0, stage.wallElapsedMs ?? 0) >= SLOW_AWAIT_MS;
     }
     return true;
@@ -1156,10 +1152,7 @@
     }
     let room = workZone.roomAheadOf(slabTop);
     while (room < 0) {
-      const anchors = measuredAnchorSearch(
-        current,
-        workZone
-      );
+      const anchors = getAnchorsIn(current, workZone);
       const anchor = anchors[0];
       if (!anchor) {
         throw new Error("No ready visible anchor found in current slab.");
@@ -1175,17 +1168,6 @@
       workZone
     );
     return workZone.roomAheadOf(slabTop);
-  }
-  function measuredAnchorSearch(current, workZone) {
-    const startedAtDiagnostics = performance.now();
-    const startedWallAtDiagnostics = Date.now();
-    const anchors = getAnchorsIn(current, workZone);
-    recordCycleStageDiagnostics("anchor-search", {
-      elapsedMs: performance.now() - startedAtDiagnostics,
-      wallElapsedMs: Date.now() - startedWallAtDiagnostics,
-      anchorCount: anchors.length
-    });
-    return anchors;
   }
   async function waitImageReady(current) {
     const images = current.matches?.("img") ? [current] : current.querySelectorAll ? [...current.querySelectorAll("img")] : [];
@@ -1385,7 +1367,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.80" : "unbuilt";
+  var VERSION = true ? "1.81" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

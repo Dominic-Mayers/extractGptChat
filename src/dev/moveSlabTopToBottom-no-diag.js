@@ -23,10 +23,7 @@ export async function moveSlabTopToBottom(current, workZone) {
     let room = workZone.roomAheadOf(slabTop);
 
     while (room < 0) {
-        const anchors = measuredAnchorSearch(
-            current,
-            workZone
-        );
+        const anchors = getAnchorsIn(current, workZone);
         const anchor = anchors[0];
         if (!anchor) {
             throw new Error("No ready visible anchor found in current slab.");
@@ -44,13 +41,6 @@ export async function moveSlabTopToBottom(current, workZone) {
         workZone
     );
     return workZone.roomAheadOf(slabTop);
-}
-
-function measuredAnchorSearch(current, workZone) {
-
-    const anchors = getAnchorsIn(current, workZone);
-
-    return anchors;
 }
 
 async function waitImageReady(current) {

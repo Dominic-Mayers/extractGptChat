@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.80-no-diag
+// @version      1.81-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -471,10 +471,7 @@
     }
     let room = workZone.roomAheadOf(slabTop);
     while (room < 0) {
-      const anchors = measuredAnchorSearch(
-        current,
-        workZone
-      );
+      const anchors = getAnchorsIn(current, workZone);
       const anchor = anchors[0];
       if (!anchor) {
         throw new Error("No ready visible anchor found in current slab.");
@@ -490,10 +487,6 @@
       workZone
     );
     return workZone.roomAheadOf(slabTop);
-  }
-  function measuredAnchorSearch(current, workZone) {
-    const anchors = getAnchorsIn(current, workZone);
-    return anchors;
   }
   async function waitImageReady(current) {
     const images = current.matches?.("img") ? [current] : current.querySelectorAll ? [...current.querySelectorAll("img")] : [];
@@ -641,7 +634,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.80-no-diag" : "unbuilt";
+  var VERSION = true ? "1.81-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

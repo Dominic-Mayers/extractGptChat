@@ -509,7 +509,6 @@ function relevantStagesDiagnostics(cycle) {
     const relevantStages = new Set(["selected", "stop", "error", "slow-slab"]);
     const slowSlabTimingStages = new Set([
         "anchor-bottom-check",
-        "anchor-search",
         "deck-room",
         "deck-decision",
         "deck-search",
@@ -528,10 +527,7 @@ function relevantStagesDiagnostics(cycle) {
 }
 
 function stageIsUsefulSlowTimingDiagnostics(stage) {
-    if ([
-        "anchor-bottom-check",
-        "anchor-search"
-    ].includes(stage.stage)) {
+    if (stage.stage === "anchor-bottom-check") {
         return Math.max(stage.elapsedMs ?? 0, stage.wallElapsedMs ?? 0) >=
             SLOW_AWAIT_MS;
     }
