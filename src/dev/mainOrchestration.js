@@ -10,10 +10,7 @@ import { nextActiveDeck } from "./nextActiveDeck.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
 import {
-    findScrollContainer,
-    scrollY,
-    scrollHeight,
-    clientHeight
+    findSupplyArea
 } from "./scrollContainer.js";
 import {
     MAX_SLAB_GAP,
@@ -35,10 +32,11 @@ export async function traverseConversation() {
 
     try {
 
-    const container = findScrollContainer();
+    const supplyArea = findSupplyArea();
+    const workZone = supplyArea.workZone;
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
-    const initial = await moveViewportToDocumentBottom(container);
+    const initial = await moveViewportToDocumentBottom(workZone);
 
     let room = initial.room;
     let deckRoom = initial.deckRoom;
@@ -60,9 +58,9 @@ export async function traverseConversation() {
             slabCount: slabCountDiagnostics,
             room,
             deckRoom,
-            scrollY: scrollY(container),
-            scrollHeight: scrollHeight(container),
-            clientHeight: clientHeight(container),
+            scrollY: workZone.position,
+            scrollHeight: workZone.supplyHeight,
+            clientHeight: workZone.height,
             current: snapshotElementDiagnostics(current),
             deck: snapshotElementDiagnostics(deck)
         });
@@ -73,7 +71,7 @@ export async function traverseConversation() {
             current &&
             room < MAX_SLAB_GAP
         ) {
-            room = await moveSlabTopToBottom(current, container);
+            room = await moveSlabTopToBottom(current, workZone);
         } else {
             recordCycleStageDiagnostics("move-skip", {
                 current: snapshotElementDiagnostics(current),

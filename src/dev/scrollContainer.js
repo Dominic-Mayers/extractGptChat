@@ -38,6 +38,44 @@ export function findScrollContainer() {
     return document.documentElement;
 }
 
+export function findSupplyArea() {
+    return createSupplyArea(findScrollContainer());
+}
+
+export function createSupplyArea(container) {
+    const workZone = {
+        get height() {
+            return clientHeight(container);
+        },
+        get top() {
+            return container === document.documentElement
+                ? 0
+                : container.getBoundingClientRect().top;
+        },
+        get position() {
+            return scrollY(container);
+        },
+        get supplyHeight() {
+            return scrollHeight(container);
+        },
+        roomAheadOf(anchor) {
+            const rect = anchor.element.getBoundingClientRect();
+            return rect[anchor.edge] - this.top;
+        },
+        moveBy(distance) {
+            scrollBy(container, -distance);
+        },
+        moveToSupplyEnd() {
+            scrollTo(container, scrollHeight(container));
+        },
+        isAtSupplyBoundary() {
+            return scrollY(container) <= 0;
+        }
+    };
+
+    return { workZone };
+}
+
 export function scrollY(container) {
 
     return container === document.documentElement

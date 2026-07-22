@@ -1,5 +1,4 @@
 import { MIN_INTERSECT, MAX_DRIFT } from "./constants.js";
-import { clientHeight } from "./scrollContainer.js";
 import { slabType } from "./slabType.js";
 
 const TEXT_ANCHOR_SELECTOR = [
@@ -20,23 +19,20 @@ const TEXT_ANCHOR_SELECTOR = [
 
 export function getAnchorsIn(
     slab,
-    container = document.documentElement,
-    direction = -1
+    workZone
 ) {
     const type = slabType(slab);
 
     if (type === "image" || type === "empty") return [slab];
     if (type === "message" || type === "canvas") {
-        return getTextAnchorsIn(slab, container, direction);
+        return getTextAnchorsIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
 }
 
-function getTextAnchorsIn(slab, container, direction) {
-    const viewportTop = container === document.documentElement
-        ? 0
-        : container.getBoundingClientRect().top;
-    const viewportHeight = clientHeight(container);
+function getTextAnchorsIn(slab, workZone) {
+    const viewportTop = workZone.top;
+    const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const descendants = [];
 
@@ -50,19 +46,15 @@ function getTextAnchorsIn(slab, container, direction) {
 
     const descendantAnchors = normalBoundaryAnchors(
         descendants,
-        viewportTop,
-        viewportHeight,
         targetRoom,
-        direction
+        workZone
     );
     if (descendantAnchors.length > 0) return descendantAnchors;
 
     const slabAnchors = normalBoundaryAnchors(
         [slab],
-        viewportTop,
-        viewportHeight,
         targetRoom,
-        direction
+        workZone
     );
     if (slabAnchors.length > 0) {
         recordSlabFallbackDiagnostics(slabAnchors);
@@ -72,16 +64,9 @@ function getTextAnchorsIn(slab, container, direction) {
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
         const rect = candidate.getBoundingClientRect();
-        const anchor = makeBoundaryAnchor(candidate, "top");
-        const topRoom = measureBoundaryRoom(
-            anchor,
-            viewportTop,
-            viewportHeight,
-            direction
-        );
-        const bottomRoom = direction < 0
-            ? rect.bottom - viewportTop
-            : viewportTop + viewportHeight - rect.bottom;
+        const anchor = boundaryAnchor(candidate, "top");
+        const topRoom = workZone.roomAheadOf(anchor);
+        const bottomRoom = rect.bottom - viewportTop;
         if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
             recordNegativeAnchorDiagnostics(
                 anchor,
@@ -92,29 +77,22 @@ function getTextAnchorsIn(slab, container, direction) {
     }
 
     return coveringAnchors.sort((a, b) => {
-        const aRoom = measureBoundaryRoom(a, viewportTop, viewportHeight, direction);
-        const bRoom = measureBoundaryRoom(b, viewportTop, viewportHeight, direction);
+        const aRoom = workZone.roomAheadOf(a);
+        const bRoom = workZone.roomAheadOf(b);
         return bRoom - aRoom;
     });
 }
 
 function normalBoundaryAnchors(
     elements,
-    viewportTop,
-    viewportHeight,
     targetRoom,
-    direction
+    workZone
 ) {
     const anchors = [];
     for (const element of elements) {
         for (const edge of ["top", "bottom"]) {
-            const anchor = makeBoundaryAnchor(element, edge);
-            const room = measureBoundaryRoom(
-                anchor,
-                viewportTop,
-                viewportHeight,
-                direction
-            );
+            const anchor = boundaryAnchor(element, edge);
+            const room = workZone.roomAheadOf(anchor);
             if (room >= 0 && room < targetRoom - MAX_DRIFT) {
                 anchors.push(anchor);
             }
@@ -122,14 +100,14 @@ function normalBoundaryAnchors(
     }
 
     return anchors.sort((a, b) => {
-        const aRoom = measureBoundaryRoom(a, viewportTop, viewportHeight, direction);
-        const bRoom = measureBoundaryRoom(b, viewportTop, viewportHeight, direction);
+        const aRoom = workZone.roomAheadOf(a);
+        const bRoom = workZone.roomAheadOf(b);
         if (aRoom !== bRoom) return aRoom - bRoom;
         return a.edge === "bottom" ? -1 : 1;
     });
 }
 
-function makeBoundaryAnchor(element, edge) {
+export function boundaryAnchor(element, edge) {
     return {
         element,
         edge,
@@ -161,12 +139,4 @@ function recordSlabFallbackDiagnostics(anchors) {
     for (const anchor of anchors) {
         anchor.fallbackKind = "slab-boundary";
     }
-}
-
-function measureBoundaryRoom(anchor, viewportTop, viewportHeight, direction) {
-    const rect = anchor.element.getBoundingClientRect();
-    const boundary = rect[anchor.edge];
-    return direction < 0
-        ? boundary - viewportTop
-        : viewportTop + viewportHeight - boundary;
 }

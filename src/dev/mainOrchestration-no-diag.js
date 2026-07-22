@@ -10,10 +10,7 @@ import { nextActiveDeck } from "./nextActiveDeck-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
 import {
-    findScrollContainer,
-    scrollY,
-    scrollHeight,
-    clientHeight
+    findSupplyArea
 } from "./scrollContainer-no-diag.js";
 import {
     MAX_SLAB_GAP,
@@ -23,10 +20,11 @@ export async function traverseConversation() {
 
     try {
 
-    const container = findScrollContainer();
+    const supplyArea = findSupplyArea();
+    const workZone = supplyArea.workZone;
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
-    const initial = await moveViewportToDocumentBottom(container);
+    const initial = await moveViewportToDocumentBottom(workZone);
 
     let room = initial.room;
     let deckRoom = initial.deckRoom;
@@ -44,7 +42,7 @@ export async function traverseConversation() {
             current &&
             room < MAX_SLAB_GAP
         ) {
-            room = await moveSlabTopToBottom(current, container);
+            room = await moveSlabTopToBottom(current, workZone);
         }
 
         // See ASSUMPTIONS.md A8.

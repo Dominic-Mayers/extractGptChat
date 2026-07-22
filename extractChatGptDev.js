@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.77
+// @version      1.78
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -743,57 +743,22 @@
     }
   }
 
-  // src/dev/scrollContainer.js
-  function findScrollContainer() {
-    const messageEl = document.querySelector("[data-message-author-role]");
-    if (messageEl) {
-      let el = messageEl.parentElement;
-      while (el && el !== document.body) {
-        const { overflowY } = getComputedStyle(el);
-        if ((overflowY === "auto" || overflowY === "scroll") && el.scrollHeight > el.clientHeight) {
-          return el;
-        }
-        el = el.parentElement;
-      }
-    }
-    return document.documentElement;
-  }
-  function scrollY(container) {
-    return container === document.documentElement ? window.scrollY : container.scrollTop;
-  }
-  function scrollHeight(container) {
-    return container === document.documentElement ? document.body.scrollHeight : container.scrollHeight;
-  }
-  function clientHeight(container) {
-    return container === document.documentElement ? document.documentElement.clientHeight : container.clientHeight;
-  }
-  function scrollBy(container, top) {
-    const target = container === document.documentElement ? window : container;
-    target.scrollBy({ top, behavior: "instant" });
-  }
-  function scrollTo(container, top) {
-    const target = container === document.documentElement ? window : container;
-    target.scrollTo({ top, behavior: "instant" });
-  }
-
   // src/dev/stabilize.js
-  async function waitLayoutStable(container = document.documentElement, {
+  async function waitLayoutStable(workZone, {
     stableFrames = 2,
     maxFrames = 300,
     current = null,
-    direction = null,
-    measureReferenceRoom = null,
     phase = "layout"
   } = {}) {
-    const checkAnchor = current != null && measureReferenceRoom != null;
-    let previous = geometrySnapshot(container);
+    const checkAnchor = current != null;
+    let previous = geometrySnapshot(workZone);
     let unchanged = 0;
     beginStabilizationDiagnostics({ phase, stableFrames });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
       await nextAnimationFrame();
       finishRafWaitDiagnostics();
-      const currentGeometry = geometrySnapshot(container);
+      const currentGeometry = geometrySnapshot(workZone);
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
@@ -806,7 +771,7 @@
         scrollYChange
       );
       const geometryChanged = geometryChangeMagnitude !== 0;
-      const roomAtFrame = checkAnchor ? measureReferenceRoom(current, container, direction) : null;
+      const roomAtFrame = checkAnchor ? workZone.roomAheadOf(current) : null;
       recordRafTelemetryDiagnostics({
         geometryChangeMagnitude,
         scrollHeightChange,
@@ -824,13 +789,11 @@
       }
       const anchorStable = await checkAnchorAcrossYields(
         current,
-        container,
-        direction,
-        measureReferenceRoom,
+        workZone,
         frame,
         roomAtFrame
       );
-      const roomNow = checkAnchor ? measureReferenceRoom(current, container, direction) : null;
+      const roomNow = checkAnchor ? workZone.roomAheadOf(current) : null;
       if (!anchorStable) {
         finishRafDiagnostics({ status: "anchor-changed" });
         previous = currentGeometry;
@@ -860,19 +823,19 @@
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
   }
-  function geometrySnapshot(container) {
+  function geometrySnapshot(workZone) {
     return {
-      scrollHeight: scrollHeight(container),
-      scrollY: scrollY(container)
+      scrollHeight: workZone.supplyHeight,
+      scrollY: workZone.position
     };
   }
-  async function checkAnchorAcrossYields(current, container, direction, measureReferenceRoom, frame, roomAtFrame) {
+  async function checkAnchorAcrossYields(current, workZone, frame, roomAtFrame) {
     let previousRoom = roomAtFrame;
     let stable = true;
     for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
       beginYieldDiagnostics({ index: yieldIndex, roomBefore: previousRoom });
       await yieldToScheduler();
-      const room = current != null && measureReferenceRoom != null ? measureReferenceRoom(current, container, direction) : null;
+      const room = current != null ? workZone.roomAheadOf(current) : null;
       const change = room == null || previousRoom == null ? 0 : Math.abs(room - previousRoom);
       const changed = change !== 0;
       finishYieldDiagnostics({ roomAfter: room, change, changed });
@@ -895,26 +858,26 @@
   }
 
   // src/dev/moveAnchorToBottom.js
-  async function moveAnchorToBottom(anchor, container, direction, measureAnchorRoom2, calibratedJump = CALIBRATED_JUMP) {
+  async function moveAnchorToBottom(anchor, workZone, calibratedJump = CALIBRATED_JUMP) {
     beginJumpDiagnostics({
       kind: "anchor-move",
       anchor: snapshotElementDiagnostics(anchor)
     });
-    if (isScrollBoundaryReached(container, direction)) {
-      const room2 = measureAnchorRoom2(anchor, container, direction);
+    if (workZone.isAtSupplyBoundary()) {
+      const room2 = workZone.roomAheadOf(anchor);
       finishJumpDiagnostics({
         roomBefore: room2,
         obtainedRoom: room2,
-        scrollYAfter: scrollY(container),
+        scrollYAfter: workZone.position,
         status: "movement-impossible"
       });
       logSlowJumpDiagnosticsIfNeeded();
       return room2;
     }
-    let room = measureAnchorRoom2(anchor, container, direction);
+    let room = workZone.roomAheadOf(anchor);
     let retriedErasedJump = false;
     let anchorAtBottom = measuredAnchorBottomCheck(
-      container,
+      workZone,
       room,
       "before-first-jump"
     );
@@ -932,18 +895,18 @@
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchor)
       });
-      if (isScrollBoundaryReached(container, direction)) {
+      if (workZone.isAtSupplyBoundary()) {
         finishJumpDiagnostics({
           roomBefore: room,
           obtainedRoom: room,
-          scrollYAfter: scrollY(container),
+          scrollYAfter: workZone.position,
           status: "movement-impossible"
         });
         logSlowJumpDiagnosticsIfNeeded();
         return room;
       }
-      const jump = clampJump(calibratedJump, room, container);
-      const scrollYBefore = scrollY(container);
+      const jump = clampJump(calibratedJump, room, workZone);
+      const scrollYBefore = workZone.position;
       beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchor),
@@ -951,14 +914,14 @@
         jump,
         scrollYBefore
       });
-      performJump(jump, container, direction);
-      const scrollYAfter = scrollY(container);
-      const intendedRoom = measureAnchorRoom2(anchor, container, direction);
+      workZone.moveBy(jump);
+      const scrollYAfter = workZone.position;
+      const intendedRoom = workZone.roomAheadOf(anchor);
       if (scrollYAfter === scrollYBefore) {
         finishJumpDiagnostics({
           scrollYAfter,
           intendedRoom,
-          obtainedRoom: measureAnchorRoom2(anchor, container, direction),
+          obtainedRoom: workZone.roomAheadOf(anchor),
           status: "no-movement"
         });
         logSlowJumpDiagnosticsIfNeeded();
@@ -969,17 +932,15 @@
         intendedRoom,
         immediateAnchor: snapshotElementDiagnostics(anchor)
       });
-      const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(container, direction);
+      const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(workZone);
       const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
       updateJumpDiagnostics({ roomUntilFirstNotReadyDeck });
-      const postJumpStabilization = await waitLayoutStable(container, {
+      const postJumpStabilization = await waitLayoutStable(workZone, {
         current: anchor,
-        direction,
         stableFrames,
-        measureReferenceRoom: measureAnchorRoom2,
         phase: "post-jump"
       });
-      const obtainedRoom = measureAnchorRoom2(anchor, container, direction);
+      const obtainedRoom = workZone.roomAheadOf(anchor);
       finishJumpDiagnostics({
         postJumpStabilization,
         obtainedRoom,
@@ -999,23 +960,23 @@
       retriedErasedJump = jumpWasErased;
       room = obtainedRoom;
       anchorAtBottom = measuredAnchorBottomCheck(
-        container,
+        workZone,
         room,
         "after-post-jump-stabilization"
       );
     }
     return room;
   }
-  function measuredAnchorBottomCheck(container, room, phase) {
-    const startedAt = performance.now();
-    const startedWallAt = Date.now();
-    const viewportHeight = clientHeight(container);
+  function measuredAnchorBottomCheck(workZone, room, phase) {
+    const startedAtDiagnostics = performance.now();
+    const startedWallAtDiagnostics = Date.now();
+    const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
     recordCycleStageDiagnostics("anchor-bottom-check", {
       phase,
-      elapsedMs: performance.now() - startedAt,
-      wallElapsedMs: Date.now() - startedWallAt,
+      elapsedMs: performance.now() - startedAtDiagnostics,
+      wallElapsedMs: Date.now() - startedWallAtDiagnostics,
       room,
       viewportHeight,
       targetRoom,
@@ -1024,30 +985,22 @@
     });
     return atBottom;
   }
-  function clampJump(calibratedJump, room, container) {
+  function clampJump(calibratedJump, room, workZone) {
     return Math.min(
       calibratedJump,
-      clientHeight(container) - MIN_INTERSECT - room
+      workZone.height - MIN_INTERSECT - room
     );
   }
-  function isScrollBoundaryReached(container, direction) {
-    const position = scrollY(container);
-    return direction < 0 ? position <= 0 : position >= scrollHeight(container) - clientHeight(container);
-  }
-  function performJump(jump, container, direction) {
-    scrollBy(container, jump * direction);
-  }
-  function measureRoomUntilFirstNotReadyDeck(container, direction) {
-    const viewportTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-    const viewportBoundary = direction < 0 ? viewportTop : viewportTop + clientHeight(container);
+  function measureRoomUntilFirstNotReadyDeck(workZone) {
+    const viewportBoundary = workZone.top;
     let roomUntilFirstNotReadyDeck = Infinity;
     for (const deck of document.querySelectorAll(
       '[data-turn-id-container][data-is-intersecting="false"]'
     )) {
       const rect = deck.getBoundingClientRect();
-      const isAhead = direction < 0 ? rect.top < viewportBoundary : rect.bottom > viewportBoundary;
+      const isAhead = rect.top < viewportBoundary;
       if (!isAhead) continue;
-      const roomUntilDeck = direction < 0 ? viewportBoundary - rect.bottom : rect.top - viewportBoundary;
+      const roomUntilDeck = viewportBoundary - rect.bottom;
       roomUntilFirstNotReadyDeck = Math.min(
         roomUntilFirstNotReadyDeck,
         roomUntilDeck
@@ -1081,17 +1034,17 @@
     "td",
     "th"
   ].join(",");
-  function getAnchorsIn(slab, container = document.documentElement, direction = -1) {
+  function getAnchorsIn(slab, workZone) {
     const type = slabType(slab);
     if (type === "image" || type === "empty") return [slab];
     if (type === "message" || type === "canvas") {
-      return getTextAnchorsIn(slab, container, direction);
+      return getTextAnchorsIn(slab, workZone);
     }
     throw new Error("Cannot select anchors in an unknown slab type.");
   }
-  function getTextAnchorsIn(slab, container, direction) {
-    const viewportTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-    const viewportHeight = clientHeight(container);
+  function getTextAnchorsIn(slab, workZone) {
+    const viewportTop = workZone.top;
+    const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const descendants = [];
     for (const candidate of slab.querySelectorAll(TEXT_ANCHOR_SELECTOR)) {
@@ -1102,18 +1055,14 @@
     }
     const descendantAnchors = normalBoundaryAnchors(
       descendants,
-      viewportTop,
-      viewportHeight,
       targetRoom,
-      direction
+      workZone
     );
     if (descendantAnchors.length > 0) return descendantAnchors;
     const slabAnchors = normalBoundaryAnchors(
       [slab],
-      viewportTop,
-      viewportHeight,
       targetRoom,
-      direction
+      workZone
     );
     if (slabAnchors.length > 0) {
       recordSlabFallbackDiagnostics(slabAnchors);
@@ -1122,14 +1071,9 @@
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
       const rect = candidate.getBoundingClientRect();
-      const anchor = makeBoundaryAnchor(candidate, "top");
-      const topRoom = measureBoundaryRoom(
-        anchor,
-        viewportTop,
-        viewportHeight,
-        direction
-      );
-      const bottomRoom = direction < 0 ? rect.bottom - viewportTop : viewportTop + viewportHeight - rect.bottom;
+      const anchor = boundaryAnchor(candidate, "top");
+      const topRoom = workZone.roomAheadOf(anchor);
+      const bottomRoom = rect.bottom - viewportTop;
       if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
         recordNegativeAnchorDiagnostics(
           anchor,
@@ -1139,35 +1083,30 @@
       }
     }
     return coveringAnchors.sort((a, b) => {
-      const aRoom = measureBoundaryRoom(a, viewportTop, viewportHeight, direction);
-      const bRoom = measureBoundaryRoom(b, viewportTop, viewportHeight, direction);
+      const aRoom = workZone.roomAheadOf(a);
+      const bRoom = workZone.roomAheadOf(b);
       return bRoom - aRoom;
     });
   }
-  function normalBoundaryAnchors(elements, viewportTop, viewportHeight, targetRoom, direction) {
+  function normalBoundaryAnchors(elements, targetRoom, workZone) {
     const anchors = [];
     for (const element of elements) {
       for (const edge of ["top", "bottom"]) {
-        const anchor = makeBoundaryAnchor(element, edge);
-        const room = measureBoundaryRoom(
-          anchor,
-          viewportTop,
-          viewportHeight,
-          direction
-        );
+        const anchor = boundaryAnchor(element, edge);
+        const room = workZone.roomAheadOf(anchor);
         if (room >= 0 && room < targetRoom - MAX_DRIFT) {
           anchors.push(anchor);
         }
       }
     }
     return anchors.sort((a, b) => {
-      const aRoom = measureBoundaryRoom(a, viewportTop, viewportHeight, direction);
-      const bRoom = measureBoundaryRoom(b, viewportTop, viewportHeight, direction);
+      const aRoom = workZone.roomAheadOf(a);
+      const bRoom = workZone.roomAheadOf(b);
       if (aRoom !== bRoom) return aRoom - bRoom;
       return a.edge === "bottom" ? -1 : 1;
     });
   }
-  function makeBoundaryAnchor(element, edge) {
+  function boundaryAnchor(element, edge) {
     return {
       element,
       edge,
@@ -1198,15 +1137,11 @@
       anchor.fallbackKind = "slab-boundary";
     }
   }
-  function measureBoundaryRoom(anchor, viewportTop, viewportHeight, direction) {
-    const rect = anchor.element.getBoundingClientRect();
-    const boundary = rect[anchor.edge];
-    return direction < 0 ? boundary - viewportTop : viewportTop + viewportHeight - boundary;
-  }
 
   // src/dev/moveSlabTopToBottom.js
-  async function moveSlabTopToBottom(current, container, direction = -1) {
+  async function moveSlabTopToBottom(current, workZone) {
     const type = slabType(current);
+    const slabTop = boundaryAnchor(current, "top");
     if (type === "unknown") {
       throw new Error("Cannot move an unknown slab type.");
     }
@@ -1221,116 +1156,69 @@
         type
       });
       return moveAnchorToBottom(
-        current,
-        container,
-        direction,
-        measureRoom,
+        slabTop,
+        workZone,
         Infinity
       );
     }
     let room = measuredSlabRoom(
-      current,
-      container,
-      direction,
+      slabTop,
+      workZone,
       "initial"
     );
     while (room < 0) {
-      const anchors2 = measuredAnchorSearch(
+      const anchors = measuredAnchorSearch(
         current,
-        container,
-        direction,
+        workZone,
         "work-zone-entry"
       );
-      const anchor2 = anchors2[0];
-      if (!anchor2) {
+      const anchor = anchors[0];
+      if (!anchor) {
         throw new Error("No ready visible anchor found in current slab.");
       }
       await moveAnchorToBottom(
-        anchor2,
-        container,
-        direction,
-        measureAnchorRoom
+        anchor,
+        workZone
       );
       room = measuredSlabRoom(
-        current,
-        container,
-        direction,
+        slabTop,
+        workZone,
         "after-anchor-movement"
       );
     }
-    const anchors = measuredAnchorSearch(
-      current,
-      container,
-      direction,
-      "final-placement"
-    );
-    const selectionStartedAt = performance.now();
-    const selectionStartedWallAt = Date.now();
-    const currentRect = current.getBoundingClientRect();
-    const anchor = anchors.find((candidate) => {
-      const boundary = candidate.getBoundingClientRect().top;
-      return boundary >= currentRect.top && boundary <= currentRect.bottom;
-    });
-    recordCycleStageDiagnostics("anchor-selection", {
-      phase: "final-placement",
-      elapsedMs: performance.now() - selectionStartedAt,
-      wallElapsedMs: Date.now() - selectionStartedWallAt,
-      anchorCount: anchors.length,
-      found: anchor != null
-    });
-    if (!anchor) {
-      throw new Error(
-        "No ready visible anchor found for final slab movement."
-      );
-    }
     await moveAnchorToBottom(
-      anchor,
-      container,
-      direction,
-      measureAnchorRoom
+      slabTop,
+      workZone
     );
     return measuredSlabRoom(
-      current,
-      container,
-      direction,
+      slabTop,
+      workZone,
       "after-final-anchor-movement"
     );
   }
-  function measuredSlabRoom(current, container, direction, phase) {
-    const startedAt = performance.now();
-    const startedWallAt = Date.now();
-    const room = measureRoom(current, container, direction);
+  function measuredSlabRoom(slabTop, workZone, phase) {
+    const startedAtDiagnostics = performance.now();
+    const startedWallAtDiagnostics = Date.now();
+    const room = workZone.roomAheadOf(slabTop);
     recordCycleStageDiagnostics("slab-room-measurement", {
       phase,
-      elapsedMs: performance.now() - startedAt,
-      wallElapsedMs: Date.now() - startedWallAt,
+      elapsedMs: performance.now() - startedAtDiagnostics,
+      wallElapsedMs: Date.now() - startedWallAtDiagnostics,
       room
     });
     return room;
   }
-  function measuredAnchorSearch(current, container, direction, phase) {
-    const startedAt = performance.now();
-    const startedWallAt = Date.now();
-    const anchors = getAnchorsIn(current, container, direction);
+  function measuredAnchorSearch(current, workZone, phase) {
+    const startedAtDiagnostics = performance.now();
+    const startedWallAtDiagnostics = Date.now();
+    const anchors = getAnchorsIn(current, workZone);
     recordCycleStageDiagnostics("anchor-search", {
       phase,
-      elapsedMs: performance.now() - startedAt,
-      wallElapsedMs: Date.now() - startedWallAt,
+      elapsedMs: performance.now() - startedAtDiagnostics,
+      wallElapsedMs: Date.now() - startedWallAtDiagnostics,
       anchorCount: anchors.length
     });
     return anchors;
-  }
-  function measureRoom(current, container, direction) {
-    const viewportHeight = clientHeight(container);
-    const rect = current.getBoundingClientRect();
-    return direction < 0 ? rect.top : viewportHeight - rect.bottom;
-  }
-  function measureAnchorRoom(anchor, container, direction) {
-    const viewportHeight = clientHeight(container);
-    const viewportTop = container === document.documentElement ? 0 : container.getBoundingClientRect().top;
-    const rect = anchor.element.getBoundingClientRect();
-    const boundary = rect[anchor.edge];
-    return direction < 0 ? boundary - viewportTop : viewportTop + viewportHeight - boundary;
   }
   async function waitImageReady(current) {
     const images = current.matches?.("img") ? [current] : current.querySelectorAll ? [...current.querySelectorAll("img")] : [];
@@ -1346,13 +1234,13 @@
   }
 
   // src/dev/moveViewportToDocumentBottom.js
-  async function moveViewportToDocumentBottom(container) {
+  async function moveViewportToDocumentBottom(workZone) {
     clickBottomNavItem();
-    await waitLayoutStable(container);
-    scrollTo(container, scrollHeight(container));
-    await waitLayoutStable(container);
+    await waitLayoutStable(workZone);
+    workZone.moveToSupplyEnd();
+    await waitLayoutStable(workZone);
     const decks = getDecks();
-    const boundary = decks.length > 0 ? decks[0].getBoundingClientRect().bottom : clientHeight(container);
+    const boundary = decks.length > 0 ? decks[0].getBoundingClientRect().bottom : workZone.height;
     return {
       room: boundary,
       deckRoom: boundary
@@ -1376,12 +1264,79 @@
     );
   }
 
+  // src/dev/scrollContainer.js
+  function findScrollContainer() {
+    const messageEl = document.querySelector("[data-message-author-role]");
+    if (messageEl) {
+      let el = messageEl.parentElement;
+      while (el && el !== document.body) {
+        const { overflowY } = getComputedStyle(el);
+        if ((overflowY === "auto" || overflowY === "scroll") && el.scrollHeight > el.clientHeight) {
+          return el;
+        }
+        el = el.parentElement;
+      }
+    }
+    return document.documentElement;
+  }
+  function findSupplyArea() {
+    return createSupplyArea(findScrollContainer());
+  }
+  function createSupplyArea(container) {
+    const workZone = {
+      get height() {
+        return clientHeight(container);
+      },
+      get top() {
+        return container === document.documentElement ? 0 : container.getBoundingClientRect().top;
+      },
+      get position() {
+        return scrollY(container);
+      },
+      get supplyHeight() {
+        return scrollHeight(container);
+      },
+      roomAheadOf(anchor) {
+        const rect = anchor.element.getBoundingClientRect();
+        return rect[anchor.edge] - this.top;
+      },
+      moveBy(distance) {
+        scrollBy(container, -distance);
+      },
+      moveToSupplyEnd() {
+        scrollTo(container, scrollHeight(container));
+      },
+      isAtSupplyBoundary() {
+        return scrollY(container) <= 0;
+      }
+    };
+    return { workZone };
+  }
+  function scrollY(container) {
+    return container === document.documentElement ? window.scrollY : container.scrollTop;
+  }
+  function scrollHeight(container) {
+    return container === document.documentElement ? document.body.scrollHeight : container.scrollHeight;
+  }
+  function clientHeight(container) {
+    return container === document.documentElement ? document.documentElement.clientHeight : container.clientHeight;
+  }
+  function scrollBy(container, top) {
+    const target = container === document.documentElement ? window : container;
+    target.scrollBy({ top, behavior: "instant" });
+  }
+  function scrollTo(container, top) {
+    const target = container === document.documentElement ? window : container;
+    target.scrollTo({ top, behavior: "instant" });
+  }
+
   // src/dev/mainOrchestration.js
   async function traverseConversation() {
     resetCycleDiagnostics();
     try {
-      const container = findScrollContainer();
-      const initial = await moveViewportToDocumentBottom(container);
+      const supplyArea = findSupplyArea();
+      const workZone = supplyArea.workZone;
+      const initial = await moveViewportToDocumentBottom(workZone);
       let room = initial.room;
       let deckRoom = initial.deckRoom;
       let deck = null;
@@ -1397,14 +1352,14 @@
           slabCount: slabCountDiagnostics,
           room,
           deckRoom,
-          scrollY: scrollY(container),
-          scrollHeight: scrollHeight(container),
-          clientHeight: clientHeight(container),
+          scrollY: workZone.position,
+          scrollHeight: workZone.supplyHeight,
+          clientHeight: workZone.height,
           current: snapshotElementDiagnostics(current),
           deck: snapshotElementDiagnostics(deck)
         });
         if (current && room < MAX_SLAB_GAP) {
-          room = await moveSlabTopToBottom(current, container);
+          room = await moveSlabTopToBottom(current, workZone);
         } else {
           recordCycleStageDiagnostics("move-skip", {
             current: snapshotElementDiagnostics(current),
@@ -1463,7 +1418,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.77" : "unbuilt";
+  var VERSION = true ? "1.78" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

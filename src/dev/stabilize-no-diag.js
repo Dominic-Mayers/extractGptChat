@@ -1,27 +1,24 @@
-import { scrollY, scrollHeight } from "./scrollContainer-no-diag.js";
 import { MIN_SCROLL_HEIGHT_CHANGE } from "./constants-no-diag.js";
 export async function waitLayoutStable(
-    container = document.documentElement,
+    workZone,
     {
         stableFrames = 2,
         maxFrames = 300,
         current = null,
-        direction = null,
-        measureReferenceRoom = null,
         phase = "layout"
     } = {}
 ) {
 
-    const checkAnchor = current != null && measureReferenceRoom != null;
+    const checkAnchor = current != null;
 
-    let previous = geometrySnapshot(container);
+    let previous = geometrySnapshot(workZone);
     let unchanged = 0;
 
     for (let frame = 0; frame < maxFrames; frame++) {
 
         await nextAnimationFrame();
 
-        const currentGeometry = geometrySnapshot(container);
+        const currentGeometry = geometrySnapshot(workZone);
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
         );
@@ -38,7 +35,7 @@ export async function waitLayoutStable(
         );
         const geometryChanged = geometryChangeMagnitude !== 0;
         const roomAtFrame = checkAnchor
-            ? measureReferenceRoom(current, container, direction)
+            ? workZone.roomAheadOf(current)
             : null;
 
         if (geometryChanged) {
@@ -50,14 +47,12 @@ export async function waitLayoutStable(
 
         const anchorStable = await checkAnchorAcrossYields(
             current,
-            container,
-            direction,
-            measureReferenceRoom,
+            workZone,
             frame,
             roomAtFrame
         );
         const roomNow = checkAnchor
-            ? measureReferenceRoom(current, container, direction)
+            ? workZone.roomAheadOf(current)
             : null;
 
         if (!anchorStable) {
@@ -90,19 +85,17 @@ export async function waitLayoutStable(
  * Any geometric change that matters to traversal should
  * modify at least one of these quantities.
  */
-function geometrySnapshot(container) {
+function geometrySnapshot(workZone) {
 
     return {
-        scrollHeight: scrollHeight(container),
-        scrollY: scrollY(container)
+        scrollHeight: workZone.supplyHeight,
+        scrollY: workZone.position
     };
 }
 
 async function checkAnchorAcrossYields(
     current,
-    container,
-    direction,
-    measureReferenceRoom,
+    workZone,
     frame,
     roomAtFrame
 ) {
@@ -112,8 +105,8 @@ async function checkAnchorAcrossYields(
     for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
 
         await yieldToScheduler();
-        const room = current != null && measureReferenceRoom != null
-            ? measureReferenceRoom(current, container, direction)
+        const room = current != null
+            ? workZone.roomAheadOf(current)
             : null;
         const change = room == null || previousRoom == null
             ? 0

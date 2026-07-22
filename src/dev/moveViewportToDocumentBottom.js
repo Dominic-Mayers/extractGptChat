@@ -5,11 +5,6 @@
 // ASSUMPTIONS.md A9.
 
 import { waitLayoutStable } from "./stabilize.js";
-import {
-    scrollHeight,
-    scrollTo,
-    clientHeight
-} from "./scrollContainer.js";
 import { getDecks } from "./nextActiveDeck.js";
 
 /**
@@ -22,21 +17,21 @@ import { getDecks } from "./nextActiveDeck.js";
  * 5. Use the bottom-most deck's measured bottom edge as the initial
  *    slab/deck search boundary (A9).
  */
-export async function moveViewportToDocumentBottom(container) {
+export async function moveViewportToDocumentBottom(workZone) {
 
     clickBottomNavItem();
 
-    await waitLayoutStable(container);
+    await waitLayoutStable(workZone);
 
-    scrollTo(container, scrollHeight(container));
+    workZone.moveToSupplyEnd();
 
-    await waitLayoutStable(container);
+    await waitLayoutStable(workZone);
 
     const decks = getDecks();
 
     const boundary = decks.length > 0
         ? decks[0].getBoundingClientRect().bottom
-        : clientHeight(container);
+        : workZone.height;
 
     return {
         room: boundary,

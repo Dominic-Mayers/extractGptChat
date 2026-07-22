@@ -36,7 +36,8 @@ function removeDiagnostics(source) {
     );
     return output
         .replace(/\s*else\s*\{\s*\}/g, '')
-        .replace(/\n{3,}/g, '\n\n');
+        .replace(/\n{3,}/g, '\n\n')
+        .trimEnd() + '\n';
 }
 
 function removeFunctionsDiagnostics(source) {

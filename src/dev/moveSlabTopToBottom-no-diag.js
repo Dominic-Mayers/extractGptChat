@@ -1,9 +1,9 @@
-import { clientHeight } from "./scrollContainer-no-diag.js";
 import { moveAnchorToBottom } from "./moveAnchorToBottom-no-diag.js";
 import { slabType } from "./slabType-no-diag.js";
-import { getAnchorsIn } from "./getAnchorsIn-no-diag.js";
-export async function moveSlabTopToBottom(current, container, direction = -1) {
+import { boundaryAnchor, getAnchorsIn } from "./getAnchorsIn-no-diag.js";
+export async function moveSlabTopToBottom(current, workZone) {
     const type = slabType(current);
+    const slabTop = boundaryAnchor(current, "top");
 
     if (type === "unknown") {
         throw new Error("Cannot move an unknown slab type.");
@@ -14,26 +14,22 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
         await waitImageReady(current);
 
         return moveAnchorToBottom(
-            current,
-            container,
-            direction,
-            measureRoom,
+            slabTop,
+            workZone,
             Infinity
         );
     }
 
     let room = measuredSlabRoom(
-        current,
-        container,
-        direction,
+        slabTop,
+        workZone,
         "initial"
     );
 
     while (room < 0) {
         const anchors = measuredAnchorSearch(
             current,
-            container,
-            direction,
+            workZone,
             "work-zone-entry"
         );
         const anchor = anchors[0];
@@ -43,86 +39,38 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
 
         await moveAnchorToBottom(
             anchor,
-            container,
-            direction,
-            measureAnchorRoom
+            workZone
         );
         room = measuredSlabRoom(
-            current,
-            container,
-            direction,
+            slabTop,
+            workZone,
             "after-anchor-movement"
         );
     }
 
-    const anchors = measuredAnchorSearch(
-        current,
-        container,
-        direction,
-        "final-placement"
-    );
-    const selectionStartedAt = performance.now();
-    const selectionStartedWallAt = Date.now();
-    const currentRect = current.getBoundingClientRect();
-    const anchor = anchors.find(candidate => {
-        const boundary = candidate.getBoundingClientRect().top;
-        return boundary >= currentRect.top && boundary <= currentRect.bottom;
-    });
-
-    if (!anchor) {
-        throw new Error(
-            "No ready visible anchor found for final slab movement."
-        );
-    }
-
     await moveAnchorToBottom(
-        anchor,
-        container,
-        direction,
-        measureAnchorRoom
+        slabTop,
+        workZone
     );
     return measuredSlabRoom(
-        current,
-        container,
-        direction,
+        slabTop,
+        workZone,
         "after-final-anchor-movement"
     );
 }
 
-function measuredSlabRoom(current, container, direction, phase) {
-    const startedAt = performance.now();
-    const startedWallAt = Date.now();
-    const room = measureRoom(current, container, direction);
+function measuredSlabRoom(slabTop, workZone, phase) {
+
+    const room = workZone.roomAheadOf(slabTop);
 
     return room;
 }
 
-function measuredAnchorSearch(current, container, direction, phase) {
-    const startedAt = performance.now();
-    const startedWallAt = Date.now();
-    const anchors = getAnchorsIn(current, container, direction);
+function measuredAnchorSearch(current, workZone, phase) {
+
+    const anchors = getAnchorsIn(current, workZone);
 
     return anchors;
-}
-
-export function measureRoom(current, container, direction) {
-    const viewportHeight = clientHeight(container);
-    const rect = current.getBoundingClientRect();
-    return direction < 0
-        ? rect.top
-        : viewportHeight - rect.bottom;
-}
-
-export function measureAnchorRoom(anchor, container, direction) {
-    const viewportHeight = clientHeight(container);
-    const viewportTop = container === document.documentElement
-        ? 0
-        : container.getBoundingClientRect().top;
-    const rect = anchor.element.getBoundingClientRect();
-    const boundary = rect[anchor.edge];
-    return direction < 0
-        ? boundary - viewportTop
-        : viewportTop + viewportHeight - boundary;
 }
 
 async function waitImageReady(current) {
