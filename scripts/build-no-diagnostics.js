@@ -40,7 +40,7 @@ function removeDiagnostics(source) {
 }
 
 function removeFunctionsDiagnostics(source) {
-    const pattern = /(?:export\s+)?function\s+\w+Diagnostics\s*\(/g;
+    const pattern = /(?:export\s+)?(?:async\s+)?function\s+\w+Diagnostics\s*\(/g;
     let output = source;
     let match;
 

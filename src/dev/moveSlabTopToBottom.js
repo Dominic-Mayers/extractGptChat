@@ -5,6 +5,7 @@ import { getAnchorsIn } from "./getAnchorsIn.js";
 import {
     beginPendingAwaitDiagnostics,
     finishPendingAwaitDiagnostics,
+    recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 
@@ -34,10 +35,20 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
         );
     }
 
-    let room = measureRoom(current, container, direction);
+    let room = measuredSlabRoom(
+        current,
+        container,
+        direction,
+        "initial"
+    );
 
     while (room < 0) {
-        const anchors = getAnchorsIn(current, container, direction);
+        const anchors = measuredAnchorSearch(
+            current,
+            container,
+            direction,
+            "work-zone-entry"
+        );
         const anchor = anchors[0];
         if (!anchor) {
             throw new Error("No ready visible anchor found in current slab.");
@@ -49,14 +60,33 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
             direction,
             measureAnchorRoom
         );
-        room = measureRoom(current, container, direction);
+        room = measuredSlabRoom(
+            current,
+            container,
+            direction,
+            "after-anchor-movement"
+        );
     }
 
-    const anchors = getAnchorsIn(current, container, direction);
+    const anchors = measuredAnchorSearch(
+        current,
+        container,
+        direction,
+        "final-placement"
+    );
+    const selectionStartedAt = performance.now();
+    const selectionStartedWallAt = Date.now();
     const currentRect = current.getBoundingClientRect();
     const anchor = anchors.find(candidate => {
         const boundary = candidate.getBoundingClientRect().top;
         return boundary >= currentRect.top && boundary <= currentRect.bottom;
+    });
+    recordCycleStageDiagnostics("anchor-selection", {
+        phase: "final-placement",
+        elapsedMs: performance.now() - selectionStartedAt,
+        wallElapsedMs: Date.now() - selectionStartedWallAt,
+        anchorCount: anchors.length,
+        found: anchor != null
     });
     if (!anchor) {
         throw new Error(
@@ -70,7 +100,38 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
         direction,
         measureAnchorRoom
     );
-    return measureRoom(current, container, direction);
+    return measuredSlabRoom(
+        current,
+        container,
+        direction,
+        "after-final-anchor-movement"
+    );
+}
+
+function measuredSlabRoom(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const room = measureRoom(current, container, direction);
+    recordCycleStageDiagnostics("slab-room-measurement", {
+        phase,
+        elapsedMs: performance.now() - startedAt,
+        wallElapsedMs: Date.now() - startedWallAt,
+        room
+    });
+    return room;
+}
+
+function measuredAnchorSearch(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const anchors = getAnchorsIn(current, container, direction);
+    recordCycleStageDiagnostics("anchor-search", {
+        phase,
+        elapsedMs: performance.now() - startedAt,
+        wallElapsedMs: Date.now() - startedWallAt,
+        anchorCount: anchors.length
+    });
+    return anchors;
 }
 
 export function measureRoom(current, container, direction) {

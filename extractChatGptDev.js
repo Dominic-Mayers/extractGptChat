@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.50
+// @version      1.77
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -41,13 +41,14 @@
   // src/dev/constants.js
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
+  var TOLERATED_ROUNDING = 1;
   var MAX_SLAB_GAP = 160;
   var MAX_DECK_GAP = 20;
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
   var MIN_SCROLL_HEIGHT_CHANGE = 20;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
-  var ACTIVATION_DISTANCE = 1e3;
+  var ACTIVATION_DISTANCE = 3e3;
 
   // src/dev/cycleDiagnostics.js
   var previousCycle = null;
@@ -56,6 +57,7 @@
   var runWallOriginDiagnostics = 0;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
+  var SLOW_SLAB_MS = 2e3;
   var pendingTimersDiagnostics = /* @__PURE__ */ new WeakMap();
   var selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
   var emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
@@ -68,13 +70,16 @@
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
   function beginCycleDiagnostics(data) {
+    finishCycleTimingDiagnostics(currentCycle);
     emitCompletedSelectionDiagnostics();
     previousCycle = currentCycle;
     currentCycle = {
       ...data,
       startedClock: clockDiagnostics(),
       stages: [],
-      jumps: []
+      jumps: [],
+      startedWallAtDiagnostics: Date.now(),
+      startedAtDiagnostics: performance.now()
     };
   }
   function beginJumpDiagnostics(data) {
@@ -136,18 +141,6 @@
     stabilizationDiagnostics.rafs.push(rafDiagnostics);
     armSlowAwaitDiagnostics(rafDiagnostics, "rAF");
   }
-  function beginBeforeJumpRafDiagnostics() {
-    const jumpDiagnostics = currentJumpDiagnostics();
-    if (!jumpDiagnostics) return;
-    const rafDiagnostics = {
-      status: "waiting-rAF",
-      startedClock: clockDiagnostics(),
-      startedWallAtDiagnostics: Date.now(),
-      startedAtDiagnostics: performance.now()
-    };
-    jumpDiagnostics.beforeJumpRaf = rafDiagnostics;
-    armSlowAwaitDiagnostics(rafDiagnostics, "before-jump-rAF");
-  }
   function beginPendingAwaitDiagnostics(awaitType, data = {}) {
     if (!currentCycle) return;
     const awaitDiagnostics = {
@@ -179,19 +172,6 @@
       selectJumpDiagnostics(`slow-${awaitDiagnostics.awaitType}`);
       currentCycle.forceLogDiagnostics = true;
     }
-  }
-  function finishBeforeJumpRafDiagnostics() {
-    const rafDiagnostics = currentJumpDiagnostics()?.beforeJumpRaf;
-    if (!rafDiagnostics) return;
-    disarmSlowAwaitDiagnostics(rafDiagnostics);
-    Object.assign(rafDiagnostics, {
-      elapsedMs: performance.now() - rafDiagnostics.startedAtDiagnostics,
-      wallElapsedMs: Date.now() - rafDiagnostics.startedWallAtDiagnostics,
-      finishedClock: clockDiagnostics(),
-      status: "complete"
-    });
-    delete rafDiagnostics.startedAtDiagnostics;
-    delete rafDiagnostics.startedWallAtDiagnostics;
   }
   function finishRafWaitDiagnostics(data = {}) {
     const rafDiagnostics = currentRafDiagnostics();
@@ -376,6 +356,7 @@
     return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   }
   function logCycleContextDiagnostics() {
+    finishCycleTimingDiagnostics(currentCycle);
     emitSlabDiagnostics(previousCycle, "PREVIOUS");
     emitSlabDiagnostics(currentCycle, "CURRENT", true);
   }
@@ -392,7 +373,6 @@
       currentCycle.pendingAwait,
       yieldDiagnostics,
       rafDiagnostics,
-      jumpDiagnostics?.beforeJumpRaf,
       stabilizationDiagnostics,
       jumpDiagnostics
     ];
@@ -406,10 +386,12 @@
     emitPendingCycleDiagnostics(currentCycle, activeDiagnostics);
   }
   function selectCurrentJumpDiagnostics(reason = "selected") {
+    if (reason == null) return;
     selectJumpDiagnostics(reason);
   }
   function flushCycleDiagnostics() {
     if (!currentCycle) return;
+    finishCycleTimingDiagnostics(currentCycle);
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
   }
@@ -437,6 +419,36 @@
   function cycleHasSelectedJumpDiagnostics(cycle) {
     return cycle?.jumps.some((jump) => selectedJumpReasonsDiagnostics.has(jump)) ?? false;
   }
+  function finishCycleTimingDiagnostics(cycle) {
+    if (!cycle || cycle.elapsedMs != null) return;
+    cycle.elapsedMs = performance.now() - cycle.startedAtDiagnostics;
+    cycle.wallElapsedMs = Date.now() - cycle.startedWallAtDiagnostics;
+    delete cycle.startedAtDiagnostics;
+    delete cycle.startedWallAtDiagnostics;
+    if (Math.max(cycle.elapsedMs, cycle.wallElapsedMs) < SLOW_SLAB_MS) return;
+    cycle.forceLogDiagnostics = true;
+    cycle.stages.push({
+      stage: "slow-slab",
+      clock: clockDiagnostics(),
+      elapsedMs: cycle.elapsedMs,
+      wallElapsedMs: cycle.wallElapsedMs,
+      thresholdMs: SLOW_SLAB_MS
+    });
+    let slowestJump = null;
+    let slowestJumpElapsed = -Infinity;
+    for (const jump of cycle.jumps) {
+      const elapsed = Math.max(
+        jump.elapsedMs ?? 0,
+        jump.wallElapsedMs ?? 0
+      );
+      if (elapsed <= slowestJumpElapsed) continue;
+      slowestJump = jump;
+      slowestJumpElapsed = elapsed;
+    }
+    if (slowestJump) {
+      selectedJumpReasonsDiagnostics.set(slowestJump, "slow-slab");
+    }
+  }
   function emitSlabDiagnostics(cycle, context, selectedOnly = false) {
     if (!cycle || emittedCyclesDiagnostics.has(cycle)) return;
     console.log([
@@ -444,8 +456,7 @@
       `     ${formatObjectDiagnostics(cycle, [
         "cycle",
         "stages",
-        "jumps",
-        "pendingAwait"
+        "jumps"
       ])}`
     ].join("\n"));
     const includedJumpIndexes = selectedOnly ? selectedJumpIndexesDiagnostics(cycle) : [];
@@ -462,8 +473,32 @@
     emittedCyclesDiagnostics.add(cycle);
   }
   function relevantStagesDiagnostics(cycle) {
-    const relevantStages = /* @__PURE__ */ new Set(["selected", "stop", "error"]);
-    return cycle.stages.map((stage, index) => ({ stage, index })).filter(({ stage }) => relevantStages.has(stage.stage));
+    const relevantStages = /* @__PURE__ */ new Set(["selected", "stop", "error", "slow-slab"]);
+    const slowSlabTimingStages = /* @__PURE__ */ new Set([
+      "anchor-bottom-check",
+      "slab-room-measurement",
+      "anchor-search",
+      "anchor-selection",
+      "deck-room",
+      "deck-decision",
+      "deck-search",
+      "deck-active"
+    ]);
+    const isSlowSlab = cycle.stages.some((stage) => stage.stage === "slow-slab");
+    return cycle.stages.map((stage, index) => ({ stage, index })).filter(
+      ({ stage }) => relevantStages.has(stage.stage) || isSlowSlab && slowSlabTimingStages.has(stage.stage) && stageIsUsefulSlowTimingDiagnostics(stage) || stage.stage === "deck-active" && Math.max(stage.waitedMs ?? 0, 0) >= SLOW_AWAIT_MS
+    );
+  }
+  function stageIsUsefulSlowTimingDiagnostics(stage) {
+    if ([
+      "anchor-bottom-check",
+      "slab-room-measurement",
+      "anchor-search",
+      "anchor-selection"
+    ].includes(stage.stage)) {
+      return Math.max(stage.elapsedMs ?? 0, stage.wallElapsedMs ?? 0) >= SLOW_AWAIT_MS;
+    }
+    return true;
   }
   function selectedJumpIndexesDiagnostics(cycle) {
     const indexes = /* @__PURE__ */ new Set();
@@ -616,8 +651,8 @@
     };
   }
 
-  // src/dev/nextReadyDeck.js
-  async function nextReadyDeck(deckRoom, currentDeck = null) {
+  // src/dev/nextActiveDeck.js
+  async function nextActiveDeck(deckRoom, currentDeck = null) {
     const area = areaAhead(
       deckRoom,
       MAX_DECK_GAP
@@ -641,25 +676,25 @@
       candidates: candidates.map(snapshotElementDiagnostics),
       excludedCurrent: snapshotElementDiagnostics(currentDeck),
       selected: snapshotElementDiagnostics(deck),
-      readiness: deck?.getAttribute("data-is-intersecting") ?? null
+      activation: deck?.getAttribute("data-is-intersecting") ?? null
     });
     if (deck == null) {
       return null;
     }
     const startedAtDiagnostics = performance.now();
-    beginPendingAwaitDiagnostics("deck-readiness", {
+    beginPendingAwaitDiagnostics("deck-activation", {
       deck: snapshotElementDiagnostics(deck),
-      readiness: deck.getAttribute("data-is-intersecting")
+      activation: deck.getAttribute("data-is-intersecting")
     });
-    await waitDeckReady(deck);
+    await waitDeckActive(deck);
     finishPendingAwaitDiagnostics({
       deck: snapshotElementDiagnostics(deck),
-      readiness: deck.getAttribute("data-is-intersecting")
+      activation: deck.getAttribute("data-is-intersecting")
     });
-    recordCycleStageDiagnostics("deck-ready", {
+    recordCycleStageDiagnostics("deck-active", {
       waitedMs: performance.now() - startedAtDiagnostics,
       deck: snapshotElementDiagnostics(deck),
-      readiness: deck.getAttribute("data-is-intersecting")
+      activation: deck.getAttribute("data-is-intersecting")
     });
     return deck;
   }
@@ -680,18 +715,18 @@
       return rb.bottom - ra.bottom;
     });
   }
-  function isDeckReady(deck) {
+  function isDeckActive(deck) {
     return deck.dataset.isIntersecting !== void 0 && deck.dataset.isIntersecting !== "false";
   }
-  async function waitDeckReady(deck, {
+  async function waitDeckActive(deck, {
     timeout = 1e4,
     poll = 100
   } = {}) {
-    if (isDeckReady(deck)) {
+    if (isDeckActive(deck)) {
       return;
     }
     const deadline = Date.now() + timeout;
-    while (!isDeckReady(deck)) {
+    while (!isDeckActive(deck)) {
       if (!deck.isConnected) {
         throw new Error(
           "Deck detached while waiting for readiness."
@@ -699,7 +734,7 @@
       }
       if (Date.now() >= deadline) {
         throw new Error(
-          "Timed out waiting for deck readiness."
+          "Timed out waiting for deck activation."
         );
       }
       await new Promise(
@@ -876,15 +911,14 @@
       logSlowJumpDiagnosticsIfNeeded();
       return room2;
     }
-    await waitLayoutStable(container, {
-      current: anchor,
-      direction,
-      measureReferenceRoom: measureAnchorRoom2,
-      phase: "pre-anchor-move"
-    });
     let room = measureAnchorRoom2(anchor, container, direction);
-    let retriedCancelledJump = false;
-    if (isAnchorAtBottom(container, room)) {
+    let retriedErasedJump = false;
+    let anchorAtBottom = measuredAnchorBottomCheck(
+      container,
+      room,
+      "before-first-jump"
+    );
+    if (anchorAtBottom) {
       finishJumpDiagnostics({
         roomBefore: room,
         obtainedRoom: room,
@@ -893,7 +927,7 @@
       logSlowJumpDiagnosticsIfNeeded();
       return room;
     }
-    while (!isAnchorAtBottom(container, room)) {
+    while (!anchorAtBottom) {
       beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchor)
@@ -908,11 +942,6 @@
         logSlowJumpDiagnosticsIfNeeded();
         return room;
       }
-      beginBeforeJumpRafDiagnostics();
-      await nextAnimationFrame();
-      finishBeforeJumpRafDiagnostics();
-      room = measureAnchorRoom2(anchor, container, direction);
-      if (isAnchorAtBottom(container, room)) break;
       const jump = clampJump(calibratedJump, room, container);
       const scrollYBefore = scrollY(container);
       beginOrContinueJumpDiagnostics({
@@ -943,7 +972,7 @@
       const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(container, direction);
       const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
       updateJumpDiagnostics({ roomUntilFirstNotReadyDeck });
-      const stabilization = await waitLayoutStable(container, {
+      const postJumpStabilization = await waitLayoutStable(container, {
         current: anchor,
         direction,
         stableFrames,
@@ -952,29 +981,54 @@
       });
       const obtainedRoom = measureAnchorRoom2(anchor, container, direction);
       finishJumpDiagnostics({
-        stabilization,
+        postJumpStabilization,
         obtainedRoom,
         settledAnchor: snapshotElementDiagnostics(anchor)
       });
       logStabilizedJumpDiagnosticsIfNeeded();
-      if (obtainedRoom === room && retriedCancelledJump) {
+      const jumpWasErased = obtainedRoom === room;
+      if (jumpWasErased && retriedErasedJump) {
+        selectCurrentJumpDiagnostics("erased-jump-retry-failed");
         throw new Error(
-          `Anchor made no progress after retrying a cancelled jump at room=${room}.`
+          `Anchor made no progress after retrying an erased jump at room=${room}.`
         );
       }
-      retriedCancelledJump = obtainedRoom === room;
+      selectCurrentJumpDiagnostics(
+        jumpWasErased ? "erased-jump" : retriedErasedJump ? "erased-jump-retry-succeeded" : null
+      );
+      retriedErasedJump = jumpWasErased;
       room = obtainedRoom;
+      anchorAtBottom = measuredAnchorBottomCheck(
+        container,
+        room,
+        "after-post-jump-stabilization"
+      );
     }
     return room;
+  }
+  function measuredAnchorBottomCheck(container, room, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const viewportHeight = clientHeight(container);
+    const targetRoom = viewportHeight - MIN_INTERSECT;
+    const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
+    recordCycleStageDiagnostics("anchor-bottom-check", {
+      phase,
+      elapsedMs: performance.now() - startedAt,
+      wallElapsedMs: Date.now() - startedWallAt,
+      room,
+      viewportHeight,
+      targetRoom,
+      toleratedRounding: TOLERATED_ROUNDING,
+      atBottom
+    });
+    return atBottom;
   }
   function clampJump(calibratedJump, room, container) {
     return Math.min(
       calibratedJump,
       clientHeight(container) - MIN_INTERSECT - room
     );
-  }
-  function isAnchorAtBottom(container, room) {
-    return room >= clientHeight(container) - MIN_INTERSECT;
   }
   function isScrollBoundaryReached(container, direction) {
     const position = scrollY(container);
@@ -1174,9 +1228,19 @@
         Infinity
       );
     }
-    let room = measureRoom(current, container, direction);
+    let room = measuredSlabRoom(
+      current,
+      container,
+      direction,
+      "initial"
+    );
     while (room < 0) {
-      const anchors2 = getAnchorsIn(current, container, direction);
+      const anchors2 = measuredAnchorSearch(
+        current,
+        container,
+        direction,
+        "work-zone-entry"
+      );
       const anchor2 = anchors2[0];
       if (!anchor2) {
         throw new Error("No ready visible anchor found in current slab.");
@@ -1187,13 +1251,32 @@
         direction,
         measureAnchorRoom
       );
-      room = measureRoom(current, container, direction);
+      room = measuredSlabRoom(
+        current,
+        container,
+        direction,
+        "after-anchor-movement"
+      );
     }
-    const anchors = getAnchorsIn(current, container, direction);
+    const anchors = measuredAnchorSearch(
+      current,
+      container,
+      direction,
+      "final-placement"
+    );
+    const selectionStartedAt = performance.now();
+    const selectionStartedWallAt = Date.now();
     const currentRect = current.getBoundingClientRect();
     const anchor = anchors.find((candidate) => {
       const boundary = candidate.getBoundingClientRect().top;
       return boundary >= currentRect.top && boundary <= currentRect.bottom;
+    });
+    recordCycleStageDiagnostics("anchor-selection", {
+      phase: "final-placement",
+      elapsedMs: performance.now() - selectionStartedAt,
+      wallElapsedMs: Date.now() - selectionStartedWallAt,
+      anchorCount: anchors.length,
+      found: anchor != null
     });
     if (!anchor) {
       throw new Error(
@@ -1206,7 +1289,36 @@
       direction,
       measureAnchorRoom
     );
-    return measureRoom(current, container, direction);
+    return measuredSlabRoom(
+      current,
+      container,
+      direction,
+      "after-final-anchor-movement"
+    );
+  }
+  function measuredSlabRoom(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const room = measureRoom(current, container, direction);
+    recordCycleStageDiagnostics("slab-room-measurement", {
+      phase,
+      elapsedMs: performance.now() - startedAt,
+      wallElapsedMs: Date.now() - startedWallAt,
+      room
+    });
+    return room;
+  }
+  function measuredAnchorSearch(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const anchors = getAnchorsIn(current, container, direction);
+    recordCycleStageDiagnostics("anchor-search", {
+      phase,
+      elapsedMs: performance.now() - startedAt,
+      wallElapsedMs: Date.now() - startedWallAt,
+      anchorCount: anchors.length
+    });
+    return anchors;
   }
   function measureRoom(current, container, direction) {
     const viewportHeight = clientHeight(container);
@@ -1315,7 +1427,7 @@
           needsDeck: slab == null
         });
         if (slab == null) {
-          deck = await nextReadyDeck(deckRoom, deck);
+          deck = await nextActiveDeck(deckRoom, deck);
           if (deck == null) {
             recordCycleStageDiagnostics("stop", {
               reason: "no-next-deck"
@@ -1325,7 +1437,7 @@
           deckCountDiagnostics++;
           deckRoom = deck.getBoundingClientRect().top;
           slab = nextSlab(room, deck);
-          if (!slab) throw new Error("No slab found in ready deck.");
+          if (!slab) throw new Error("No slab found in active deck.");
         }
         current = slab;
         slabCountDiagnostics++;
@@ -1351,7 +1463,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.50" : "unbuilt";
+  var VERSION = true ? "1.77" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

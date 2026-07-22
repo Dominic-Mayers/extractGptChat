@@ -5,6 +5,7 @@ let runWallOriginDiagnostics = 0;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
+const SLOW_SLAB_MS = 2000;
 
 const pendingTimersDiagnostics = new WeakMap();
 let selectedJumpReasonsDiagnostics = new WeakMap();
@@ -20,13 +21,16 @@ export function resetCycleDiagnostics() {
 }
 
 export function beginCycleDiagnostics(data) {
+    finishCycleTimingDiagnostics(currentCycle);
     emitCompletedSelectionDiagnostics();
     previousCycle = currentCycle;
     currentCycle = {
         ...data,
         startedClock: clockDiagnostics(),
         stages: [],
-        jumps: []
+        jumps: [],
+        startedWallAtDiagnostics: Date.now(),
+        startedAtDiagnostics: performance.now()
     };
 }
 
@@ -96,19 +100,6 @@ export function beginRafDiagnostics(data = {}) {
     armSlowAwaitDiagnostics(rafDiagnostics, "rAF");
 }
 
-export function beginBeforeJumpRafDiagnostics() {
-    const jumpDiagnostics = currentJumpDiagnostics();
-    if (!jumpDiagnostics) return;
-    const rafDiagnostics = {
-        status: "waiting-rAF",
-        startedClock: clockDiagnostics(),
-        startedWallAtDiagnostics: Date.now(),
-        startedAtDiagnostics: performance.now()
-    };
-    jumpDiagnostics.beforeJumpRaf = rafDiagnostics;
-    armSlowAwaitDiagnostics(rafDiagnostics, "before-jump-rAF");
-}
-
 export function beginPendingAwaitDiagnostics(awaitType, data = {}) {
     if (!currentCycle) return;
     const awaitDiagnostics = {
@@ -141,20 +132,6 @@ export function finishPendingAwaitDiagnostics(data = {}) {
         selectJumpDiagnostics(`slow-${awaitDiagnostics.awaitType}`);
         currentCycle.forceLogDiagnostics = true;
     }
-}
-
-export function finishBeforeJumpRafDiagnostics() {
-    const rafDiagnostics = currentJumpDiagnostics()?.beforeJumpRaf;
-    if (!rafDiagnostics) return;
-    disarmSlowAwaitDiagnostics(rafDiagnostics);
-    Object.assign(rafDiagnostics, {
-        elapsedMs: performance.now() - rafDiagnostics.startedAtDiagnostics,
-        wallElapsedMs: Date.now() - rafDiagnostics.startedWallAtDiagnostics,
-        finishedClock: clockDiagnostics(),
-        status: "complete"
-    });
-    delete rafDiagnostics.startedAtDiagnostics;
-    delete rafDiagnostics.startedWallAtDiagnostics;
 }
 
 export function finishRafWaitDiagnostics(data = {}) {
@@ -385,6 +362,7 @@ function escapeAttributeDiagnostics(value) {
 }
 
 export function logCycleContextDiagnostics() {
+    finishCycleTimingDiagnostics(currentCycle);
     emitSlabDiagnostics(previousCycle, "PREVIOUS");
     emitSlabDiagnostics(currentCycle, "CURRENT", true);
 }
@@ -403,7 +381,6 @@ export function logActiveTraversalDiagnostics() {
         currentCycle.pendingAwait,
         yieldDiagnostics,
         rafDiagnostics,
-        jumpDiagnostics?.beforeJumpRaf,
         stabilizationDiagnostics,
         jumpDiagnostics
     ];
@@ -423,11 +400,13 @@ export function logActiveTraversalDiagnostics() {
 }
 
 export function selectCurrentJumpDiagnostics(reason = "selected") {
+    if (reason == null) return;
     selectJumpDiagnostics(reason);
 }
 
 export function flushCycleDiagnostics() {
     if (!currentCycle) return;
+    finishCycleTimingDiagnostics(currentCycle);
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
 }
@@ -462,13 +441,47 @@ function cycleHasSelectedJumpDiagnostics(cycle) {
     return cycle?.jumps.some(jump => selectedJumpReasonsDiagnostics.has(jump)) ?? false;
 }
 
+function finishCycleTimingDiagnostics(cycle) {
+    if (!cycle || cycle.elapsedMs != null) return;
+
+    cycle.elapsedMs = performance.now() - cycle.startedAtDiagnostics;
+    cycle.wallElapsedMs = Date.now() - cycle.startedWallAtDiagnostics;
+    delete cycle.startedAtDiagnostics;
+    delete cycle.startedWallAtDiagnostics;
+
+    if (Math.max(cycle.elapsedMs, cycle.wallElapsedMs) < SLOW_SLAB_MS) return;
+
+    cycle.forceLogDiagnostics = true;
+    cycle.stages.push({
+        stage: "slow-slab",
+        clock: clockDiagnostics(),
+        elapsedMs: cycle.elapsedMs,
+        wallElapsedMs: cycle.wallElapsedMs,
+        thresholdMs: SLOW_SLAB_MS
+    });
+    let slowestJump = null;
+    let slowestJumpElapsed = -Infinity;
+    for (const jump of cycle.jumps) {
+        const elapsed = Math.max(
+            jump.elapsedMs ?? 0,
+            jump.wallElapsedMs ?? 0
+        );
+        if (elapsed <= slowestJumpElapsed) continue;
+        slowestJump = jump;
+        slowestJumpElapsed = elapsed;
+    }
+    if (slowestJump) {
+        selectedJumpReasonsDiagnostics.set(slowestJump, "slow-slab");
+    }
+}
+
 function emitSlabDiagnostics(cycle, context, selectedOnly = false) {
     if (!cycle || emittedCyclesDiagnostics.has(cycle)) return;
 
     console.log([
         `════ ${context} SLAB ${cycle.slabCount} START ════`,
         `     ${formatObjectDiagnostics(cycle, [
-            "cycle", "stages", "jumps", "pendingAwait"
+            "cycle", "stages", "jumps"
         ])}`
     ].join("\n"));
 
@@ -493,10 +506,40 @@ function emitSlabDiagnostics(cycle, context, selectedOnly = false) {
 }
 
 function relevantStagesDiagnostics(cycle) {
-    const relevantStages = new Set(["selected", "stop", "error"]);
+    const relevantStages = new Set(["selected", "stop", "error", "slow-slab"]);
+    const slowSlabTimingStages = new Set([
+        "anchor-bottom-check",
+        "slab-room-measurement",
+        "anchor-search",
+        "anchor-selection",
+        "deck-room",
+        "deck-decision",
+        "deck-search",
+        "deck-active"
+    ]);
+    const isSlowSlab = cycle.stages.some(stage => stage.stage === "slow-slab");
     return cycle.stages
         .map((stage, index) => ({ stage, index }))
-        .filter(({ stage }) => relevantStages.has(stage.stage));
+        .filter(({ stage }) =>
+            relevantStages.has(stage.stage) ||
+            (isSlowSlab && slowSlabTimingStages.has(stage.stage) &&
+                stageIsUsefulSlowTimingDiagnostics(stage)) ||
+            (stage.stage === "deck-active" &&
+                Math.max(stage.waitedMs ?? 0, 0) >= SLOW_AWAIT_MS)
+        );
+}
+
+function stageIsUsefulSlowTimingDiagnostics(stage) {
+    if ([
+        "anchor-bottom-check",
+        "slab-room-measurement",
+        "anchor-search",
+        "anchor-selection"
+    ].includes(stage.stage)) {
+        return Math.max(stage.elapsedMs ?? 0, stage.wallElapsedMs ?? 0) >=
+            SLOW_AWAIT_MS;
+    }
+    return true;
 }
 
 function selectedJumpIndexesDiagnostics(cycle) {

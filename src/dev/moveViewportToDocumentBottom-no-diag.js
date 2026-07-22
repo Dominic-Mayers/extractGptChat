@@ -10,7 +10,7 @@ import {
     scrollTo,
     clientHeight
 } from "./scrollContainer-no-diag.js";
-import { getDecks } from "./nextReadyDeck-no-diag.js";
+import { getDecks } from "./nextActiveDeck-no-diag.js";
 
 /**
  * Move the viewport to the bottom of the conversation.

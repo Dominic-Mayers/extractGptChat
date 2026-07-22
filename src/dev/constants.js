@@ -1,9 +1,10 @@
 export const MINIMUM_SLAB_HEIGHT = 90;
 export const MIN_INTERSECT = 80 // Aproximatively 0.1 * viewportHeight. 
+export const TOLERATED_ROUNDING = 1;
 export const MAX_SLAB_GAP = 160; // Including across decks
 export const MAX_DECK_GAP = 20;
 export const CALIBRATED_JUMP = 480;
 export const MAX_DRIFT = 2;
 export const MIN_SCROLL_HEIGHT_CHANGE = 20;
 export const ADJACENCY_OVERLAP_TOLERANCE = 2; // sub-pixel rendering noise, not real overlap
-export const ACTIVATION_DISTANCE = 1000;
+export const ACTIVATION_DISTANCE = 3000; // Test value for exposing multi-frame oscillation.

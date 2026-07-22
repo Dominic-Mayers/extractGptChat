@@ -1,30 +1,23 @@
-// nextReadyDeck.js
+// nextActiveDeck.js
 
 import {
     areaAhead,
     intersecting,
     closest
-} from "./geometry.js";
+} from "./geometry-no-diag.js";
 import {
    MAX_DECK_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
-} from "./constants.js";
-import {
-    beginPendingAwaitDiagnostics,
-    finishPendingAwaitDiagnostics,
-    recordCycleStageDiagnostics,
-    snapshotElementDiagnostics
-} from "./cycleDiagnostics.js";
-
+} from "./constants-no-diag.js";
 /**
- * Return the next ready deck above the current one.
+ * Return the next active deck above the current one.
  *
  * deckRoom is the room ahead of the current deck (or, at bootstrap,
  * of the imaginary deck at the trailing edge of the viewport) —
  * the deck-level counterpart of the slab-level room in
  * moveSlabTopToBottom.js's measureRoom().
  */
-export async function nextReadyDeck(deckRoom, currentDeck = null) {
+export async function nextActiveDeck(deckRoom, currentDeck = null) {
 
     const area = areaAhead(
         deckRoom,
@@ -44,49 +37,20 @@ export async function nextReadyDeck(deckRoom, currentDeck = null) {
         ADJACENCY_OVERLAP_TOLERANCE
     );
 
-    recordCycleStageDiagnostics("deck-search", {
-        deckRoom,
-        area,
-        deckCount: decks.length,
-        first: snapshotElementDiagnostics(decks[0]),
-        last: snapshotElementDiagnostics(decks[decks.length - 1]),
-        candidates: candidates.map(snapshotElementDiagnostics),
-        excludedCurrent: snapshotElementDiagnostics(currentDeck),
-        selected: snapshotElementDiagnostics(deck),
-        readiness: deck?.getAttribute("data-is-intersecting") ?? null
-    });
-
     if (deck == null) {
 
         return null;
     }
 
-    const startedAtDiagnostics = performance.now();
-
-    beginPendingAwaitDiagnostics("deck-readiness", {
-        deck: snapshotElementDiagnostics(deck),
-        readiness: deck.getAttribute("data-is-intersecting")
-    });
-    await waitDeckReady(deck);
-    finishPendingAwaitDiagnostics({
-        deck: snapshotElementDiagnostics(deck),
-        readiness: deck.getAttribute("data-is-intersecting")
-    });
-
-    recordCycleStageDiagnostics("deck-ready", {
-        waitedMs: performance.now() - startedAtDiagnostics,
-        deck: snapshotElementDiagnostics(deck),
-        readiness: deck.getAttribute("data-is-intersecting")
-    });
+    await waitDeckActive(deck);
 
     return deck;
 }
 
-
 /**
- * Return all deck candidates, regardless of readiness (see
- * ASSUMPTIONS.md A10) — readiness is checked separately by
- * waitDeckReady(), once a candidate has been found geometrically.
+ * Return all deck candidates, regardless of activation (see
+ * ASSUMPTIONS.md A10) — activation is checked separately by
+ * waitDeckActive(), once a candidate has been found geometrically.
  *
  * Borrowed from extractor-app.js's queryDeckSequenceContainers().
  */
@@ -120,12 +84,11 @@ export function getDecks() {
     });
 }
 
-
 /**
- * Return true iff a deck is geometrically ready — see
+ * Return true iff a deck is active — see
  * ASSUMPTIONS.md A3.
  */
-function isDeckReady(deck) {
+function isDeckActive(deck) {
 
     return (
         deck.dataset.isIntersecting !== undefined &&
@@ -133,17 +96,16 @@ function isDeckReady(deck) {
     );
 }
 
-
 /**
- * Wait until a deck becomes geometrically ready.
+ * Wait until a deck becomes active.
  *
- * Readiness is determined solely from
+ * Activation is determined solely from
  *
  *     data-is-intersecting
  *
  * on the deck itself.
  */
-export async function waitDeckReady(
+export async function waitDeckActive(
     deck,
     {
         timeout = 10000,
@@ -151,13 +113,13 @@ export async function waitDeckReady(
     } = {}
 ) {
 
-    if (isDeckReady(deck)) {
+    if (isDeckActive(deck)) {
         return;
     }
 
     const deadline = Date.now() + timeout;
 
-    while (!isDeckReady(deck)) {
+    while (!isDeckActive(deck)) {
 
         if (!deck.isConnected) {
             throw new Error(
@@ -167,7 +129,7 @@ export async function waitDeckReady(
 
         if (Date.now() >= deadline) {
             throw new Error(
-                "Timed out waiting for deck readiness."
+                "Timed out waiting for deck activation."
             );
         }
 

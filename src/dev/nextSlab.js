@@ -17,7 +17,7 @@ import {
 
 /**
  * Return the slab immediately above the current slab
- * in the current ready deck.
+ * in the current active deck.
  *
  * room is the top coordinate of the current slab.
  */
@@ -54,10 +54,10 @@ export function nextSlab(room, deck) {
 
 
 /**
- * Return all slabs contained in a ready deck.
+ * Return all slabs contained in an active deck.
  *
- * A ready deck always contributes at least one slab.
- * Empty ready decks contribute one synthetic empty slab.
+ * An active deck always contributes at least one slab.
+ * Empty active decks contribute one synthetic empty slab.
  */
 export function getSlabsIn(deck) {
 
@@ -83,7 +83,7 @@ export function getSlabsIn(deck) {
     }
 
     //
-    // Empty ready deck
+    // Empty active deck
     //
     if (slabs.length === 0) {
         slabs.push(makeEmptySlab(deck));
@@ -106,7 +106,7 @@ export function getSlabsIn(deck) {
 
 
 /**
- * Synthetic slab representing an empty ready deck.
+ * Synthetic slab representing an empty active deck.
  *
  * Geometry comes from the deck itself.
  */

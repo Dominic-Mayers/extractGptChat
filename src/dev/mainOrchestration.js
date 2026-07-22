@@ -6,7 +6,7 @@
 // traversal.  Content extraction is intentionally omitted.
 
 import { nextSlab } from "./nextSlab.js";
-import { nextReadyDeck } from "./nextReadyDeck.js";
+import { nextActiveDeck } from "./nextActiveDeck.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
 import {
@@ -110,7 +110,7 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            deck = await nextReadyDeck(deckRoom, deck);
+            deck = await nextActiveDeck(deckRoom, deck);
 
             if (deck == null) {
                 recordCycleStageDiagnostics("stop", {
@@ -123,7 +123,7 @@ export async function traverseConversation() {
             deckRoom = deck.getBoundingClientRect().top;
             slab = nextSlab(room, deck);
 
-            if (!slab) throw new Error("No slab found in ready deck.");
+            if (!slab) throw new Error("No slab found in active deck.");
         }
 
         current = slab;

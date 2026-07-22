@@ -57,39 +57,83 @@ Readiness observations determine when the expected objects are ready for use.
 
 Examples include:
 
-- deck readiness (`data-is-intersecting`);
+- deck activation (`data-is-intersecting`);
+- slab or anchor readiness for the next operation;
 - slab readiness for content extraction.
+
+Activation is weaker than readiness. `data-is-intersecting` means that a deck
+is active; it does not mean the deck or all content inside it is ready.
 
 Geometry creates the conditions under which these observations eventually
 become true, but it does not infer readiness from geometric measurements.
 
-An absent `data-is-intersecting` attribute counts as not-ready, the same as
-an explicit `"false"`.
+An absent `data-is-intersecting` attribute counts as inactive, the same as an
+explicit `"false"`.
 
 ## A4. Extremity rendering
 
-The deck-readiness mechanism remains valid at the extremities of the
+The deck-activation mechanism remains valid at the extremities of the
 conversation.
 
 Browser clamping is synchronous. After every viewport move, including one
 that reaches a conversation extremity, the resulting slab position is used as
 the intended room for the subsequent stability check.
 
-## A5. Stable geometry
+## A5. Geometry stability and movement commitment
 
-Work-zone movement requires two consecutive unchanged animation-frame
-observations when the first not-ready deck ahead is within 1000px of the
-viewport, and one observation otherwise.
+Work-zone movement currently requires two consecutive unchanged animation-frame
+observations when the first inactive deck ahead is within 3000px of the
+viewport, and one observation otherwise. The 3000px threshold is experimental
+and is intended to increase the chance of observing a multi-frame oscillation
+inside one stabilization call.
 Work-zone extremity is never cached by the main traversal and is reevaluated on
 every move.
 A non-extremity jump that stabilizes outside the intended room tolerance is an
 error.
 
-Other stabilization callers require two consecutive unchanged animation-frame
-observations.
+There is no separate animation-frame yield or stability wait immediately
+before an anchor jump. The first jump uses geometry read synchronously after
+anchor selection. Each later jump uses geometry remeasured after the preceding
+post-jump stabilization. If that geometry is not usable, the post-jump
+stability condition is too weak and must be improved.
 
-The fingerprint is the scroll container's `scrollHeight` and scroll position
-(`scrollY`/`scrollTop`).
+The current outer-geometry fingerprint is the scroll container's
+`scrollHeight` and scroll position (`scrollY`/`scrollTop`). This fingerprint is
+only evidence of momentary quiet. It does not prove that a jump committed, that
+an active deck has produced a sufficient ready area, or that a slab or anchor
+is ready for its next operation.
+
+ChatGPT can enter a recurring layout-recomputation flicker without any
+extractor jump, especially when browser zoom is not 100%. This is an observed
+correlation, not yet a causal explanation. Flicker must therefore be modeled as
+an independent environmental condition rather than as a consequence of
+extractor movement.
+
+The current working hypothesis is a feedback loop between fractional layout,
+rounding or quantization, and a mechanism that compensates the viewport to
+preserve a reference. This loop may run without the extractor. An rAF does not
+move the viewport by itself, but an exact comparison and subpixel correction
+made after an rAF can couple the extractor to the loop.
+
+A one-CSS-pixel boundary tolerance normally stops subpixel corrections that
+browser quantization cannot apply. It is currently commented out so exact
+comparison exposes the rounding loop during the experiment. It must not be
+generalized to autonomous flicker, which can occur without extractor
+corrections.
+
+Comparable flicker occurs outside ChatGPT. It appears at repeatable locations
+but only intermittently, supporting a timing-dependent race with a stable
+geometric trigger. Do not assume that ChatGPT's virtualizer alone owns the
+failure; browser layout and scroll-position maintenance remain part of the
+system under investigation.
+
+A jump whose immediate scroll delta is later erased during such a
+recomputation is a lost-jump interaction, not merely slow stabilization. The
+responsible mechanism remains an open question; candidates include browser
+scroll anchoring, focus or selection restoration, scroll restoration, ChatGPT
+virtualizer compensation, and preservation of a visual anchor during relayout.
+Diagnostics must compare a no-jump flicker baseline with a jump trial before
+attributing the lost movement to one mechanism.
 
 ## A6. Scroll container
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.50-no-diag
+// @version      1.77-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -41,13 +41,14 @@
   // src/dev/constants-no-diag.js
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
+  var TOLERATED_ROUNDING = 1;
   var MAX_SLAB_GAP = 160;
   var MAX_DECK_GAP = 20;
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
   var MIN_SCROLL_HEIGHT_CHANGE = 20;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
-  var ACTIVATION_DISTANCE = 1e3;
+  var ACTIVATION_DISTANCE = 3e3;
 
   // src/dev/nextSlab-no-diag.js
   function nextSlab(room, deck) {
@@ -104,8 +105,8 @@
     };
   }
 
-  // src/dev/nextReadyDeck-no-diag.js
-  async function nextReadyDeck(deckRoom, currentDeck = null) {
+  // src/dev/nextActiveDeck-no-diag.js
+  async function nextActiveDeck(deckRoom, currentDeck = null) {
     const area = areaAhead(
       deckRoom,
       MAX_DECK_GAP
@@ -123,7 +124,7 @@
     if (deck == null) {
       return null;
     }
-    await waitDeckReady(deck);
+    await waitDeckActive(deck);
     return deck;
   }
   function getDecks() {
@@ -143,18 +144,18 @@
       return rb.bottom - ra.bottom;
     });
   }
-  function isDeckReady(deck) {
+  function isDeckActive(deck) {
     return deck.dataset.isIntersecting !== void 0 && deck.dataset.isIntersecting !== "false";
   }
-  async function waitDeckReady(deck, {
+  async function waitDeckActive(deck, {
     timeout = 1e4,
     poll = 100
   } = {}) {
-    if (isDeckReady(deck)) {
+    if (isDeckActive(deck)) {
       return;
     }
     const deadline = Date.now() + timeout;
-    while (!isDeckReady(deck)) {
+    while (!isDeckActive(deck)) {
       if (!deck.isConnected) {
         throw new Error(
           "Deck detached while waiting for readiness."
@@ -162,7 +163,7 @@
       }
       if (Date.now() >= deadline) {
         throw new Error(
-          "Timed out waiting for deck readiness."
+          "Timed out waiting for deck activation."
         );
       }
       await new Promise(
@@ -302,24 +303,20 @@
       const room2 = measureAnchorRoom2(anchor, container, direction);
       return room2;
     }
-    await waitLayoutStable(container, {
-      current: anchor,
-      direction,
-      measureReferenceRoom: measureAnchorRoom2,
-      phase: "pre-anchor-move"
-    });
     let room = measureAnchorRoom2(anchor, container, direction);
-    let retriedCancelledJump = false;
-    if (isAnchorAtBottom(container, room)) {
+    let retriedErasedJump = false;
+    let anchorAtBottom = measuredAnchorBottomCheck(
+      container,
+      room,
+      "before-first-jump"
+    );
+    if (anchorAtBottom) {
       return room;
     }
-    while (!isAnchorAtBottom(container, room)) {
+    while (!anchorAtBottom) {
       if (isScrollBoundaryReached(container, direction)) {
         return room;
       }
-      await nextAnimationFrame();
-      room = measureAnchorRoom2(anchor, container, direction);
-      if (isAnchorAtBottom(container, room)) break;
       const jump = clampJump(calibratedJump, room, container);
       const scrollYBefore = scrollY(container);
       performJump(jump, container, direction);
@@ -330,7 +327,7 @@
       }
       const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(container, direction);
       const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
-      const stabilization = await waitLayoutStable(container, {
+      const postJumpStabilization = await waitLayoutStable(container, {
         current: anchor,
         direction,
         stableFrames,
@@ -338,24 +335,35 @@
         phase: "post-jump"
       });
       const obtainedRoom = measureAnchorRoom2(anchor, container, direction);
-      if (obtainedRoom === room && retriedCancelledJump) {
+      const jumpWasErased = obtainedRoom === room;
+      if (jumpWasErased && retriedErasedJump) {
         throw new Error(
-          `Anchor made no progress after retrying a cancelled jump at room=${room}.`
+          `Anchor made no progress after retrying an erased jump at room=${room}.`
         );
       }
-      retriedCancelledJump = obtainedRoom === room;
+      retriedErasedJump = jumpWasErased;
       room = obtainedRoom;
+      anchorAtBottom = measuredAnchorBottomCheck(
+        container,
+        room,
+        "after-post-jump-stabilization"
+      );
     }
     return room;
+  }
+  function measuredAnchorBottomCheck(container, room, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const viewportHeight = clientHeight(container);
+    const targetRoom = viewportHeight - MIN_INTERSECT;
+    const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
+    return atBottom;
   }
   function clampJump(calibratedJump, room, container) {
     return Math.min(
       calibratedJump,
       clientHeight(container) - MIN_INTERSECT - room
     );
-  }
-  function isAnchorAtBottom(container, room) {
-    return room >= clientHeight(container) - MIN_INTERSECT;
   }
   function isScrollBoundaryReached(container, direction) {
     const position = scrollY(container);
@@ -532,9 +540,19 @@
         Infinity
       );
     }
-    let room = measureRoom(current, container, direction);
+    let room = measuredSlabRoom(
+      current,
+      container,
+      direction,
+      "initial"
+    );
     while (room < 0) {
-      const anchors2 = getAnchorsIn(current, container, direction);
+      const anchors2 = measuredAnchorSearch(
+        current,
+        container,
+        direction,
+        "work-zone-entry"
+      );
       const anchor2 = anchors2[0];
       if (!anchor2) {
         throw new Error("No ready visible anchor found in current slab.");
@@ -545,9 +563,21 @@
         direction,
         measureAnchorRoom
       );
-      room = measureRoom(current, container, direction);
+      room = measuredSlabRoom(
+        current,
+        container,
+        direction,
+        "after-anchor-movement"
+      );
     }
-    const anchors = getAnchorsIn(current, container, direction);
+    const anchors = measuredAnchorSearch(
+      current,
+      container,
+      direction,
+      "final-placement"
+    );
+    const selectionStartedAt = performance.now();
+    const selectionStartedWallAt = Date.now();
     const currentRect = current.getBoundingClientRect();
     const anchor = anchors.find((candidate) => {
       const boundary = candidate.getBoundingClientRect().top;
@@ -564,7 +594,24 @@
       direction,
       measureAnchorRoom
     );
-    return measureRoom(current, container, direction);
+    return measuredSlabRoom(
+      current,
+      container,
+      direction,
+      "after-final-anchor-movement"
+    );
+  }
+  function measuredSlabRoom(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const room = measureRoom(current, container, direction);
+    return room;
+  }
+  function measuredAnchorSearch(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const anchors = getAnchorsIn(current, container, direction);
+    return anchors;
   }
   function measureRoom(current, container, direction) {
     const viewportHeight = clientHeight(container);
@@ -640,13 +687,13 @@
         }
         let slab = deck && room - deckRoom >= MINIMUM_SLAB_HEIGHT ? nextSlab(room, deck) : null;
         if (slab == null) {
-          deck = await nextReadyDeck(deckRoom, deck);
+          deck = await nextActiveDeck(deckRoom, deck);
           if (deck == null) {
             break;
           }
           deckRoom = deck.getBoundingClientRect().top;
           slab = nextSlab(room, deck);
-          if (!slab) throw new Error("No slab found in ready deck.");
+          if (!slab) throw new Error("No slab found in active deck.");
         }
         current = slab;
         room = current.getBoundingClientRect().top;
@@ -657,7 +704,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.50-no-diag" : "unbuilt";
+  var VERSION = true ? "1.77-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

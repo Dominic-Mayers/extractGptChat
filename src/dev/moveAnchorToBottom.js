@@ -1,5 +1,6 @@
 import {
    MIN_INTERSECT,
+   TOLERATED_ROUNDING,
    CALIBRATED_JUMP,
    ACTIVATION_DISTANCE
 } from "./constants.js";
@@ -9,16 +10,16 @@ import {
     clientHeight,
     scrollBy
 } from "./scrollContainer.js";
-import { nextAnimationFrame, waitLayoutStable } from "./stabilize.js";
+import { waitLayoutStable } from "./stabilize.js";
 import {
     beginJumpDiagnostics,
     beginOrContinueJumpDiagnostics,
-    beginBeforeJumpRafDiagnostics,
-    finishBeforeJumpRafDiagnostics,
     updateJumpDiagnostics,
     finishJumpDiagnostics,
     logSlowJumpDiagnosticsIfNeeded,
     logStabilizedJumpDiagnosticsIfNeeded,
+    recordCycleStageDiagnostics,
+    selectCurrentJumpDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 
@@ -49,17 +50,15 @@ export async function moveAnchorToBottom(
         return room;
     }
 
-    await waitLayoutStable(container, {
-        current: anchor,
-        direction,
-        measureReferenceRoom: measureAnchorRoom,
-        phase: "pre-anchor-move"
-    });
-
     let room = measureAnchorRoom(anchor, container, direction);
-    let retriedCancelledJump = false;
+    let retriedErasedJump = false;
 
-    if (isAnchorAtBottom(container, room)) {
+    let anchorAtBottom = measuredAnchorBottomCheck(
+        container,
+        room,
+        "before-first-jump"
+    );
+    if (anchorAtBottom) {
         finishJumpDiagnostics({
             roomBefore: room,
             obtainedRoom: room,
@@ -69,16 +68,12 @@ export async function moveAnchorToBottom(
         return room;
     }
 
-    while (!isAnchorAtBottom(container, room)) {
+    while (!anchorAtBottom) {
         beginOrContinueJumpDiagnostics({
             kind: "anchor-move",
             anchor: snapshotElementDiagnostics(anchor)
         });
 
-        // Do not wait for the experimental pre-perform frame when the
-        // requested movement is already impossible. Returning the unchanged
-        // room skips this movement only; the slab/deck traversal decides what
-        // to do next.
         if (isScrollBoundaryReached(container, direction)) {
             finishJumpDiagnostics({
                 roomBefore: room,
@@ -89,16 +84,6 @@ export async function moveAnchorToBottom(
             logSlowJumpDiagnosticsIfNeeded();
             return room;
         }
-
-        beginBeforeJumpRafDiagnostics();
-        await nextAnimationFrame();
-        finishBeforeJumpRafDiagnostics();
-
-        // The frame may have changed the anchor geometry. Base the jump on the
-        // geometry observed immediately before it, rather than on the room
-        // carried over from the preceding stabilization.
-        room = measureAnchorRoom(anchor, container, direction);
-        if (isAnchorAtBottom(container, room)) break;
 
         const jump = clampJump(calibratedJump, room, container);
         const scrollYBefore = scrollY(container);
@@ -141,7 +126,7 @@ export async function moveAnchorToBottom(
 
         updateJumpDiagnostics({ roomUntilFirstNotReadyDeck });
 
-        const stabilization = await waitLayoutStable(container, {
+        const postJumpStabilization = await waitLayoutStable(container, {
             current: anchor,
             direction,
             stableFrames,
@@ -151,25 +136,61 @@ export async function moveAnchorToBottom(
 
         const obtainedRoom = measureAnchorRoom(anchor, container, direction);
         finishJumpDiagnostics({
-            stabilization,
+            postJumpStabilization,
             obtainedRoom,
             settledAnchor: snapshotElementDiagnostics(anchor)
         });
 
         logStabilizedJumpDiagnosticsIfNeeded();
 
-        if (obtainedRoom === room && retriedCancelledJump) {
+        const jumpWasErased = obtainedRoom === room;
+
+        if (jumpWasErased && retriedErasedJump) {
+            selectCurrentJumpDiagnostics("erased-jump-retry-failed");
             throw new Error(
-                `Anchor made no progress after retrying a cancelled jump ` +
+                `Anchor made no progress after retrying an erased jump ` +
                 `at room=${room}.`
             );
         }
 
-        retriedCancelledJump = obtainedRoom === room;
+        selectCurrentJumpDiagnostics(
+            jumpWasErased
+                ? "erased-jump"
+                : retriedErasedJump
+                    ? "erased-jump-retry-succeeded"
+                    : null
+        );
+
+        retriedErasedJump = jumpWasErased;
         room = obtainedRoom;
+        anchorAtBottom = measuredAnchorBottomCheck(
+            container,
+            room,
+            "after-post-jump-stabilization"
+        );
     }
 
     return room;
+}
+
+function measuredAnchorBottomCheck(container, room, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const viewportHeight = clientHeight(container);
+    const targetRoom = viewportHeight - MIN_INTERSECT;
+    //const atBottom = room >= targetRoom;
+    const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
+    recordCycleStageDiagnostics("anchor-bottom-check", {
+        phase,
+        elapsedMs: performance.now() - startedAt,
+        wallElapsedMs: Date.now() - startedWallAt,
+        room,
+        viewportHeight,
+        targetRoom,
+        toleratedRounding: TOLERATED_ROUNDING,
+        atBottom
+    });
+    return atBottom;
 }
 
 export function clampJump(calibratedJump, room, container) {
@@ -180,7 +201,9 @@ export function clampJump(calibratedJump, room, container) {
 }
 
 export function isAnchorAtBottom(container, room) {
-    return room >= clientHeight(container) - MIN_INTERSECT;
+    const targetRoom = clientHeight(container) - MIN_INTERSECT;
+    //return room >= targetRoom;
+    return room >= targetRoom - TOLERATED_ROUNDING;
 }
 
 export function isScrollBoundaryReached(container, direction) {

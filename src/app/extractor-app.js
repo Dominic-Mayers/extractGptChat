@@ -1886,7 +1886,7 @@ export function installExtractorApp() {
         }
     }
     
-    // Geometry-model diagnostics below inspect ready decks in detail. The
+    // Geometry-model diagnostics below inspect active decks in detail. The
     // traversal's real successor operation is separate and appears later:
     // findNextSlabInReadyDeck(deckEl, currentSlab).
     function shortestMountedMessageHeight() {
@@ -2164,7 +2164,7 @@ export function installExtractorApp() {
     
     // Distance helper retained for diagnostics and coverage checks. The real
     // successor operation below is now bounded by SLAB_LOOKAHEAD_PX and scoped
-    // to the current ready deck.
+    // to the current active deck.
     function slabDistanceAhead(currentRect, candidateRect) {
         if (WALK_DIRECTION === -1) {
             if (candidateRect.top >= currentRect.top) return null;
@@ -2211,7 +2211,7 @@ export function installExtractorApp() {
             : deckRect.bottom - currentRect.bottom;
     }
     
-    // Direct geometric answer to "can the current ready deck still contain
+    // Direct geometric answer to "can the current active deck still contain
     // the next slab" — used to decide *before* searching whether deck
     // administration (closing this one, opening the next) is needed,
     // rather than discovering it indirectly via findNextSlabInReadyDeck's
@@ -2258,7 +2258,7 @@ export function installExtractorApp() {
     
     // Successor selection is deck-scoped by design. The deck must already be
     // ready/mounted before this runs; this function only asks which selected
-    // slab in that ready deck is nearest by same-frame distance ahead of
+    // slab in that active deck is nearest by same-frame distance ahead of
     // current, within the bounded lookahead distance. Unknown direct-stack
     // items are reported, not silently treated as valid slabs.
     function findNextSlabInReadyDeck(deckEl, currentSlab) {
@@ -2504,7 +2504,7 @@ export function installExtractorApp() {
         let readyContainer = resumeState?.readyContainer || null;
         let current = resumeState?.current || SLAB_WALK_START;
         let containerSlabRanges = resumeState?.containerSlabRanges || [];
-        // Defensive cap: if ready decks keep yielding no extractable slab,
+        // Defensive cap: if active decks keep yielding no extractable slab,
         // that's not "the conversation is just long." Fail fast with the
         // geometry that didn't match, rather than spin silently through every
         // remaining deck.
@@ -2578,7 +2578,7 @@ export function installExtractorApp() {
                 throw new Error(`Cannot resume from current cursor: ${describeCurrentAttachment(resumeState.current)}.`);
             }
             if (resumeState.readyContainer && !resumeState.readyContainer.isConnected) {
-                throw new Error('Cannot resume from current cursor: ready deck is detached.');
+                throw new Error('Cannot resume from current cursor: active deck is detached.');
             }
             ui.log(`Resuming from current cursor — ${describeCurrentForStop(resumeState.current, resumeState.readyContainer)}`);
         } else {
@@ -2758,7 +2758,7 @@ export function installExtractorApp() {
                     }
                 }
     
-                // The current ready deck (if any) has no remaining
+                // The current active deck (if any) has no remaining
                 // lookahead area ahead of current. Finish its coverage,
                 // then move into the next adjacent deck (by viewport-edge
                 // geometry if none has been entered yet, by adjacency

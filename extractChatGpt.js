@@ -1695,7 +1695,7 @@ ${captureElementHtmlReference("empty-slab-fingerprint-timeout", next.element, sl
             throw new Error(`Cannot resume from current cursor: ${describeCurrentAttachment(resumeState.current)}.`);
           }
           if (resumeState.readyContainer && !resumeState.readyContainer.isConnected) {
-            throw new Error("Cannot resume from current cursor: ready deck is detached.");
+            throw new Error("Cannot resume from current cursor: active deck is detached.");
           }
           ui.log(`Resuming from current cursor \u2014 ${describeCurrentForStop(resumeState.current, resumeState.readyContainer)}`);
         } else {

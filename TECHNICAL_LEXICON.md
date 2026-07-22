@@ -1,10 +1,14 @@
 # Technical Lexicon
 
+- **Supply area**: everything currently exposed through the scroll container.
+- **Active area**: the part of the supply area to which ChatGPT has assigned rendering activity.
+- **Ready area**: the operation-ready part of the active area; its exact boundary is inferred rather than directly exposed.
+- **Deck/Turn container**: a ChatGPT supply region that contains zero or more observable slabs.
+- **Active deck**: a deck with activation evidence (`data-is-intersecting` present and not `false`). This does not imply that all content in the deck is ready.
 - **Slab**: one extractable content unit, such as a user message, assistant message, image, or Canvas block.
-- **Deck/Turn container**: a rendered ChatGPT region that contains one or more slabs.
-- **Ready deck**: a deck with data-is-intersecting = true.
-- **Work zone**/**Viewport**: the currently usable rendered area where ChatGPT has enough DOM available for extraction.
-- **Safe area**: The viewport area and its surrounding area where the viewport can safely be moved in a jump.
+- **Anchor**: a local measurable element boundary used to move through a slab; it is not an extraction unit.
+- **Work zone**/**Viewport**: the moving demand signal through which the extractor changes the active area. It is not a level in the layered supply model.
+- **Safe area**: the portion of the ready area within which the work zone can safely be moved in a jump.
 - **Current slab**: the slab the extractor is presently using as its traversal cursor.
 - **Next slab**: the slab the extractor expects to process after the current slab.
 - **Ready slab**: a slab whose DOM appears complete enough to extract.
@@ -17,7 +21,7 @@
 - **Room**: viewport space ahead of the current slab.
 - **Viewport move**: A series of jumps triggered when room is small. The purpose is to activate the rendering of new slabs while keeping the current slab visible in the viewport.
 - **Main orchestration**: the top-level extraction sequence.
-- **Traversal**: Step of the main orchestration after a possible viewport move and a possible deck move, but before extraction. The code traverses and extracts one slab at a time and checks if a viewport move or a new ready deck is needed before traversing the next slab.
+- **Traversal**: Step of the main orchestration after a possible viewport move and a possible deck move, but before extraction. The code traverses and extracts one slab at a time and checks if a viewport move or a new active deck is needed before traversing the next slab.
 - **Extraction**: reading content from a slab and converting it into exportable data.
 - **Detached current**: the current slab is no longer connected to the live DOM. This often happens when a jump goes out of the safe area.
 - **Resume from current**: continue extraction from the saved current slab after a non-fatal jump failure (current is not detached).
@@ -29,4 +33,11 @@
 - **Rendering movement**: page movement observed that is not directly caused by the extractor.  The extractor only moves the viewport using small jumps, each time checking that rendering movements stopped.
 - **Layout stability**: a period where measured positions stop changing. The code checks for layout stability before executing a next jump. 
 - **Room drift**: change in room  observed after statibility following a jump and before the next jump. This should normally be zero. Otherwise, stability was a false positive.
-
+- **Movement commitment**: the state in which an accepted jump survives subsequent browser and renderer work.
+- **Flicker**: a recurring layout-recomputation cycle that can occur without extractor movement, is not unique to ChatGPT, and has been observed especially away from 100% browser zoom.
+- **Flicker location**: a repeatable page location that can trigger flicker depending on relative timing; evidence of a stable geometric trigger participating in a race.
+- **Lost-jump interaction**: an accepted extractor jump whose effect is partly or completely erased by a later, independently occurring flicker recomputation.
+- **Flicker baseline**: the geometry and timing of the recomputation cycle measured without inserting an extractor jump.
+- **Environment-only loop**: a flicker cycle sustained by environmental layout and viewport compensation while the extractor requests no movement.
+- **Coupled loop**: a cycle in which an rAF-timed extractor observation and subpixel correction participate in the environmental recomputation feedback.
+- **Subpixel residual**: the boundary error left by quantized browser geometry when the mathematically exact target cannot be represented or maintained.

@@ -6,7 +6,7 @@
 // traversal.  Content extraction is intentionally omitted.
 
 import { nextSlab } from "./nextSlab-no-diag.js";
-import { nextReadyDeck } from "./nextReadyDeck-no-diag.js";
+import { nextActiveDeck } from "./nextActiveDeck-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
 import {
@@ -63,7 +63,7 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (slab == null) {
-            deck = await nextReadyDeck(deckRoom, deck);
+            deck = await nextActiveDeck(deckRoom, deck);
 
             if (deck == null) {
 
@@ -73,7 +73,7 @@ export async function traverseConversation() {
             deckRoom = deck.getBoundingClientRect().top;
             slab = nextSlab(room, deck);
 
-            if (!slab) throw new Error("No slab found in ready deck.");
+            if (!slab) throw new Error("No slab found in active deck.");
         }
 
         current = slab;

@@ -22,10 +22,20 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
         );
     }
 
-    let room = measureRoom(current, container, direction);
+    let room = measuredSlabRoom(
+        current,
+        container,
+        direction,
+        "initial"
+    );
 
     while (room < 0) {
-        const anchors = getAnchorsIn(current, container, direction);
+        const anchors = measuredAnchorSearch(
+            current,
+            container,
+            direction,
+            "work-zone-entry"
+        );
         const anchor = anchors[0];
         if (!anchor) {
             throw new Error("No ready visible anchor found in current slab.");
@@ -37,15 +47,28 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
             direction,
             measureAnchorRoom
         );
-        room = measureRoom(current, container, direction);
+        room = measuredSlabRoom(
+            current,
+            container,
+            direction,
+            "after-anchor-movement"
+        );
     }
 
-    const anchors = getAnchorsIn(current, container, direction);
+    const anchors = measuredAnchorSearch(
+        current,
+        container,
+        direction,
+        "final-placement"
+    );
+    const selectionStartedAt = performance.now();
+    const selectionStartedWallAt = Date.now();
     const currentRect = current.getBoundingClientRect();
     const anchor = anchors.find(candidate => {
         const boundary = candidate.getBoundingClientRect().top;
         return boundary >= currentRect.top && boundary <= currentRect.bottom;
     });
+
     if (!anchor) {
         throw new Error(
             "No ready visible anchor found for final slab movement."
@@ -58,7 +81,28 @@ export async function moveSlabTopToBottom(current, container, direction = -1) {
         direction,
         measureAnchorRoom
     );
-    return measureRoom(current, container, direction);
+    return measuredSlabRoom(
+        current,
+        container,
+        direction,
+        "after-final-anchor-movement"
+    );
+}
+
+function measuredSlabRoom(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const room = measureRoom(current, container, direction);
+
+    return room;
+}
+
+function measuredAnchorSearch(current, container, direction, phase) {
+    const startedAt = performance.now();
+    const startedWallAt = Date.now();
+    const anchors = getAnchorsIn(current, container, direction);
+
+    return anchors;
 }
 
 export function measureRoom(current, container, direction) {

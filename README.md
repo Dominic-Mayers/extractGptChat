@@ -108,11 +108,16 @@ For the more precise DOM/deck/slab architecture, see [`ARCHITECTURE.md`](ARCHITE
 
 The extractor can be understood as a **foreman** building a walkway from individual slabs while consulting a **supplier**.
 
+The supply model runs from broadest to finest: **supply area → active area →
+ready area → decks → slabs → anchors**. This is a progression from broad scope
+to fine detail, not strict containment: a deck or slab can straddle the ready
+area. The viewport/work zone moves across the model and causes activation.
+
 * **Slabs** are ChatGPT messages (user and assistant prompts). They are the pieces that are extracted and assembled into the final transcript.
 * **Message slab selectors** identify ordinary message slabs. In the currently observed DOM, `[data-message-author-role]` selects the message element that is extracted and captured for diagnostics.
 * **Deck sections** are ChatGPT's internal lazy-loaded containers. They are not part of the transcript; they are structural units used by ChatGPT to manage the DOM.
 * **The work zone** is the viewport area where ChatGPT's loading and rendering systems can prepare deck sections.
-* **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. It answers operational questions about currently available measurements, deck readiness, slab candidates, and slab readiness.
+* **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. It answers operational questions about currently available measurements, deck activation, slab candidates, and operation-specific readiness.
 
 The foreman's job is simple: build the walkway by repeatedly asking the supplier for the next slab, then recording that slab in the transcript.
 
@@ -120,12 +125,14 @@ The supplier only exposes a changing, partial supply surface. The foreman cannot
 
 Other slab types, such as generated images and Canvas/textdoc blocks, need their own selectors. They should not be forced into the ordinary-message selector model.
 
-The difficulty is that some slabs are located on deck sections that have not yet been prepared by ChatGPT's rendering systems. The extractor cannot force a section to become ready. It can only:
+The difficulty is that some slabs are located in deck sections that are not yet
+active, while others are in active sections whose required detail is not yet
+ready. The extractor cannot force either transition. It can only:
 
 1. Move the work zone (scroll the viewport).
-2. Ask the supplier which deck section should become ready next.
-3. Wait for ChatGPT to prepare it.
-4. Continue walking once the section is ready.
+2. Ask the supplier which deck section should become active next.
+3. Wait for activation, then for the operation-specific ready area it needs.
+4. Continue walking once the relevant slab or anchor is ready.
 
 The foreman also assumes that the work zone cannot be teleported safely. The supplier depends on external workers that appear to respond reliably to ordinary incremental scrolling, not to one large jump into unprepared territory. A large jump can skip the intermediate activation work that ChatGPT's virtualized renderer expects. Therefore the extractor moves the work zone in small jumps and checks local stability between jumps.
 
