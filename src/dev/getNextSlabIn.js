@@ -1,38 +1,25 @@
 // getNextSlabIn.js
 
-import { areaAhead } from "./geometry.js";
 import {
-   MAX_SLAB_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
 } from "./constants.js";
 import {
     recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
-import { roomAhead } from "./scrollContainer.js";
+import { observeSupplier, roomAhead } from "./scrollContainer.js";
 import { boundaryOf } from "./boundary.js";
 import { getDeckIn } from "./getNextDeckIn.js";
 
 
-/**
- * Return the slab immediately above the current slab
- * in the current active deck.
- *
- * room is the top coordinate of the current slab.
- */
-export function getNextSlabIn(
-    slabRoom,
-    deckRoom,
-    supplier
+export function getNextSlabRoomIn(
+    area,
+    deckRoom
 ) {
+    const supplier = observeSupplier();
     const { workZone } = supplier;
-    const deck = getDeckIn(deckRoom, supplier);
+    const deck = getDeckIn(deckRoom);
     if (!deck) throw new Error("No deck found at the current geometry.");
-
-    const area = areaAhead(
-        slabRoom,
-        MAX_SLAB_GAP
-    );
 
     const slabs = getSlabsIn(deck);
 
@@ -41,10 +28,10 @@ export function getNextSlabIn(
         return geometry.bottomRoom >= area.top && geometry.room <= area.bottom;
     });
 
-    const slab = closestSlab(slabRoom, candidates, workZone);
+    const slab = closestSlab(area.bottom, candidates, workZone);
 
     recordCycleStageDiagnostics("slab-search", {
-        room: slabRoom,
+        room: area.bottom,
         area,
         slabCount: slabs.length,
         candidates: candidates.map(snapshotElementDiagnostics),
@@ -53,19 +40,16 @@ export function getNextSlabIn(
 
     if (slab == null) return null;
     const geometry = slabGeometry(slab, workZone);
-    return {
-        slabRoom: geometry.room,
-        slabHeight: geometry.height
-    };
+    return geometry.room;
 }
 
 export function getSlabIn(
     slabRoom,
-    deckRoom,
-    supplier
+    deckRoom
 ) {
+    const supplier = observeSupplier();
     const { workZone } = supplier;
-    const deck = getDeckIn(deckRoom, supplier);
+    const deck = getDeckIn(deckRoom);
     if (!deck) return null;
     let selected = null;
     let smallestRoomDifference = Infinity;
@@ -97,11 +81,9 @@ function closestSlab(referenceRoom, candidates, workZone) {
 }
 
 function slabGeometry(slab, workZone) {
-    const rect = slab.getBoundingClientRect();
     return {
         room: roomAhead(boundaryOf(slab, "top"), workZone),
-        bottomRoom: roomAhead(boundaryOf(slab, "bottom"), workZone),
-        height: rect.height
+        bottomRoom: roomAhead(boundaryOf(slab, "bottom"), workZone)
     };
 }
 

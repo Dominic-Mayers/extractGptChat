@@ -1,6 +1,6 @@
 import { MIN_INTERSECT, MAX_DRIFT } from "./constants.js";
 import { slabType } from "./slabType.js";
-import { roomAhead, workZoneTop } from "./scrollContainer.js";
+import { observeSupplier, roomAhead, workZoneTop } from "./scrollContainer.js";
 import { getSlabIn } from "./getNextSlabIn.js";
 import { boundaryOf } from "./boundary.js";
 
@@ -22,14 +22,13 @@ const TEXT_ANCHOR_SELECTOR = [
 
 export function getNextAnchorIn(
     slabRoom,
-    deckRoom,
-    supplier
+    deckRoom
 ) {
+    const supplier = observeSupplier();
     const { workZone } = supplier;
     const slab = getSlabIn(
         slabRoom,
-        deckRoom,
-        supplier
+        deckRoom
     );
     if (!slab) throw new Error("No slab found at the current geometry.");
     const type = slabType(slab);

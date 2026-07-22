@@ -5,14 +5,13 @@
 // This file implements only the geometric part of the
 // traversal.  Content extraction is intentionally omitted.
 
-import { getNextSlabIn } from "./getNextSlabIn.js";
-import { getNextDeckIn } from "./getNextDeckIn.js";
+import { getNextSlabRoomIn } from "./getNextSlabIn.js";
+import { getNextDeckRoomIn } from "./getNextDeckIn.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
+import { areaAhead } from "./geometry.js";
 import {
-    observeSupplier
-} from "./scrollContainer.js";
-import {
+    MAX_DECK_GAP,
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants.js";
@@ -22,8 +21,7 @@ import {
     recordCycleStageDiagnostics,
     logCycleContextDiagnostics,
     flushCycleDiagnostics,
-    selectCurrentJumpDiagnostics,
-    snapshotSupplierDiagnostics
+    selectCurrentJumpDiagnostics
 } from "./cycleDiagnostics.js";
 
 export async function traverseConversation() {
@@ -32,16 +30,13 @@ export async function traverseConversation() {
 
     try {
 
-    const supplier = observeSupplier();
-    const { workZone } = supplier;
-
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
-    const initial = await moveViewportToDocumentBottom(supplier);
+    const initial = await moveViewportToDocumentBottom();
 
-    let slabRoom = initial.room;
-    let slabHeight = null;
-    let deckRoom = initial.deckRoom;
-    let deckHeight = null;
+    let slabRoom = null;
+    let deckRoom = null;
+    const initialSlabRoom = initial.room;
+    const initialDeckRoom = initial.deckRoom;
     let deckCountDiagnostics = 0;
     let slabCountDiagnostics = 0;
     let cycleCountDiagnostics = 0;
@@ -58,29 +53,23 @@ export async function traverseConversation() {
             slabCount: slabCountDiagnostics,
             room: slabRoom,
             deckRoom,
-            ...snapshotSupplierDiagnostics(supplier.supplyArea, workZone),
-            clientHeight: workZone.height,
-            slabHeight,
-            deckHeight
+            initialSlabRoom,
+            initialDeckRoom
         });
 
         //
         // The value room can be negative and a jump always increases it.
         if (
-            slabHeight != null &&
+            slabRoom != null &&
             slabRoom < MAX_SLAB_GAP
         ) {
             ({
                 slabRoom,
-                slabHeight,
-                deckRoom,
-                deckHeight
+                deckRoom
             } = await moveSlabTopToBottom({
                 slabRoom,
-                slabHeight,
-                deckRoom,
-                deckHeight
-            }, supplier));
+                deckRoom
+            }));
         } else {
             recordCycleStageDiagnostics("move-skip", {
                 room: slabRoom
@@ -88,21 +77,19 @@ export async function traverseConversation() {
         }
 
         recordCycleStageDiagnostics("deck-room", {
-            deckRoom,
-            deckHeight
+            deckRoom
         });
 
         //
         // Either the we find the next slab in the current deck...  
         //
-        let nextSlabGeometry = (
-            deckHeight != null &&
+        let nextSlabRoom = (
+            deckRoom != null &&
             slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT
         )
-            ? getNextSlabIn(
-                slabRoom,
-                deckRoom,
-                supplier
+            ? getNextSlabRoomIn(
+                areaAhead(slabRoom, MAX_SLAB_GAP),
+                deckRoom
             )
             : null;
 
@@ -111,19 +98,18 @@ export async function traverseConversation() {
             deckRoom,
             available: slabRoom - deckRoom,
             minimum: MINIMUM_SLAB_HEIGHT,
-            needsDeck: nextSlabGeometry == null
+            needsDeck: nextSlabRoom == null
         });
 
         //
         // ... or we find the next deck and find the next slab there.
         //
-        if (nextSlabGeometry == null) {
-            const nextDeckGeometry = await getNextDeckIn(
-                deckRoom,
-                supplier
+        if (nextSlabRoom == null) {
+            const nextDeckRoom = await getNextDeckRoomIn(
+                areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
             );
 
-            if (nextDeckGeometry == null) {
+            if (nextDeckRoom == null) {
                 recordCycleStageDiagnostics("stop", {
                     reason: "no-next-deck"
                 });
@@ -131,40 +117,28 @@ export async function traverseConversation() {
             }
 
             deckCountDiagnostics++;
-            deckRoom = nextDeckGeometry.deckRoom;
-            deckHeight = nextDeckGeometry.deckHeight;
-            nextSlabGeometry = getNextSlabIn(
-                slabRoom,
-                deckRoom,
-                supplier
+            deckRoom = nextDeckRoom;
+            nextSlabRoom = getNextSlabRoomIn(
+                areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
+                deckRoom
             );
 
-            if (!nextSlabGeometry) {
+            if (nextSlabRoom == null) {
                 throw new Error("No slab found in active deck.");
             }
         }
 
         slabCountDiagnostics++;
 
-        slabRoom = nextSlabGeometry.slabRoom;
-        slabHeight = nextSlabGeometry.slabHeight;
+        slabRoom = nextSlabRoom;
 
         recordCycleStageDiagnostics("selected", {
             slabCount: slabCountDiagnostics,
             deckCount: deckCountDiagnostics,
             room: slabRoom,
-            slabHeight,
-            deckRoom,
-            deckHeight
+            deckRoom
         });
 
-
-        //
-        // // Conceptually, the extraction phase goes here :
-        //
-        // const type = slabType(current);
-        // await waitSlabReady(type, current);
-        // extractSlab(type, current);
     }
     // exportMarkdown();
     flushCycleDiagnostics();

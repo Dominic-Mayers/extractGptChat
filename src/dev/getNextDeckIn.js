@@ -1,8 +1,6 @@
 // getNextDeckIn.js
 
-import { areaAhead } from "./geometry.js";
 import {
-   MAX_DECK_GAP,
    ADJACENCY_OVERLAP_TOLERANCE
 } from "./constants.js";
 import {
@@ -14,26 +12,15 @@ import {
 import {
     contains,
     elementsIn,
+    observeSupplier,
     roomAhead
 } from "./scrollContainer.js";
 import { boundaryOf } from "./boundary.js";
 
-/**
- * Return the next active deck above the current one.
- *
- * deckRoom is the room ahead of the current deck (or, at bootstrap,
- * of the imaginary deck at the trailing edge of the viewport) —
- * the deck-level counterpart of the slab-level room in
- * moveSlabTopToBottom.js's measureRoom().
- */
-export async function getNextDeckIn(deckRoom, supplier) {
+export async function getNextDeckRoomIn(area) {
+    const supplier = observeSupplier();
     const { supplyArea, activeArea } = supplier;
     const { workZone } = supplier;
-
-    const area = areaAhead(
-        deckRoom,
-        MAX_DECK_GAP
-    );
 
     const decks = getDecks(supplyArea);
 
@@ -44,10 +31,10 @@ export async function getNextDeckIn(deckRoom, supplier) {
         return intersects;
     });
 
-    const deck = closestDeck(deckRoom, candidates, workZone);
+    const deck = closestDeck(area.bottom, candidates, workZone);
 
     recordCycleStageDiagnostics("deck-search", {
-        deckRoom,
+        deckRoom: area.bottom,
         area,
         deckCount: decks.length,
         first: snapshotElementDiagnostics(decks[0]),
@@ -81,13 +68,11 @@ export async function getNextDeckIn(deckRoom, supplier) {
     });
 
     const geometry = deckGeometry(deck, workZone);
-    return {
-        deckRoom: geometry.room,
-        deckHeight: geometry.height
-    };
+    return geometry.room;
 }
 
-export function getDeckIn(deckRoom, supplier) {
+export function getDeckIn(deckRoom) {
+    const supplier = observeSupplier();
     const { supplyArea, workZone } = supplier;
     let selected = null;
     let smallestRoomDifference = Infinity;
@@ -119,11 +104,9 @@ function closestDeck(referenceRoom, candidates, workZone) {
 }
 
 function deckGeometry(deck, workZone) {
-    const rect = deck.getBoundingClientRect();
     return {
         room: roomAhead(boundaryOf(deck, "top"), workZone),
-        bottomRoom: roomAhead(boundaryOf(deck, "bottom"), workZone),
-        height: rect.height
+        bottomRoom: roomAhead(boundaryOf(deck, "bottom"), workZone)
     };
 }
 

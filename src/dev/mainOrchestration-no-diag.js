@@ -5,14 +5,13 @@
 // This file implements only the geometric part of the
 // traversal.  Content extraction is intentionally omitted.
 
-import { getNextSlabIn } from "./getNextSlabIn-no-diag.js";
-import { getNextDeckIn } from "./getNextDeckIn-no-diag.js";
+import { getNextSlabRoomIn } from "./getNextSlabIn-no-diag.js";
+import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
+import { areaAhead } from "./geometry-no-diag.js";
 import {
-    observeSupplier
-} from "./scrollContainer-no-diag.js";
-import {
+    MAX_DECK_GAP,
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants-no-diag.js";
@@ -20,16 +19,13 @@ export async function traverseConversation() {
 
     try {
 
-    const supplier = observeSupplier();
-    const { workZone } = supplier;
-
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
-    const initial = await moveViewportToDocumentBottom(supplier);
+    const initial = await moveViewportToDocumentBottom();
 
-    let slabRoom = initial.room;
-    let slabHeight = null;
-    let deckRoom = initial.deckRoom;
-    let deckHeight = null;
+    let slabRoom = null;
+    let deckRoom = null;
+    const initialSlabRoom = initial.room;
+    const initialDeckRoom = initial.deckRoom;
 
     //
     // Main traversal.
@@ -39,72 +35,57 @@ export async function traverseConversation() {
         //
         // The value room can be negative and a jump always increases it.
         if (
-            slabHeight != null &&
+            slabRoom != null &&
             slabRoom < MAX_SLAB_GAP
         ) {
             ({
                 slabRoom,
-                slabHeight,
-                deckRoom,
-                deckHeight
+                deckRoom
             } = await moveSlabTopToBottom({
                 slabRoom,
-                slabHeight,
-                deckRoom,
-                deckHeight
-            }, supplier));
+                deckRoom
+            }));
         }
 
         //
         // Either the we find the next slab in the current deck...  
         //
-        let nextSlabGeometry = (
-            deckHeight != null &&
+        let nextSlabRoom = (
+            deckRoom != null &&
             slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT
         )
-            ? getNextSlabIn(
-                slabRoom,
-                deckRoom,
-                supplier
+            ? getNextSlabRoomIn(
+                areaAhead(slabRoom, MAX_SLAB_GAP),
+                deckRoom
             )
             : null;
 
         //
         // ... or we find the next deck and find the next slab there.
         //
-        if (nextSlabGeometry == null) {
-            const nextDeckGeometry = await getNextDeckIn(
-                deckRoom,
-                supplier
+        if (nextSlabRoom == null) {
+            const nextDeckRoom = await getNextDeckRoomIn(
+                areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
             );
 
-            if (nextDeckGeometry == null) {
+            if (nextDeckRoom == null) {
 
                 break;
             }
 
-            deckRoom = nextDeckGeometry.deckRoom;
-            deckHeight = nextDeckGeometry.deckHeight;
-            nextSlabGeometry = getNextSlabIn(
-                slabRoom,
-                deckRoom,
-                supplier
+            deckRoom = nextDeckRoom;
+            nextSlabRoom = getNextSlabRoomIn(
+                areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
+                deckRoom
             );
 
-            if (!nextSlabGeometry) {
+            if (nextSlabRoom == null) {
                 throw new Error("No slab found in active deck.");
             }
         }
 
-        slabRoom = nextSlabGeometry.slabRoom;
-        slabHeight = nextSlabGeometry.slabHeight;
+        slabRoom = nextSlabRoom;
 
-        //
-        // // Conceptually, the extraction phase goes here :
-        //
-        // const type = slabType(current);
-        // await waitSlabReady(type, current);
-        // extractSlab(type, current);
     }
     // exportMarkdown();
 

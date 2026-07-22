@@ -9,6 +9,7 @@ import { getDecks } from "./getNextDeckIn-no-diag.js";
 import { boundaryOf } from "./boundary-no-diag.js";
 import {
     moveWorkZoneToSupplyEnd,
+    observeSupplier,
     roomAhead
 } from "./scrollContainer-no-diag.js";
 
@@ -22,7 +23,8 @@ import {
  * 5. Use the bottom-most deck's measured bottom edge as the initial
  *    slab/deck search boundary (A9).
  */
-export async function moveViewportToDocumentBottom(supplier) {
+export async function moveViewportToDocumentBottom() {
+    const supplier = observeSupplier();
     const { supplyArea, workZone } = supplier;
 
     clickBottomNavItem();
