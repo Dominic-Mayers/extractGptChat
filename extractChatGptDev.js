@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.78
+// @version      1.79
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -878,8 +878,7 @@
     let retriedErasedJump = false;
     let anchorAtBottom = measuredAnchorBottomCheck(
       workZone,
-      room,
-      "before-first-jump"
+      room
     );
     if (anchorAtBottom) {
       finishJumpDiagnostics({
@@ -961,20 +960,18 @@
       room = obtainedRoom;
       anchorAtBottom = measuredAnchorBottomCheck(
         workZone,
-        room,
-        "after-post-jump-stabilization"
+        room
       );
     }
     return room;
   }
-  function measuredAnchorBottomCheck(workZone, room, phase) {
+  function measuredAnchorBottomCheck(workZone, room) {
     const startedAtDiagnostics = performance.now();
     const startedWallAtDiagnostics = Date.now();
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
     recordCycleStageDiagnostics("anchor-bottom-check", {
-      phase,
       elapsedMs: performance.now() - startedAtDiagnostics,
       wallElapsedMs: Date.now() - startedWallAtDiagnostics,
       room,
@@ -1163,14 +1160,12 @@
     }
     let room = measuredSlabRoom(
       slabTop,
-      workZone,
-      "initial"
+      workZone
     );
     while (room < 0) {
       const anchors = measuredAnchorSearch(
         current,
-        workZone,
-        "work-zone-entry"
+        workZone
       );
       const anchor = anchors[0];
       if (!anchor) {
@@ -1182,8 +1177,7 @@
       );
       room = measuredSlabRoom(
         slabTop,
-        workZone,
-        "after-anchor-movement"
+        workZone
       );
     }
     await moveAnchorToBottom(
@@ -1192,28 +1186,25 @@
     );
     return measuredSlabRoom(
       slabTop,
-      workZone,
-      "after-final-anchor-movement"
+      workZone
     );
   }
-  function measuredSlabRoom(slabTop, workZone, phase) {
+  function measuredSlabRoom(slabTop, workZone) {
     const startedAtDiagnostics = performance.now();
     const startedWallAtDiagnostics = Date.now();
     const room = workZone.roomAheadOf(slabTop);
     recordCycleStageDiagnostics("slab-room-measurement", {
-      phase,
       elapsedMs: performance.now() - startedAtDiagnostics,
       wallElapsedMs: Date.now() - startedWallAtDiagnostics,
       room
     });
     return room;
   }
-  function measuredAnchorSearch(current, workZone, phase) {
+  function measuredAnchorSearch(current, workZone) {
     const startedAtDiagnostics = performance.now();
     const startedWallAtDiagnostics = Date.now();
     const anchors = getAnchorsIn(current, workZone);
     recordCycleStageDiagnostics("anchor-search", {
-      phase,
       elapsedMs: performance.now() - startedAtDiagnostics,
       wallElapsedMs: Date.now() - startedWallAtDiagnostics,
       anchorCount: anchors.length
@@ -1418,7 +1409,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.78" : "unbuilt";
+  var VERSION = true ? "1.79" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

@@ -47,8 +47,7 @@ export async function moveAnchorToBottom(
 
     let anchorAtBottom = measuredAnchorBottomCheck(
         workZone,
-        room,
-        "before-first-jump"
+        room
     );
     if (anchorAtBottom) {
         finishJumpDiagnostics({
@@ -155,15 +154,14 @@ export async function moveAnchorToBottom(
         room = obtainedRoom;
         anchorAtBottom = measuredAnchorBottomCheck(
             workZone,
-            room,
-            "after-post-jump-stabilization"
+            room
         );
     }
 
     return room;
 }
 
-function measuredAnchorBottomCheck(workZone, room, phase) {
+function measuredAnchorBottomCheck(workZone, room) {
     const startedAtDiagnostics = performance.now();
     const startedWallAtDiagnostics = Date.now();
     const viewportHeight = workZone.height;
@@ -171,7 +169,6 @@ function measuredAnchorBottomCheck(workZone, room, phase) {
     //const atBottom = room >= targetRoom;
     const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
     recordCycleStageDiagnostics("anchor-bottom-check", {
-        phase,
         elapsedMs: performance.now() - startedAtDiagnostics,
         wallElapsedMs: Date.now() - startedWallAtDiagnostics,
         room,

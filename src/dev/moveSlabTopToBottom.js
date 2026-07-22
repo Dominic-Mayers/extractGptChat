@@ -35,15 +35,13 @@ export async function moveSlabTopToBottom(current, workZone) {
 
     let room = measuredSlabRoom(
         slabTop,
-        workZone,
-        "initial"
+        workZone
     );
 
     while (room < 0) {
         const anchors = measuredAnchorSearch(
             current,
-            workZone,
-            "work-zone-entry"
+            workZone
         );
         const anchor = anchors[0];
         if (!anchor) {
@@ -56,8 +54,7 @@ export async function moveSlabTopToBottom(current, workZone) {
         );
         room = measuredSlabRoom(
             slabTop,
-            workZone,
-            "after-anchor-movement"
+            workZone
         );
     }
 
@@ -67,17 +64,15 @@ export async function moveSlabTopToBottom(current, workZone) {
     );
     return measuredSlabRoom(
         slabTop,
-        workZone,
-        "after-final-anchor-movement"
+        workZone
     );
 }
 
-function measuredSlabRoom(slabTop, workZone, phase) {
+function measuredSlabRoom(slabTop, workZone) {
     const startedAtDiagnostics = performance.now();
     const startedWallAtDiagnostics = Date.now();
     const room = workZone.roomAheadOf(slabTop);
     recordCycleStageDiagnostics("slab-room-measurement", {
-        phase,
         elapsedMs: performance.now() - startedAtDiagnostics,
         wallElapsedMs: Date.now() - startedWallAtDiagnostics,
         room
@@ -85,12 +80,11 @@ function measuredSlabRoom(slabTop, workZone, phase) {
     return room;
 }
 
-function measuredAnchorSearch(current, workZone, phase) {
+function measuredAnchorSearch(current, workZone) {
     const startedAtDiagnostics = performance.now();
     const startedWallAtDiagnostics = Date.now();
     const anchors = getAnchorsIn(current, workZone);
     recordCycleStageDiagnostics("anchor-search", {
-        phase,
         elapsedMs: performance.now() - startedAtDiagnostics,
         wallElapsedMs: Date.now() - startedWallAtDiagnostics,
         anchorCount: anchors.length

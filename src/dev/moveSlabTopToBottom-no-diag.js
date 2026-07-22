@@ -22,15 +22,13 @@ export async function moveSlabTopToBottom(current, workZone) {
 
     let room = measuredSlabRoom(
         slabTop,
-        workZone,
-        "initial"
+        workZone
     );
 
     while (room < 0) {
         const anchors = measuredAnchorSearch(
             current,
-            workZone,
-            "work-zone-entry"
+            workZone
         );
         const anchor = anchors[0];
         if (!anchor) {
@@ -43,8 +41,7 @@ export async function moveSlabTopToBottom(current, workZone) {
         );
         room = measuredSlabRoom(
             slabTop,
-            workZone,
-            "after-anchor-movement"
+            workZone
         );
     }
 
@@ -54,19 +51,18 @@ export async function moveSlabTopToBottom(current, workZone) {
     );
     return measuredSlabRoom(
         slabTop,
-        workZone,
-        "after-final-anchor-movement"
+        workZone
     );
 }
 
-function measuredSlabRoom(slabTop, workZone, phase) {
+function measuredSlabRoom(slabTop, workZone) {
 
     const room = workZone.roomAheadOf(slabTop);
 
     return room;
 }
 
-function measuredAnchorSearch(current, workZone, phase) {
+function measuredAnchorSearch(current, workZone) {
 
     const anchors = getAnchorsIn(current, workZone);
 

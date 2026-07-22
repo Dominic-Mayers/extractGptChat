@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.78-no-diag
+// @version      1.79-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -270,8 +270,7 @@
     let retriedErasedJump = false;
     let anchorAtBottom = measuredAnchorBottomCheck(
       workZone,
-      room,
-      "before-first-jump"
+      room
     );
     if (anchorAtBottom) {
       return room;
@@ -306,13 +305,12 @@
       room = obtainedRoom;
       anchorAtBottom = measuredAnchorBottomCheck(
         workZone,
-        room,
-        "after-post-jump-stabilization"
+        room
       );
     }
     return room;
   }
-  function measuredAnchorBottomCheck(workZone, room, phase) {
+  function measuredAnchorBottomCheck(workZone, room) {
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
     const atBottom = room >= targetRoom - TOLERATED_ROUNDING;
@@ -473,14 +471,12 @@
     }
     let room = measuredSlabRoom(
       slabTop,
-      workZone,
-      "initial"
+      workZone
     );
     while (room < 0) {
       const anchors = measuredAnchorSearch(
         current,
-        workZone,
-        "work-zone-entry"
+        workZone
       );
       const anchor = anchors[0];
       if (!anchor) {
@@ -492,8 +488,7 @@
       );
       room = measuredSlabRoom(
         slabTop,
-        workZone,
-        "after-anchor-movement"
+        workZone
       );
     }
     await moveAnchorToBottom(
@@ -502,15 +497,14 @@
     );
     return measuredSlabRoom(
       slabTop,
-      workZone,
-      "after-final-anchor-movement"
+      workZone
     );
   }
-  function measuredSlabRoom(slabTop, workZone, phase) {
+  function measuredSlabRoom(slabTop, workZone) {
     const room = workZone.roomAheadOf(slabTop);
     return room;
   }
-  function measuredAnchorSearch(current, workZone, phase) {
+  function measuredAnchorSearch(current, workZone) {
     const anchors = getAnchorsIn(current, workZone);
     return anchors;
   }
@@ -660,7 +654,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.78-no-diag" : "unbuilt";
+  var VERSION = true ? "1.79-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

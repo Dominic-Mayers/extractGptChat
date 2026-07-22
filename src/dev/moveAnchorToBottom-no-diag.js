@@ -25,8 +25,7 @@ export async function moveAnchorToBottom(
 
     let anchorAtBottom = measuredAnchorBottomCheck(
         workZone,
-        room,
-        "before-first-jump"
+        room
     );
     if (anchorAtBottom) {
 
@@ -81,15 +80,14 @@ export async function moveAnchorToBottom(
         room = obtainedRoom;
         anchorAtBottom = measuredAnchorBottomCheck(
             workZone,
-            room,
-            "after-post-jump-stabilization"
+            room
         );
     }
 
     return room;
 }
 
-function measuredAnchorBottomCheck(workZone, room, phase) {
+function measuredAnchorBottomCheck(workZone, room) {
 
     const viewportHeight = workZone.height;
     const targetRoom = viewportHeight - MIN_INTERSECT;
