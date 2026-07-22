@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.79
+// @version      1.80
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -476,9 +476,7 @@
     const relevantStages = /* @__PURE__ */ new Set(["selected", "stop", "error", "slow-slab"]);
     const slowSlabTimingStages = /* @__PURE__ */ new Set([
       "anchor-bottom-check",
-      "slab-room-measurement",
       "anchor-search",
-      "anchor-selection",
       "deck-room",
       "deck-decision",
       "deck-search",
@@ -492,9 +490,7 @@
   function stageIsUsefulSlowTimingDiagnostics(stage) {
     if ([
       "anchor-bottom-check",
-      "slab-room-measurement",
-      "anchor-search",
-      "anchor-selection"
+      "anchor-search"
     ].includes(stage.stage)) {
       return Math.max(stage.elapsedMs ?? 0, stage.wallElapsedMs ?? 0) >= SLOW_AWAIT_MS;
     }
@@ -1158,10 +1154,7 @@
         Infinity
       );
     }
-    let room = measuredSlabRoom(
-      slabTop,
-      workZone
-    );
+    let room = workZone.roomAheadOf(slabTop);
     while (room < 0) {
       const anchors = measuredAnchorSearch(
         current,
@@ -1175,30 +1168,13 @@
         anchor,
         workZone
       );
-      room = measuredSlabRoom(
-        slabTop,
-        workZone
-      );
+      room = workZone.roomAheadOf(slabTop);
     }
     await moveAnchorToBottom(
       slabTop,
       workZone
     );
-    return measuredSlabRoom(
-      slabTop,
-      workZone
-    );
-  }
-  function measuredSlabRoom(slabTop, workZone) {
-    const startedAtDiagnostics = performance.now();
-    const startedWallAtDiagnostics = Date.now();
-    const room = workZone.roomAheadOf(slabTop);
-    recordCycleStageDiagnostics("slab-room-measurement", {
-      elapsedMs: performance.now() - startedAtDiagnostics,
-      wallElapsedMs: Date.now() - startedWallAtDiagnostics,
-      room
-    });
-    return room;
+    return workZone.roomAheadOf(slabTop);
   }
   function measuredAnchorSearch(current, workZone) {
     const startedAtDiagnostics = performance.now();
@@ -1409,7 +1385,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.79" : "unbuilt";
+  var VERSION = true ? "1.80" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

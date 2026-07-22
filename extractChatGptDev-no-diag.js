@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.79-no-diag
+// @version      1.80-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -469,10 +469,7 @@
         Infinity
       );
     }
-    let room = measuredSlabRoom(
-      slabTop,
-      workZone
-    );
+    let room = workZone.roomAheadOf(slabTop);
     while (room < 0) {
       const anchors = measuredAnchorSearch(
         current,
@@ -486,23 +483,13 @@
         anchor,
         workZone
       );
-      room = measuredSlabRoom(
-        slabTop,
-        workZone
-      );
+      room = workZone.roomAheadOf(slabTop);
     }
     await moveAnchorToBottom(
       slabTop,
       workZone
     );
-    return measuredSlabRoom(
-      slabTop,
-      workZone
-    );
-  }
-  function measuredSlabRoom(slabTop, workZone) {
-    const room = workZone.roomAheadOf(slabTop);
-    return room;
+    return workZone.roomAheadOf(slabTop);
   }
   function measuredAnchorSearch(current, workZone) {
     const anchors = getAnchorsIn(current, workZone);
@@ -654,7 +641,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.79-no-diag" : "unbuilt";
+  var VERSION = true ? "1.80-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
