@@ -10,6 +10,7 @@ import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
 import { areaAhead } from "./geometry-no-diag.js";
+import { resetSupplyWorker } from "./supplyWorker-no-diag.js";
 import {
     MAX_DECK_GAP,
     MAX_SLAB_GAP,
@@ -18,6 +19,8 @@ import {
 export async function traverseConversation() {
 
     try {
+
+    resetSupplyWorker();
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
     const initial = await moveViewportToDocumentBottom();
