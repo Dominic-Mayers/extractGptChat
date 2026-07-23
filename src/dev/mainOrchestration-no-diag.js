@@ -9,13 +9,8 @@ import { getNextSlabRoomIn } from "./getNextSlabIn-no-diag.js";
 import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
-import { areaAhead } from "./geometry-no-diag.js";
 import { resetSupplyWorker } from "./supplyWorker-no-diag.js";
-import {
-    MAX_DECK_GAP,
-    MAX_SLAB_GAP,
-    MINIMUM_SLAB_HEIGHT
-} from "./constants-no-diag.js";
+import { MINIMUM_SLAB_HEIGHT } from "./constants-no-diag.js";
 export async function traverseConversation() {
 
     resetSupplyWorker();
@@ -56,7 +51,7 @@ export async function traverseConversation() {
             slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT
         )
             ? getNextSlabRoomIn(
-                areaAhead(slabRoom, MAX_SLAB_GAP),
+                slabRoom,
                 deckRoom
             )
             : null;
@@ -66,7 +61,7 @@ export async function traverseConversation() {
         //
         if (nextSlabRoom == null) {
             const nextDeckRoom = await getNextDeckRoomIn(
-                areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
+                deckRoom ?? initialDeckRoom
             );
 
             if (nextDeckRoom == null) {
@@ -76,7 +71,7 @@ export async function traverseConversation() {
 
             deckRoom = nextDeckRoom;
             nextSlabRoom = getNextSlabRoomIn(
-                areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
+                slabRoom ?? initialSlabRoom,
                 deckRoom
             );
 

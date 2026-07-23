@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.95
+// @version      1.96
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -12,13 +12,21 @@
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
   var TOLERATED_ROUNDING = 1;
-  var MAX_SLAB_GAP = 160;
+  var MAX_SLAB_GAP2 = 160;
   var MAX_DECK_GAP = 20;
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
   var MIN_SCROLL_HEIGHT_CHANGE = 20;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
+
+  // src/dev/geometry.js
+  function areaAhead(referenceTop, maxGap) {
+    return {
+      top: referenceTop - maxGap,
+      bottom: referenceTop
+    };
+  }
 
   // src/dev/slabType.js
   function slabType(slab) {
@@ -1220,6 +1228,21 @@
     }
   }
 
+  // src/dev/getNextSlabIn.js
+  function getNextSlabRoomIn(slabRoom, deckRoom) {
+    return selectNextSlabRoom(
+      areaAhead(slabRoom, MAX_SLAB_GAP2),
+      deckRoom
+    );
+  }
+
+  // src/dev/getNextDeckIn.js
+  function getNextDeckRoomIn(deckRoom) {
+    return selectNextDeckRoom(
+      areaAhead(deckRoom, MAX_DECK_GAP)
+    );
+  }
+
   // src/dev/moveAnchorToBottom.js
   async function moveAnchorToBottom(anchorRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
     beginJumpDiagnostics({
@@ -1367,14 +1390,6 @@
     );
   }
 
-  // src/dev/geometry.js
-  function areaAhead(referenceTop, maxGap) {
-    return {
-      top: referenceTop - maxGap,
-      bottom: referenceTop
-    };
-  }
-
   // src/dev/mainOrchestration.js
   async function traverseConversation() {
     resetCycleDiagnostics();
@@ -1414,8 +1429,8 @@
       recordCycleStageDiagnostics("deck-room", {
         deckRoom
       });
-      let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
-        areaAhead(slabRoom, MAX_SLAB_GAP),
+      let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? getNextSlabRoomIn(
+        slabRoom,
         deckRoom
       ) : null;
       recordCycleStageDiagnostics("deck-decision", {
@@ -1426,8 +1441,8 @@
         needsDeck: nextSlabRoom == null
       });
       if (nextSlabRoom == null) {
-        const nextDeckRoom = await selectNextDeckRoom(
-          areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
+        const nextDeckRoom = await getNextDeckRoomIn(
+          deckRoom ?? initialDeckRoom
         );
         if (nextDeckRoom == null) {
           recordCycleStageDiagnostics("stop", {
@@ -1437,8 +1452,8 @@
         }
         deckCountDiagnostics++;
         deckRoom = nextDeckRoom;
-        nextSlabRoom = selectNextSlabRoom(
-          areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
+        nextSlabRoom = getNextSlabRoomIn(
+          slabRoom ?? initialSlabRoom,
           deckRoom
         );
         if (nextSlabRoom == null) {
@@ -1458,7 +1473,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.95" : "unbuilt";
+  var VERSION = true ? "1.96" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
