@@ -10,6 +10,8 @@ The new code is in src/dev. The code in src/app is used to learn about chatGpt s
 * You can change the flow of the code as needed in a localized manner that respects the  flow that I requested.
 * Never change the flow of the code beyond what I request, unless it is localized.
 * For example, do not make a function depends on a policy unless I decide that the policy is external to the function, not hardcoded in the function. (You did that in a previous session and that surprised me a lot.)
+* Minimize the use of `try` blocks.
+* Never add a `try` block solely for diagnostic purposes. Collect and log relevant information during the run, let errors bubble to the end, and use the collected information there when needed.
 
 ## Bumping version, building and committing
 
