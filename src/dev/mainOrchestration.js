@@ -64,8 +64,7 @@ export async function traverseConversation() {
                 slabRoom,
                 deckRoom
             } = await moveSlabTopToBottom(
-                slabRoom,
-                deckRoom
+                slabRoom
             ));
         } else {
             recordCycleStageDiagnostics("move-skip", {

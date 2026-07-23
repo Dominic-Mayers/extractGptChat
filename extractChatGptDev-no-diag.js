@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.99-no-diag
+// @version      2.00-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -341,7 +341,7 @@
     await waitDeckActive(deck, activeArea);
     return deckGeometry(deck, workZone).room;
   }
-  function selectNextSlabRoom(area, deckRoom) {
+  function selectNextSlabRoom(area, deckRoom2) {
     const { workZone } = environment();
     const deck = retainedDeck();
     const slabs = getSlabsIn(deck);
@@ -383,7 +383,7 @@
   function viewportHeight() {
     return environment().workZone.height;
   }
-  async function pickAnchor(room) {
+  async function selectAnchor(room) {
     const { workZone } = environment();
     const slab = retainedSlab();
     const type = slabType(slab);
@@ -406,42 +406,34 @@
     }
     return roomAhead(currentAnchor, workZone);
   }
-  function movementGeometry() {
-    const { supplyArea, workZone } = environment();
-    return {
-      anchorRoom: roomAhead(retainedAnchor(), workZone),
-      slabRoom: roomAhead(boundaryOf(retainedSlab(), "top"), workZone),
-      deckRoom: roomAhead(boundaryOf(retainedDeck(), "top"), workZone),
-      supplyRoom: workZonePosition(supplyArea, workZone),
-      viewportHeight: workZone.height
-    };
+  function anchorRoom() {
+    const { workZone } = environment();
+    return roomAhead(retainedAnchor(), workZone);
   }
-  function anchorMovementGeometry() {
-    const { supplyArea, workZone } = environment();
-    return {
-      anchorRoom: roomAhead(retainedAnchor(), workZone),
-      supplyRoom: workZonePosition(supplyArea, workZone),
-      viewportHeight: workZone.height
-    };
+  function slabRoom() {
+    const { workZone } = environment();
+    return roomAhead(boundaryOf(retainedSlab(), "top"), workZone);
   }
-  async function moveAndStabilize(jump) {
+  function deckRoom() {
+    const { workZone } = environment();
+    return roomAhead(boundaryOf(retainedDeck(), "top"), workZone);
+  }
+  function supplyRoom() {
+    const { supplyArea, workZone } = environment();
+    return workZonePosition(supplyArea, workZone);
+  }
+  async function moveWorkZoneAndStabilize(jump) {
     const { supplyArea, activeArea, workZone } = environment();
     const anchor = retainedAnchor();
-    const roomBefore = roomAhead(anchor, workZone);
     const supplyRoomBefore = workZonePosition(supplyArea, workZone);
     moveWorkZone(jump, supplyArea, workZone);
     const supplyRoomAfter = workZonePosition(supplyArea, workZone);
     if (supplyRoomAfter === supplyRoomBefore) {
-      const anchorRoom2 = roomAhead(anchor, workZone);
-      return {
-        anchorRoom: anchorRoom2,
-        supplyRoomBefore,
-        supplyRoomAfter
-      };
+      return;
     }
     const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
     const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
-    const postJumpStabilization = await waitLayoutStable(
+    await waitLayoutStable(
       supplyArea,
       workZone,
       {
@@ -449,12 +441,6 @@
         stableFrames
       }
     );
-    const anchorRoom = roomAhead(anchor, workZone);
-    return {
-      anchorRoom,
-      supplyRoomBefore,
-      supplyRoomAfter
-    };
   }
   function closestDeck(referenceRoom, candidates, workZone) {
     let selected = null;
@@ -600,43 +586,44 @@
   }
 
   // src/dev/getNextSlabIn-no-diag.js
-  function getNextSlabRoomIn(slabRoom, deckRoom) {
+  function getNextSlabRoomIn(slabRoom2, deckRoom2) {
     return selectNextSlabRoom(
-      areaAhead(slabRoom, MAX_SLAB_GAP),
-      deckRoom
+      areaAhead(slabRoom2, MAX_SLAB_GAP),
+      deckRoom2
     );
   }
 
   // src/dev/getNextDeckIn-no-diag.js
-  function getNextDeckRoomIn(deckRoom) {
+  function getNextDeckRoomIn(deckRoom2) {
     return selectNextDeckRoom(
-      areaAhead(deckRoom, MAX_DECK_GAP)
+      areaAhead(deckRoom2, MAX_DECK_GAP)
     );
   }
 
   // src/dev/moveAnchorToBottom-no-diag.js
-  async function moveAnchorToBottom(anchorRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
-    let movement = anchorMovementGeometry();
-    if (movement.supplyRoom <= 0) {
-      return anchorRoom;
+  async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
+    const currentSupplyRoom = supplyRoom();
+    if (currentSupplyRoom <= 0) {
+      return initialRoom;
     }
-    let room = anchorRoom;
+    let room = initialRoom;
     let retriedErasedJump = false;
     let anchorAtBottom = isAnchorAtBottom(viewportHeight2, room);
     if (anchorAtBottom) {
       return room;
     }
     while (!anchorAtBottom) {
-      movement = anchorMovementGeometry();
-      if (movement.supplyRoom <= 0) {
+      const supplyRoomBefore = supplyRoom();
+      if (supplyRoomBefore <= 0) {
         return room;
       }
       const jump = clampJump(calibratedJump, room, viewportHeight2);
-      const result = await moveAndStabilize(jump);
-      if (result.supplyRoomAfter === result.supplyRoomBefore) {
+      await moveWorkZoneAndStabilize(jump);
+      const supplyRoomAfter = supplyRoom();
+      if (supplyRoomAfter === supplyRoomBefore) {
         break;
       }
-      const obtainedRoom = result.anchorRoom;
+      const obtainedRoom = anchorRoom();
       const jumpWasErased = obtainedRoom === room;
       if (jumpWasErased && retriedErasedJump) {
         throw new Error(
@@ -660,38 +647,23 @@
     return room >= targetRoom - TOLERATED_ROUNDING;
   }
 
-  // src/dev/pickAnchorAndMoveItToBottom-no-diag.js
-  async function pickAnchorAndMoveItToBottom(room) {
-    const anchorRoom = await pickAnchor(room);
-    await moveAnchorToBottom(
-      anchorRoom,
-      viewportHeight()
-    );
-    const geometry = movementGeometry();
-    return {
-      anchorRoom,
-      slabRoom: geometry.slabRoom,
-      deckRoom: geometry.deckRoom
-    };
-  }
-
   // src/dev/moveSlabTopToBottom-no-diag.js
-  async function moveSlabTopToBottom(slabRoom, deckRoom) {
+  async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
-    let room = slabRoom;
-    let anchorRoom = null;
+    let room = initialSlabRoom;
     while (!isAnchorAtBottom(height, room)) {
       const previousRoom = room;
-      const movement = await pickAnchorAndMoveItToBottom(room);
-      anchorRoom = movement.anchorRoom;
-      room = movement.slabRoom;
-      deckRoom = movement.deckRoom;
+      const selectedAnchorRoom = await selectAnchor(room);
+      await moveAnchorToBottom(
+        selectedAnchorRoom,
+        height
+      );
+      room = slabRoom();
       if (room === previousRoom) break;
     }
     return {
-      anchorRoom,
       slabRoom: room,
-      deckRoom
+      deckRoom: deckRoom()
     };
   }
 
@@ -732,46 +704,45 @@
   async function traverseConversation() {
     resetSupplyWorker();
     const initial = await moveViewportToDocumentBottom();
-    let slabRoom = null;
-    let deckRoom = null;
+    let slabRoom2 = null;
+    let deckRoom2 = null;
     const initialSlabRoom = initial.room;
     const initialDeckRoom = initial.deckRoom;
     while (true) {
-      if (slabRoom != null && slabRoom < MAX_SLAB_GAP) {
+      if (slabRoom2 != null && slabRoom2 < MAX_SLAB_GAP) {
         ({
-          slabRoom,
-          deckRoom
+          slabRoom: slabRoom2,
+          deckRoom: deckRoom2
         } = await moveSlabTopToBottom(
-          slabRoom,
-          deckRoom
+          slabRoom2
         ));
       }
-      let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? getNextSlabRoomIn(
-        slabRoom,
-        deckRoom
+      let nextSlabRoom = deckRoom2 != null && slabRoom2 - deckRoom2 >= MINIMUM_SLAB_HEIGHT ? getNextSlabRoomIn(
+        slabRoom2,
+        deckRoom2
       ) : null;
       if (nextSlabRoom == null) {
         const nextDeckRoom = await getNextDeckRoomIn(
-          deckRoom ?? initialDeckRoom
+          deckRoom2 ?? initialDeckRoom
         );
         if (nextDeckRoom == null) {
           break;
         }
-        deckRoom = nextDeckRoom;
+        deckRoom2 = nextDeckRoom;
         nextSlabRoom = getNextSlabRoomIn(
-          slabRoom ?? initialSlabRoom,
-          deckRoom
+          slabRoom2 ?? initialSlabRoom,
+          deckRoom2
         );
         if (nextSlabRoom == null) {
           throw new Error("No slab found in active deck.");
         }
       }
-      slabRoom = nextSlabRoom;
+      slabRoom2 = nextSlabRoom;
     }
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.99-no-diag" : "unbuilt";
+  var VERSION = true ? "2.00-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

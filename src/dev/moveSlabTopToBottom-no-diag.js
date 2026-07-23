@@ -1,26 +1,34 @@
-import { isAnchorAtBottom } from "./moveAnchorToBottom-no-diag.js";
-import { pickAnchorAndMoveItToBottom } from "./pickAnchorAndMoveItToBottom-no-diag.js";
-import { viewportHeight } from "./supplyWorker-no-diag.js";
+import {
+    isAnchorAtBottom,
+    moveAnchorToBottom
+} from "./moveAnchorToBottom-no-diag.js";
+import {
+    deckRoom,
+    selectAnchor,
+    slabRoom,
+    viewportHeight
+} from "./supplyWorker-no-diag.js";
 
-export async function moveSlabTopToBottom(slabRoom, deckRoom) {
+export async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
-    let room = slabRoom;
-    let anchorRoom = null;
+    let room = initialSlabRoom;
 
     while (!isAnchorAtBottom(height, room)) {
         const previousRoom = room;
-        const movement = await pickAnchorAndMoveItToBottom(room);
+        const selectedAnchorRoom = await selectAnchor(room);
 
-        anchorRoom = movement.anchorRoom;
-        room = movement.slabRoom;
-        deckRoom = movement.deckRoom;
+        await moveAnchorToBottom(
+            selectedAnchorRoom,
+            height
+        );
+
+        room = slabRoom();
 
         if (room === previousRoom) break;
     }
 
     return {
-        anchorRoom,
         slabRoom: room,
-        deckRoom
+        deckRoom: deckRoom()
     };
 }

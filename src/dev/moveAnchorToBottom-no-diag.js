@@ -4,23 +4,24 @@ import {
     CALIBRATED_JUMP
 } from "./constants-no-diag.js";
 import {
-    anchorMovementGeometry,
-    moveAndStabilize
+    anchorRoom,
+    moveWorkZoneAndStabilize,
+    supplyRoom
 } from "./supplyWorker-no-diag.js";
 export async function moveAnchorToBottom(
-    anchorRoom,
+    initialRoom,
     viewportHeight,
     calibratedJump = CALIBRATED_JUMP
 ) {
 
-    let movement = anchorMovementGeometry();
+    const currentSupplyRoom = supplyRoom();
 
-    if (movement.supplyRoom <= 0) {
+    if (currentSupplyRoom <= 0) {
 
-        return anchorRoom;
+        return initialRoom;
     }
 
-    let room = anchorRoom;
+    let room = initialRoom;
     let retriedErasedJump = false;
 
     let anchorAtBottom = isAnchorAtBottom(viewportHeight, room);
@@ -31,22 +32,23 @@ export async function moveAnchorToBottom(
 
     while (!anchorAtBottom) {
 
-        movement = anchorMovementGeometry();
+        const supplyRoomBefore = supplyRoom();
 
-        if (movement.supplyRoom <= 0) {
+        if (supplyRoomBefore <= 0) {
 
             return room;
         }
 
         const jump = clampJump(calibratedJump, room, viewportHeight);
-        const result = await moveAndStabilize(jump);
+        await moveWorkZoneAndStabilize(jump);
+        const supplyRoomAfter = supplyRoom();
 
-        if (result.supplyRoomAfter === result.supplyRoomBefore) {
+        if (supplyRoomAfter === supplyRoomBefore) {
 
             break;
         }
 
-        const obtainedRoom = result.anchorRoom;
+        const obtainedRoom = anchorRoom();
         const jumpWasErased = obtainedRoom === room;
 
         if (jumpWasErased && retriedErasedJump) {

@@ -155,7 +155,7 @@ export function viewportHeight() {
     return environment().workZone.height;
 }
 
-export async function pickAnchor(room) {
+export async function selectAnchor(room) {
     const { workZone } = environment();
     const slab = retainedSlab();
     const type = slabType(slab);
@@ -191,36 +191,36 @@ export async function pickAnchor(room) {
     return roomAhead(currentAnchor, workZone);
 }
 
-export function movementGeometry() {
-    const { supplyArea, workZone } = environment();
-    return {
-        anchorRoom: roomAhead(retainedAnchor(), workZone),
-        slabRoom: roomAhead(boundaryOf(retainedSlab(), "top"), workZone),
-        deckRoom: roomAhead(boundaryOf(retainedDeck(), "top"), workZone),
-        supplyRoom: workZonePosition(supplyArea, workZone),
-        viewportHeight: workZone.height
-    };
+export function anchorRoom() {
+    const { workZone } = environment();
+    return roomAhead(retainedAnchor(), workZone);
 }
 
-export function anchorMovementGeometry() {
-    const { supplyArea, workZone } = environment();
-    return {
-        anchorRoom: roomAhead(retainedAnchor(), workZone),
-        supplyRoom: workZonePosition(supplyArea, workZone),
-        viewportHeight: workZone.height
-    };
+export function slabRoom() {
+    const { workZone } = environment();
+    return roomAhead(boundaryOf(retainedSlab(), "top"), workZone);
 }
 
-export async function moveAndStabilize(jump) {
+export function deckRoom() {
+    const { workZone } = environment();
+    return roomAhead(boundaryOf(retainedDeck(), "top"), workZone);
+}
+
+export function supplyRoom() {
+    const { supplyArea, workZone } = environment();
+    return workZonePosition(supplyArea, workZone);
+}
+
+export async function moveWorkZoneAndStabilize(jump) {
     const { supplyArea, activeArea, workZone } = environment();
     const anchor = retainedAnchor();
-    const roomBefore = roomAhead(anchor, workZone);
+    const roomBeforeDiagnostics = roomAhead(anchor, workZone);
     const supplyRoomBefore = workZonePosition(supplyArea, workZone);
 
     beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchor),
-        roomBefore,
+        roomBefore: roomBeforeDiagnostics,
         jump,
         scrollYBefore: supplyRoomBefore
     });
@@ -230,17 +230,13 @@ export async function moveAndStabilize(jump) {
     const supplyRoomAfter = workZonePosition(supplyArea, workZone);
 
     if (supplyRoomAfter === supplyRoomBefore) {
-        const anchorRoom = roomAhead(anchor, workZone);
+        const anchorRoomDiagnostics = roomAhead(anchor, workZone);
         finishJumpDiagnostics({
             scrollYAfter: supplyRoomAfter,
-            obtainedRoom: anchorRoom,
+            obtainedRoom: anchorRoomDiagnostics,
             status: "no-movement"
         });
-        return {
-            anchorRoom,
-            supplyRoomBefore,
-            supplyRoomAfter
-        };
+        return;
     }
 
     updateJumpDiagnostics({
@@ -256,7 +252,7 @@ export async function moveAndStabilize(jump) {
 
     updateJumpDiagnostics({ roomUntilFirstNotReadyDeck });
 
-    const postJumpStabilization = await waitLayoutStable(
+    await waitLayoutStable(
         supplyArea,
         workZone,
         {
@@ -265,18 +261,11 @@ export async function moveAndStabilize(jump) {
         }
     );
 
-    const anchorRoom = roomAhead(anchor, workZone);
+    const anchorRoomDiagnostics = roomAhead(anchor, workZone);
     finishJumpDiagnostics({
-        postJumpStabilization,
-        obtainedRoom: anchorRoom,
+        obtainedRoom: anchorRoomDiagnostics,
         settledAnchor: snapshotElementDiagnostics(anchor)
     });
-
-    return {
-        anchorRoom,
-        supplyRoomBefore,
-        supplyRoomAfter
-    };
 }
 
 function closestDeck(referenceRoom, candidates, workZone) {

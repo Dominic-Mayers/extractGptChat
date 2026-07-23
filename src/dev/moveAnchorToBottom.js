@@ -4,8 +4,9 @@ import {
     CALIBRATED_JUMP
 } from "./constants.js";
 import {
-    anchorMovementGeometry,
-    moveAndStabilize
+    anchorRoom,
+    moveWorkZoneAndStabilize,
+    supplyRoom
 } from "./supplyWorker.js";
 import {
     beginJumpDiagnostics,
@@ -17,7 +18,7 @@ import {
 } from "./cycleDiagnostics.js";
 
 export async function moveAnchorToBottom(
-    anchorRoom,
+    initialRoom,
     viewportHeight,
     calibratedJump = CALIBRATED_JUMP
 ) {
@@ -25,20 +26,20 @@ export async function moveAnchorToBottom(
         kind: "anchor-move"
     });
 
-    let movement = anchorMovementGeometry();
+    const currentSupplyRoom = supplyRoom();
 
-    if (movement.supplyRoom <= 0) {
+    if (currentSupplyRoom <= 0) {
         finishJumpDiagnostics({
-            roomBefore: anchorRoom,
-            obtainedRoom: anchorRoom,
-            scrollYAfter: movement.supplyRoom,
+            roomBefore: initialRoom,
+            obtainedRoom: initialRoom,
+            scrollYAfter: currentSupplyRoom,
             status: "movement-impossible"
         });
         logSlowJumpDiagnosticsIfNeeded();
-        return anchorRoom;
+        return initialRoom;
     }
 
-    let room = anchorRoom;
+    let room = initialRoom;
     let retriedErasedJump = false;
 
     let anchorAtBottom = isAnchorAtBottom(viewportHeight, room);
@@ -58,13 +59,13 @@ export async function moveAnchorToBottom(
             roomBefore: room
         });
 
-        movement = anchorMovementGeometry();
+        const supplyRoomBefore = supplyRoom();
 
-        if (movement.supplyRoom <= 0) {
+        if (supplyRoomBefore <= 0) {
             finishJumpDiagnostics({
                 roomBefore: room,
                 obtainedRoom: room,
-                scrollYAfter: movement.supplyRoom,
+                scrollYAfter: supplyRoomBefore,
                 status: "movement-impossible"
             });
             logSlowJumpDiagnosticsIfNeeded();
@@ -72,16 +73,17 @@ export async function moveAnchorToBottom(
         }
 
         const jump = clampJump(calibratedJump, room, viewportHeight);
-        const result = await moveAndStabilize(jump);
+        await moveWorkZoneAndStabilize(jump);
+        const supplyRoomAfter = supplyRoom();
 
-        if (result.supplyRoomAfter === result.supplyRoomBefore) {
+        if (supplyRoomAfter === supplyRoomBefore) {
             logSlowJumpDiagnosticsIfNeeded();
             break;
         }
 
         logStabilizedJumpDiagnosticsIfNeeded();
 
-        const obtainedRoom = result.anchorRoom;
+        const obtainedRoom = anchorRoom();
         const jumpWasErased = obtainedRoom === room;
 
         if (jumpWasErased && retriedErasedJump) {
