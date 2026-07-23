@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.85-no-diag
+// @version      1.86-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -572,43 +572,47 @@
     });
   }
 
-  // src/dev/slabBrowser-no-diag.js
-  async function moveNextAnchorToBottom(slabRoom, deckRoom) {
-    const context = contextAt(slabRoom, deckRoom);
-    const calibratedJump = await prepareSlab(context.slab);
-    const anchor = getNextAnchorIn(slabRoom, deckRoom);
-    if (!anchor) {
-      throw new Error("No ready visible anchor found in current slab.");
-    }
-    await moveAnchorToBottom(anchor, context.supplier, calibratedJump);
-    return geometryOf(context.slab, context.deck, context.supplier.workZone);
-  }
-  async function moveSlabBoundaryToBottom(slabRoom, deckRoom) {
-    const context = contextAt(slabRoom, deckRoom);
-    const calibratedJump = await prepareSlab(context.slab);
-    await moveAnchorToBottom(
-      boundaryOf(context.slab, "top"),
-      context.supplier,
-      calibratedJump
-    );
-    return geometryOf(context.slab, context.deck, context.supplier.workZone);
-  }
-  async function prepareSlab(slab) {
-    const type = slabType(slab);
-    if (type === "unknown") {
-      throw new Error("Cannot move an unknown slab type.");
-    }
-    if (type !== "image" && type !== "empty") return void 0;
-    await waitImageReady(slab);
-    return Infinity;
-  }
-  function contextAt(slabRoom, deckRoom) {
+  // src/dev/moveSlabTopToBottom-no-diag.js
+  async function moveSlabTopToBottom(slabRoom, deckRoom) {
     const supplier = observeSupplier();
+    const { workZone } = supplier;
     const slab = getSlabIn(slabRoom, deckRoom);
     const deck = getDeckIn(deckRoom);
     if (!slab) throw new Error("No slab found at the current geometry.");
     if (!deck) throw new Error("No deck found at the current geometry.");
-    return { supplier, slab, deck };
+    const type = slabType(slab);
+    const slabTop = boundaryOf(slab, "top");
+    let imageReady = false;
+    if (type === "unknown") {
+      throw new Error("Cannot move an unknown slab type.");
+    }
+    let room = roomAhead(slabTop, workZone);
+    while (!isAnchorAtBottom(workZone, room)) {
+      let anchor;
+      if (type === "image" || type === "empty") {
+        if (!imageReady) {
+          await waitImageReady(slab);
+          imageReady = true;
+        }
+        anchor = slabTop;
+      } else if (room > 0) {
+        anchor = slabTop;
+      } else {
+        const geometry = geometryOf(slab, deck, workZone);
+        anchor = getNextAnchorIn(
+          geometry.slabRoom,
+          geometry.deckRoom
+        );
+        if (!anchor) {
+          throw new Error("No ready visible anchor found in current slab.");
+        }
+      }
+      const previousRoom = room;
+      await moveAnchorToBottom(anchor, supplier);
+      room = roomAhead(slabTop, workZone);
+      if (room === previousRoom) break;
+    }
+    return geometryOf(slab, deck, workZone);
   }
   function geometryOf(slab, deck, workZone) {
     return {
@@ -627,21 +631,6 @@
       }
       if (typeof image.decode === "function") await image.decode();
     }
-  }
-
-  // src/dev/moveSlabTopToBottom-no-diag.js
-  async function moveSlabTopToBottom(state) {
-    let geometry = state;
-    while (geometry.slabRoom < 0) {
-      geometry = await moveNextAnchorToBottom(
-        geometry.slabRoom,
-        geometry.deckRoom
-      );
-    }
-    return moveSlabBoundaryToBottom(
-      geometry.slabRoom,
-      geometry.deckRoom
-    );
   }
 
   // src/dev/moveViewportToDocumentBottom-no-diag.js
@@ -698,10 +687,10 @@
           ({
             slabRoom,
             deckRoom
-          } = await moveSlabTopToBottom({
+          } = await moveSlabTopToBottom(
             slabRoom,
             deckRoom
-          }));
+          ));
         }
         let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? getNextSlabRoomIn(
           areaAhead(slabRoom, MAX_SLAB_GAP),
@@ -731,7 +720,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.85-no-diag" : "unbuilt";
+  var VERSION = true ? "1.86-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

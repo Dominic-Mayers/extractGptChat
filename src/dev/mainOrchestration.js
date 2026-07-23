@@ -66,10 +66,10 @@ export async function traverseConversation() {
             ({
                 slabRoom,
                 deckRoom
-            } = await moveSlabTopToBottom({
+            } = await moveSlabTopToBottom(
                 slabRoom,
                 deckRoom
-            }));
+            ));
         } else {
             recordCycleStageDiagnostics("move-skip", {
                 room: slabRoom
