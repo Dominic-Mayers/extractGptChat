@@ -87,6 +87,12 @@ export async function traverseConversation() {
 
         slabRoom = nextSlabRoom;
 
+        //
+        // Conceptually, the extraction phase goes here:
+        //
+        // const type = slabType(current);
+        // await waitSlabReady(type, current);
+        // extractSlab(type, current);
     }
     // exportMarkdown();
 

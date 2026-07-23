@@ -138,6 +138,12 @@ export async function traverseConversation() {
             deckRoom
         });
 
+        //
+        // Conceptually, the extraction phase goes here:
+        //
+        // const type = slabType(current);
+        // await waitSlabReady(type, current);
+        // extractSlab(type, current);
     }
     // exportMarkdown();
     flushCycleDiagnostics();
