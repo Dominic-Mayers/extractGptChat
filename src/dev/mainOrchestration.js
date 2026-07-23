@@ -10,7 +10,10 @@ import { getNextDeckRoomIn } from "./getNextDeckIn.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
 import { resetSupplyWorker } from "./supplyWorker.js";
-import { MINIMUM_SLAB_HEIGHT } from "./constants.js";
+import {
+    MAX_SLAB_GAP,
+    MINIMUM_SLAB_HEIGHT
+} from "./constants.js";
 import {
     resetCycleDiagnostics,
     beginCycleDiagnostics,

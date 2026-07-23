@@ -10,7 +10,10 @@ import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
 import { resetSupplyWorker } from "./supplyWorker-no-diag.js";
-import { MINIMUM_SLAB_HEIGHT } from "./constants-no-diag.js";
+import {
+    MAX_SLAB_GAP,
+    MINIMUM_SLAB_HEIGHT
+} from "./constants-no-diag.js";
 export async function traverseConversation() {
 
     resetSupplyWorker();

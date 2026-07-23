@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.98
+// @version      1.99
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -13,7 +13,7 @@
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
   var TOLERATED_ROUNDING = 1;
-  var MAX_SLAB_GAP2 = 160;
+  var MAX_SLAB_GAP = 160;
   var MAX_DECK_GAP = 20;
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
@@ -1237,7 +1237,7 @@
   // src/dev/getNextSlabIn.js
   function getNextSlabRoomIn(slabRoom, deckRoom) {
     return selectNextSlabRoom(
-      areaAhead(slabRoom, MAX_SLAB_GAP2),
+      areaAhead(slabRoom, MAX_SLAB_GAP),
       deckRoom
     );
   }
@@ -1479,7 +1479,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.98" : "unbuilt";
+  var VERSION = true ? "1.99" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
