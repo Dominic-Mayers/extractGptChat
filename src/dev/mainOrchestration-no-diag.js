@@ -18,8 +18,6 @@ import {
 } from "./constants-no-diag.js";
 export async function traverseConversation() {
 
-    try {
-
     resetSupplyWorker();
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
@@ -92,8 +90,4 @@ export async function traverseConversation() {
     }
     // exportMarkdown();
 
-    } catch (error) {
-
-        throw error;
-    }
 }

@@ -20,16 +20,12 @@ import {
     resetCycleDiagnostics,
     beginCycleDiagnostics,
     recordCycleStageDiagnostics,
-    logCycleContextDiagnostics,
-    flushCycleDiagnostics,
-    selectCurrentJumpDiagnostics
+    flushCycleDiagnostics
 } from "./cycleDiagnostics.js";
 
 export async function traverseConversation() {
 
     resetCycleDiagnostics();
-
-    try {
 
     resetSupplyWorker();
 
@@ -145,14 +141,4 @@ export async function traverseConversation() {
     }
     // exportMarkdown();
     flushCycleDiagnostics();
-
-    } catch (error) {
-        selectCurrentJumpDiagnostics("error");
-        recordCycleStageDiagnostics("error", {
-            name: error.name,
-            message: error.message
-        });
-        logCycleContextDiagnostics();
-        throw error;
-    }
 }

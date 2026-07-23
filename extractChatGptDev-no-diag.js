@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.92-no-diag
+// @version      1.93-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -714,52 +714,48 @@
 
   // src/dev/mainOrchestration-no-diag.js
   async function traverseConversation() {
-    try {
-      resetSupplyWorker();
-      const initial = await moveViewportToDocumentBottom();
-      let slabRoom = null;
-      let deckRoom = null;
-      const initialSlabRoom = initial.room;
-      const initialDeckRoom = initial.deckRoom;
-      while (true) {
-        if (slabRoom != null && slabRoom < MAX_SLAB_GAP) {
-          ({
-            slabRoom,
-            deckRoom
-          } = await moveSlabTopToBottom(
-            slabRoom,
-            deckRoom
-          ));
-        }
-        let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
-          areaAhead(slabRoom, MAX_SLAB_GAP),
+    resetSupplyWorker();
+    const initial = await moveViewportToDocumentBottom();
+    let slabRoom = null;
+    let deckRoom = null;
+    const initialSlabRoom = initial.room;
+    const initialDeckRoom = initial.deckRoom;
+    while (true) {
+      if (slabRoom != null && slabRoom < MAX_SLAB_GAP) {
+        ({
+          slabRoom,
           deckRoom
-        ) : null;
-        if (nextSlabRoom == null) {
-          const nextDeckRoom = await selectNextDeckRoom(
-            areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
-          );
-          if (nextDeckRoom == null) {
-            break;
-          }
-          deckRoom = nextDeckRoom;
-          nextSlabRoom = selectNextSlabRoom(
-            areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
-            deckRoom
-          );
-          if (nextSlabRoom == null) {
-            throw new Error("No slab found in active deck.");
-          }
-        }
-        slabRoom = nextSlabRoom;
+        } = await moveSlabTopToBottom(
+          slabRoom,
+          deckRoom
+        ));
       }
-    } catch (error) {
-      throw error;
+      let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
+        areaAhead(slabRoom, MAX_SLAB_GAP),
+        deckRoom
+      ) : null;
+      if (nextSlabRoom == null) {
+        const nextDeckRoom = await selectNextDeckRoom(
+          areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
+        );
+        if (nextDeckRoom == null) {
+          break;
+        }
+        deckRoom = nextDeckRoom;
+        nextSlabRoom = selectNextSlabRoom(
+          areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
+          deckRoom
+        );
+        if (nextSlabRoom == null) {
+          throw new Error("No slab found in active deck.");
+        }
+      }
+      slabRoom = nextSlabRoom;
     }
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.92-no-diag" : "unbuilt";
+  var VERSION = true ? "1.93-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

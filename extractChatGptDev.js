@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.92
+// @version      1.93
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -541,11 +541,6 @@
   }
   function escapeAttributeDiagnostics(value) {
     return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  }
-  function logCycleContextDiagnostics() {
-    finishCycleTimingDiagnostics(currentCycle);
-    emitSlabDiagnostics(previousCycle, "PREVIOUS");
-    emitSlabDiagnostics(currentCycle, "CURRENT", true);
   }
   function logActiveTraversalDiagnostics() {
     if (!currentCycle) {
@@ -1383,97 +1378,87 @@
   // src/dev/mainOrchestration.js
   async function traverseConversation() {
     resetCycleDiagnostics();
-    try {
-      resetSupplyWorker();
-      const initial = await moveViewportToDocumentBottom();
-      let slabRoom = null;
-      let deckRoom = null;
-      const initialSlabRoom = initial.room;
-      const initialDeckRoom = initial.deckRoom;
-      let deckCountDiagnostics = 0;
-      let slabCountDiagnostics = 0;
-      let cycleCountDiagnostics = 0;
-      while (true) {
-        cycleCountDiagnostics++;
-        beginCycleDiagnostics({
-          cycle: cycleCountDiagnostics,
-          deckCount: deckCountDiagnostics,
-          slabCount: slabCountDiagnostics,
-          room: slabRoom,
-          deckRoom,
-          initialSlabRoom,
-          initialDeckRoom
-        });
-        if (slabRoom != null && slabRoom < MAX_SLAB_GAP) {
-          ({
-            slabRoom,
-            deckRoom
-          } = await moveSlabTopToBottom(
-            slabRoom,
-            deckRoom
-          ));
-        } else {
-          recordCycleStageDiagnostics("move-skip", {
-            room: slabRoom
-          });
-        }
-        recordCycleStageDiagnostics("deck-room", {
+    resetSupplyWorker();
+    const initial = await moveViewportToDocumentBottom();
+    let slabRoom = null;
+    let deckRoom = null;
+    const initialSlabRoom = initial.room;
+    const initialDeckRoom = initial.deckRoom;
+    let deckCountDiagnostics = 0;
+    let slabCountDiagnostics = 0;
+    let cycleCountDiagnostics = 0;
+    while (true) {
+      cycleCountDiagnostics++;
+      beginCycleDiagnostics({
+        cycle: cycleCountDiagnostics,
+        deckCount: deckCountDiagnostics,
+        slabCount: slabCountDiagnostics,
+        room: slabRoom,
+        deckRoom,
+        initialSlabRoom,
+        initialDeckRoom
+      });
+      if (slabRoom != null && slabRoom < MAX_SLAB_GAP) {
+        ({
+          slabRoom,
           deckRoom
-        });
-        let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
-          areaAhead(slabRoom, MAX_SLAB_GAP),
+        } = await moveSlabTopToBottom(
+          slabRoom,
           deckRoom
-        ) : null;
-        recordCycleStageDiagnostics("deck-decision", {
-          room: slabRoom,
-          deckRoom,
-          available: slabRoom - deckRoom,
-          minimum: MINIMUM_SLAB_HEIGHT,
-          needsDeck: nextSlabRoom == null
-        });
-        if (nextSlabRoom == null) {
-          const nextDeckRoom = await selectNextDeckRoom(
-            areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
-          );
-          if (nextDeckRoom == null) {
-            recordCycleStageDiagnostics("stop", {
-              reason: "no-next-deck"
-            });
-            break;
-          }
-          deckCountDiagnostics++;
-          deckRoom = nextDeckRoom;
-          nextSlabRoom = selectNextSlabRoom(
-            areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
-            deckRoom
-          );
-          if (nextSlabRoom == null) {
-            throw new Error("No slab found in active deck.");
-          }
-        }
-        slabCountDiagnostics++;
-        slabRoom = nextSlabRoom;
-        recordCycleStageDiagnostics("selected", {
-          slabCount: slabCountDiagnostics,
-          deckCount: deckCountDiagnostics,
-          room: slabRoom,
-          deckRoom
+        ));
+      } else {
+        recordCycleStageDiagnostics("move-skip", {
+          room: slabRoom
         });
       }
-      flushCycleDiagnostics();
-    } catch (error) {
-      selectCurrentJumpDiagnostics("error");
-      recordCycleStageDiagnostics("error", {
-        name: error.name,
-        message: error.message
+      recordCycleStageDiagnostics("deck-room", {
+        deckRoom
       });
-      logCycleContextDiagnostics();
-      throw error;
+      let nextSlabRoom = deckRoom != null && slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
+        areaAhead(slabRoom, MAX_SLAB_GAP),
+        deckRoom
+      ) : null;
+      recordCycleStageDiagnostics("deck-decision", {
+        room: slabRoom,
+        deckRoom,
+        available: slabRoom - deckRoom,
+        minimum: MINIMUM_SLAB_HEIGHT,
+        needsDeck: nextSlabRoom == null
+      });
+      if (nextSlabRoom == null) {
+        const nextDeckRoom = await selectNextDeckRoom(
+          areaAhead(deckRoom ?? initialDeckRoom, MAX_DECK_GAP)
+        );
+        if (nextDeckRoom == null) {
+          recordCycleStageDiagnostics("stop", {
+            reason: "no-next-deck"
+          });
+          break;
+        }
+        deckCountDiagnostics++;
+        deckRoom = nextDeckRoom;
+        nextSlabRoom = selectNextSlabRoom(
+          areaAhead(slabRoom ?? initialSlabRoom, MAX_SLAB_GAP),
+          deckRoom
+        );
+        if (nextSlabRoom == null) {
+          throw new Error("No slab found in active deck.");
+        }
+      }
+      slabCountDiagnostics++;
+      slabRoom = nextSlabRoom;
+      recordCycleStageDiagnostics("selected", {
+        slabCount: slabCountDiagnostics,
+        deckCount: deckCountDiagnostics,
+        room: slabRoom,
+        deckRoom
+      });
     }
+    flushCycleDiagnostics();
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.92" : "unbuilt";
+  var VERSION = true ? "1.93" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
