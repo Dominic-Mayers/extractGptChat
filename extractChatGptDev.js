@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.86
+// @version      1.87
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -775,6 +775,7 @@
   }
 
   // src/dev/getNextSlabIn.js
+  var selectedSlabDiagnostics = null;
   function getNextSlabRoomIn(area, deckRoom) {
     const supplier = observeSupplier();
     const { workZone } = supplier;
@@ -794,6 +795,7 @@
       selected: snapshotElementDiagnostics(slab)
     });
     if (slab == null) return null;
+    rememberSelectedSlabDiagnostics(slab);
     const geometry = slabGeometry(slab, workZone);
     return geometry.room;
   }
@@ -811,7 +813,20 @@
       selected = slab;
       smallestRoomDifference = roomDifference;
     }
+    checkSelectedSlabDiagnostics(selected, slabRoom, deckRoom);
     return selected;
+  }
+  function rememberSelectedSlabDiagnostics(slab) {
+    selectedSlabDiagnostics = slab;
+  }
+  function checkSelectedSlabDiagnostics(slab, slabRoom, deckRoom) {
+    if (selectedSlabDiagnostics === slab) return;
+    console.error("[slab identity mismatch]", {
+      slabRoom,
+      deckRoom,
+      selected: snapshotElementDiagnostics(selectedSlabDiagnostics),
+      recovered: snapshotElementDiagnostics(slab)
+    });
   }
   function closestSlab(referenceRoom, candidates, workZone) {
     let selected = null;
@@ -1434,7 +1449,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.86" : "unbuilt";
+  var VERSION = true ? "1.87" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

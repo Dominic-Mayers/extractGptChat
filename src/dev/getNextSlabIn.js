@@ -11,6 +11,7 @@ import { observeSupplier, roomAhead } from "./scrollContainer.js";
 import { boundaryOf } from "./boundary.js";
 import { getDeckIn } from "./getNextDeckIn.js";
 
+let selectedSlabDiagnostics = null;
 
 export function getNextSlabRoomIn(
     area,
@@ -39,6 +40,7 @@ export function getNextSlabRoomIn(
     });
 
     if (slab == null) return null;
+    rememberSelectedSlabDiagnostics(slab);
     const geometry = slabGeometry(slab, workZone);
     return geometry.room;
 }
@@ -62,7 +64,22 @@ export function getSlabIn(
         smallestRoomDifference = roomDifference;
     }
 
+    checkSelectedSlabDiagnostics(selected, slabRoom, deckRoom);
     return selected;
+}
+
+function rememberSelectedSlabDiagnostics(slab) {
+    selectedSlabDiagnostics = slab;
+}
+
+function checkSelectedSlabDiagnostics(slab, slabRoom, deckRoom) {
+    if (selectedSlabDiagnostics === slab) return;
+    console.error("[slab identity mismatch]", {
+        slabRoom,
+        deckRoom,
+        selected: snapshotElementDiagnostics(selectedSlabDiagnostics),
+        recovered: snapshotElementDiagnostics(slab)
+    });
 }
 
 function closestSlab(referenceRoom, candidates, workZone) {

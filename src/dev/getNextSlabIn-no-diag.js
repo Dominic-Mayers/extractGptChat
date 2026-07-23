@@ -26,6 +26,7 @@ export function getNextSlabRoomIn(
     const slab = closestSlab(area.bottom, candidates, workZone);
 
     if (slab == null) return null;
+
     const geometry = slabGeometry(slab, workZone);
     return geometry.room;
 }
