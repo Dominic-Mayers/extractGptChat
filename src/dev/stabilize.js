@@ -1,9 +1,13 @@
-import { MIN_SCROLL_HEIGHT_CHANGE } from "./constants.js";
 import {
+    ACTIVATION_DISTANCE,
+    MIN_SCROLL_HEIGHT_CHANGE
+} from "./constants.js";
+import {
+    anchorRoom,
+    roomUntilFirstNotReadyDeck,
     supplyHeight,
-    viewportPosition,
-    workZonePosition
-} from "./scrollContainer.js";
+    supplyRoom
+} from "./supplyWorker.js";
 import {
     beginStabilizationDiagnostics,
     finishStabilizationDiagnostics,
@@ -16,17 +20,17 @@ import {
 } from "./cycleDiagnostics.js";
 
 export async function waitLayoutStable(
-    supplyArea,
-    workZone,
     {
-        stableFrames = 2,
         maxFrames = 300,
-        current = null
+        trackAnchor = false
     } = {}
 ) {
-    const checkAnchor = current != null;
+    const stableFrames = trackAnchor &&
+        roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE
+        ? 1
+        : 2;
 
-    let previous = geometrySnapshot(supplyArea, workZone);
+    let previous = geometrySnapshot();
     let unchanged = 0;
     beginStabilizationDiagnostics({ stableFrames });
 
@@ -35,7 +39,7 @@ export async function waitLayoutStable(
         await nextAnimationFrame();
         finishRafWaitDiagnostics();
 
-        const currentGeometry = geometrySnapshot(supplyArea, workZone);
+        const currentGeometry = geometrySnapshot();
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
         );
@@ -51,8 +55,8 @@ export async function waitLayoutStable(
             scrollYChange
         );
         const geometryChanged = geometryChangeMagnitude !== 0;
-        const positionAtFrame = checkAnchor
-            ? viewportPosition(current, workZone)
+        const positionAtFrame = trackAnchor
+            ? anchorRoom()
             : null;
         recordRafTelemetryDiagnostics({
             geometryChangeMagnitude,
@@ -73,12 +77,11 @@ export async function waitLayoutStable(
         }
 
         const anchorStable = await checkAnchorAcrossYields(
-            current,
-            workZone,
+            trackAnchor,
             positionAtFrame
         );
-        const positionNow = checkAnchor
-            ? viewportPosition(current, workZone)
+        const positionNowDiagnostics = trackAnchor
+            ? anchorRoom()
             : null;
 
         if (!anchorStable) {
@@ -95,13 +98,9 @@ export async function waitLayoutStable(
             finishStabilizationDiagnostics({
                 status: "stable",
                 frames: frame + 1,
-                position: positionNow
+                position: positionNowDiagnostics
             });
-            return {
-                frames: frame + 1,
-                status: "stable",
-                position: positionNow
-            };
+            return;
         }
     }
     finishStabilizationDiagnostics({
@@ -120,17 +119,16 @@ export async function waitLayoutStable(
  * Any geometric change that matters to traversal should
  * modify at least one of these quantities.
  */
-function geometrySnapshot(supplyArea, workZone) {
+function geometrySnapshot() {
 
     return {
-        scrollHeight: supplyHeight(supplyArea),
-        scrollY: workZonePosition(supplyArea, workZone)
+        scrollHeight: supplyHeight(),
+        scrollY: supplyRoom()
     };
 }
 
 async function checkAnchorAcrossYields(
-    current,
-    workZone,
+    trackAnchor,
     positionAtFrame
 ) {
     let previousPosition = positionAtFrame;
@@ -142,8 +140,8 @@ async function checkAnchorAcrossYields(
             positionBefore: previousPosition
         });
         await yieldToScheduler();
-        const position = current != null
-            ? viewportPosition(current, workZone)
+        const position = trackAnchor
+            ? anchorRoom()
             : null;
         const change = position == null || previousPosition == null
             ? 0

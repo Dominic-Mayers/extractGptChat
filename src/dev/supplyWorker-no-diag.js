@@ -1,17 +1,16 @@
 import {
-    ACTIVATION_DISTANCE,
     ADJACENCY_OVERLAP_TOLERANCE
 } from "./constants-no-diag.js";
 import { slabType } from "./slabType-no-diag.js";
 import { getNextAnchorIn } from "./getNextAnchorIn-no-diag.js";
 import { boundaryOf } from "./boundary-no-diag.js";
-import { waitLayoutStable } from "./stabilize-no-diag.js";
 import {
     contains,
     elementsIn,
     moveWorkZone,
     observeSupplier,
     roomAhead,
+    supplyHeight as readSupplyHeight,
     workZonePosition,
     workZoneTop
 } from "./scrollContainer-no-diag.js";
@@ -159,35 +158,19 @@ export function supplyRoom() {
     return workZonePosition(supplyArea, workZone);
 }
 
-export async function moveWorkZoneAndStabilize(jump) {
-    const { supplyArea, activeArea, workZone } = environment();
-    const anchor = retainedAnchor();
+export function supplyHeight() {
+    return readSupplyHeight(environment().supplyArea);
+}
 
-    const supplyRoomBefore = workZonePosition(supplyArea, workZone);
+export function roomUntilFirstNotReadyDeck() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
+}
+
+export function moveWorkZoneBy(jump) {
+    const { supplyArea, workZone } = environment();
 
     moveWorkZone(jump, supplyArea, workZone);
-
-    const supplyRoomAfter = workZonePosition(supplyArea, workZone);
-
-    if (supplyRoomAfter === supplyRoomBefore) {
-
-        return;
-    }
-
-    const roomUntilFirstNotReadyDeck =
-        measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
-    const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE
-        ? 2
-        : 1;
-
-    await waitLayoutStable(
-        supplyArea,
-        workZone,
-        {
-            current: anchor,
-            stableFrames
-        }
-    );
 
 }
 

@@ -29,11 +29,11 @@ export async function moveViewportToDocumentBottom() {
 
     clickBottomNavItem();
 
-    await waitLayoutStable(supplyArea, workZone);
+    await waitLayoutStable();
 
     moveWorkZoneToSupplyEnd(supplyArea, workZone);
 
-    await waitLayoutStable(supplyArea, workZone);
+    await waitLayoutStable();
 
     const decks = getDecks(supplyArea);
 

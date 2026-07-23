@@ -1,17 +1,16 @@
 import {
-    ACTIVATION_DISTANCE,
     ADJACENCY_OVERLAP_TOLERANCE
 } from "./constants.js";
 import { slabType } from "./slabType.js";
 import { getNextAnchorIn } from "./getNextAnchorIn.js";
 import { boundaryOf } from "./boundary.js";
-import { waitLayoutStable } from "./stabilize.js";
 import {
     contains,
     elementsIn,
     moveWorkZone,
     observeSupplier,
     roomAhead,
+    supplyHeight as readSupplyHeight,
     workZonePosition,
     workZoneTop
 } from "./scrollContainer.js";
@@ -20,7 +19,6 @@ import {
     finishPendingAwaitDiagnostics,
     beginOrContinueJumpDiagnostics,
     updateJumpDiagnostics,
-    finishJumpDiagnostics,
     recordCycleStageDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
@@ -211,60 +209,38 @@ export function supplyRoom() {
     return workZonePosition(supplyArea, workZone);
 }
 
-export async function moveWorkZoneAndStabilize(jump) {
-    const { supplyArea, activeArea, workZone } = environment();
-    const anchor = retainedAnchor();
-    const roomBeforeDiagnostics = roomAhead(anchor, workZone);
-    const supplyRoomBefore = workZonePosition(supplyArea, workZone);
+export function supplyHeight() {
+    return readSupplyHeight(environment().supplyArea);
+}
+
+export function roomUntilFirstNotReadyDeck() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
+}
+
+export function moveWorkZoneBy(jump) {
+    const { supplyArea, workZone } = environment();
+    const anchorDiagnostics = retainedAnchor();
+    const roomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
+    const supplyRoomBeforeDiagnostics =
+        workZonePosition(supplyArea, workZone);
 
     beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
-        anchor: snapshotElementDiagnostics(anchor),
+        anchor: snapshotElementDiagnostics(anchorDiagnostics),
         roomBefore: roomBeforeDiagnostics,
         jump,
-        scrollYBefore: supplyRoomBefore
+        scrollYBefore: supplyRoomBeforeDiagnostics
     });
 
     moveWorkZone(jump, supplyArea, workZone);
 
-    const supplyRoomAfter = workZonePosition(supplyArea, workZone);
-
-    if (supplyRoomAfter === supplyRoomBefore) {
-        const anchorRoomDiagnostics = roomAhead(anchor, workZone);
-        finishJumpDiagnostics({
-            scrollYAfter: supplyRoomAfter,
-            obtainedRoom: anchorRoomDiagnostics,
-            status: "no-movement"
-        });
-        return;
-    }
+    const supplyRoomAfterDiagnostics =
+        workZonePosition(supplyArea, workZone);
 
     updateJumpDiagnostics({
-        scrollYAfter: supplyRoomAfter,
-        immediateAnchor: snapshotElementDiagnostics(anchor)
-    });
-
-    const roomUntilFirstNotReadyDeck =
-        measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
-    const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE
-        ? 2
-        : 1;
-
-    updateJumpDiagnostics({ roomUntilFirstNotReadyDeck });
-
-    await waitLayoutStable(
-        supplyArea,
-        workZone,
-        {
-            current: anchor,
-            stableFrames
-        }
-    );
-
-    const anchorRoomDiagnostics = roomAhead(anchor, workZone);
-    finishJumpDiagnostics({
-        obtainedRoom: anchorRoomDiagnostics,
-        settledAnchor: snapshotElementDiagnostics(anchor)
+        scrollYAfter: supplyRoomAfterDiagnostics,
+        immediateAnchor: snapshotElementDiagnostics(anchorDiagnostics)
     });
 }
 

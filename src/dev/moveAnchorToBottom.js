@@ -5,9 +5,10 @@ import {
 } from "./constants.js";
 import {
     anchorRoom,
-    moveWorkZoneAndStabilize,
+    moveWorkZoneBy,
     supplyRoom
 } from "./supplyWorker.js";
+import { waitLayoutStable } from "./stabilize.js";
 import {
     beginJumpDiagnostics,
     beginOrContinueJumpDiagnostics,
@@ -73,17 +74,27 @@ export async function moveAnchorToBottom(
         }
 
         const jump = clampJump(calibratedJump, room, viewportHeight);
-        await moveWorkZoneAndStabilize(jump);
+        moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
+            finishJumpDiagnostics({
+                scrollYAfter: supplyRoomAfter,
+                obtainedRoom: anchorRoom(),
+                status: "no-movement"
+            });
             logSlowJumpDiagnosticsIfNeeded();
             break;
         }
 
-        logStabilizedJumpDiagnosticsIfNeeded();
+        await waitLayoutStable({ trackAnchor: true });
 
         const obtainedRoom = anchorRoom();
+        finishJumpDiagnostics({
+            obtainedRoom
+        });
+        logStabilizedJumpDiagnosticsIfNeeded();
+
         const jumpWasErased = obtainedRoom === room;
 
         if (jumpWasErased && retriedErasedJump) {

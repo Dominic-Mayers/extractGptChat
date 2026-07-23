@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.00-no-diag
+// @version      2.01-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -71,9 +71,6 @@
     return { supplyArea, activeArea, workZone };
   }
   function roomAhead(anchor, workZone) {
-    return boundaryPosition(anchor) - workZoneTop(workZone);
-  }
-  function viewportPosition(anchor, workZone) {
     return boundaryPosition(anchor) - workZoneTop(workZone);
   }
   function workZonePosition(supplyArea, workZone) {
@@ -226,92 +223,6 @@
     });
   }
 
-  // src/dev/stabilize-no-diag.js
-  async function waitLayoutStable(supplyArea, workZone, {
-    stableFrames = 2,
-    maxFrames = 300,
-    current = null
-  } = {}) {
-    const checkAnchor = current != null;
-    let previous = geometrySnapshot(supplyArea, workZone);
-    let unchanged = 0;
-    for (let frame = 0; frame < maxFrames; frame++) {
-      await nextAnimationFrame();
-      const currentGeometry = geometrySnapshot(supplyArea, workZone);
-      const scrollHeightChange = Math.abs(
-        currentGeometry.scrollHeight - previous.scrollHeight
-      );
-      const scrollYChange = Math.abs(
-        currentGeometry.scrollY - previous.scrollY
-      );
-      const effectiveScrollHeightChange = scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE ? 0 : scrollHeightChange;
-      const geometryChangeMagnitude = Math.max(
-        effectiveScrollHeightChange,
-        scrollYChange
-      );
-      const geometryChanged = geometryChangeMagnitude !== 0;
-      const positionAtFrame = checkAnchor ? viewportPosition(current, workZone) : null;
-      if (geometryChanged) {
-        previous = currentGeometry;
-        unchanged = 0;
-        continue;
-      }
-      const anchorStable = await checkAnchorAcrossYields(
-        current,
-        workZone,
-        positionAtFrame
-      );
-      const positionNow = checkAnchor ? viewportPosition(current, workZone) : null;
-      if (!anchorStable) {
-        previous = currentGeometry;
-        unchanged = 0;
-        continue;
-      }
-      unchanged++;
-      if (unchanged >= stableFrames) {
-        return {
-          frames: frame + 1,
-          status: "stable",
-          position: positionNow
-        };
-      }
-    }
-    throw new Error(
-      `Exceeded ${maxFrames} frames waiting for layout stabilization.`
-    );
-  }
-  function geometrySnapshot(supplyArea, workZone) {
-    return {
-      scrollHeight: supplyHeight(supplyArea),
-      scrollY: workZonePosition(supplyArea, workZone)
-    };
-  }
-  async function checkAnchorAcrossYields(current, workZone, positionAtFrame) {
-    let previousPosition = positionAtFrame;
-    let stable = true;
-    for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
-      await yieldToScheduler();
-      const position = current != null ? viewportPosition(current, workZone) : null;
-      const change = position == null || previousPosition == null ? 0 : Math.abs(position - previousPosition);
-      const changed = change !== 0;
-      if (changed) stable = false;
-      previousPosition = position;
-    }
-    return stable;
-  }
-  async function yieldToScheduler() {
-    if (typeof globalThis.scheduler?.yield === "function") {
-      await globalThis.scheduler.yield();
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  function nextAnimationFrame() {
-    return new Promise(
-      (resolve) => requestAnimationFrame(resolve)
-    );
-  }
-
   // src/dev/supplyWorker-no-diag.js
   var supplier;
   var currentDeck;
@@ -422,25 +333,16 @@
     const { supplyArea, workZone } = environment();
     return workZonePosition(supplyArea, workZone);
   }
-  async function moveWorkZoneAndStabilize(jump) {
-    const { supplyArea, activeArea, workZone } = environment();
-    const anchor = retainedAnchor();
-    const supplyRoomBefore = workZonePosition(supplyArea, workZone);
+  function supplyHeight2() {
+    return supplyHeight(environment().supplyArea);
+  }
+  function roomUntilFirstNotReadyDeck() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
+  }
+  function moveWorkZoneBy(jump) {
+    const { supplyArea, workZone } = environment();
     moveWorkZone(jump, supplyArea, workZone);
-    const supplyRoomAfter = workZonePosition(supplyArea, workZone);
-    if (supplyRoomAfter === supplyRoomBefore) {
-      return;
-    }
-    const roomUntilFirstNotReadyDeck = measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
-    const stableFrames = roomUntilFirstNotReadyDeck <= ACTIVATION_DISTANCE ? 2 : 1;
-    await waitLayoutStable(
-      supplyArea,
-      workZone,
-      {
-        current: anchor,
-        stableFrames
-      }
-    );
   }
   function closestDeck(referenceRoom, candidates, workZone) {
     let selected = null;
@@ -541,7 +443,7 @@
   }
   function measureRoomUntilFirstNotReadyDeck(activeArea, workZone) {
     const viewportBoundary = workZoneTop(workZone);
-    let roomUntilFirstNotReadyDeck = Infinity;
+    let roomUntilFirstNotReadyDeck2 = Infinity;
     for (const deck of elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting="false"]'
@@ -550,12 +452,12 @@
       const isAhead = rect.top < viewportBoundary;
       if (!isAhead) continue;
       const roomUntilDeck = viewportBoundary - rect.bottom;
-      roomUntilFirstNotReadyDeck = Math.min(
-        roomUntilFirstNotReadyDeck,
+      roomUntilFirstNotReadyDeck2 = Math.min(
+        roomUntilFirstNotReadyDeck2,
         roomUntilDeck
       );
     }
-    return roomUntilFirstNotReadyDeck;
+    return roomUntilFirstNotReadyDeck2;
   }
   function environment() {
     if (!supplier) resetSupplyWorker();
@@ -600,6 +502,85 @@
     );
   }
 
+  // src/dev/stabilize-no-diag.js
+  async function waitLayoutStable({
+    maxFrames = 300,
+    trackAnchor = false
+  } = {}) {
+    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
+    let previous = geometrySnapshot();
+    let unchanged = 0;
+    for (let frame = 0; frame < maxFrames; frame++) {
+      await nextAnimationFrame();
+      const currentGeometry = geometrySnapshot();
+      const scrollHeightChange = Math.abs(
+        currentGeometry.scrollHeight - previous.scrollHeight
+      );
+      const scrollYChange = Math.abs(
+        currentGeometry.scrollY - previous.scrollY
+      );
+      const effectiveScrollHeightChange = scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE ? 0 : scrollHeightChange;
+      const geometryChangeMagnitude = Math.max(
+        effectiveScrollHeightChange,
+        scrollYChange
+      );
+      const geometryChanged = geometryChangeMagnitude !== 0;
+      const positionAtFrame = trackAnchor ? anchorRoom() : null;
+      if (geometryChanged) {
+        previous = currentGeometry;
+        unchanged = 0;
+        continue;
+      }
+      const anchorStable = await checkAnchorAcrossYields(
+        trackAnchor,
+        positionAtFrame
+      );
+      if (!anchorStable) {
+        previous = currentGeometry;
+        unchanged = 0;
+        continue;
+      }
+      unchanged++;
+      if (unchanged >= stableFrames) {
+        return;
+      }
+    }
+    throw new Error(
+      `Exceeded ${maxFrames} frames waiting for layout stabilization.`
+    );
+  }
+  function geometrySnapshot() {
+    return {
+      scrollHeight: supplyHeight2(),
+      scrollY: supplyRoom()
+    };
+  }
+  async function checkAnchorAcrossYields(trackAnchor, positionAtFrame) {
+    let previousPosition = positionAtFrame;
+    let stable = true;
+    for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
+      await yieldToScheduler();
+      const position = trackAnchor ? anchorRoom() : null;
+      const change = position == null || previousPosition == null ? 0 : Math.abs(position - previousPosition);
+      const changed = change !== 0;
+      if (changed) stable = false;
+      previousPosition = position;
+    }
+    return stable;
+  }
+  async function yieldToScheduler() {
+    if (typeof globalThis.scheduler?.yield === "function") {
+      await globalThis.scheduler.yield();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  function nextAnimationFrame() {
+    return new Promise(
+      (resolve) => requestAnimationFrame(resolve)
+    );
+  }
+
   // src/dev/moveAnchorToBottom-no-diag.js
   async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
     const currentSupplyRoom = supplyRoom();
@@ -618,11 +599,12 @@
         return room;
       }
       const jump = clampJump(calibratedJump, room, viewportHeight2);
-      await moveWorkZoneAndStabilize(jump);
+      moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         break;
       }
+      await waitLayoutStable({ trackAnchor: true });
       const obtainedRoom = anchorRoom();
       const jumpWasErased = obtainedRoom === room;
       if (jumpWasErased && retriedErasedJump) {
@@ -672,9 +654,9 @@
     const supplier2 = observeSupplier();
     const { supplyArea, workZone } = supplier2;
     clickBottomNavItem();
-    await waitLayoutStable(supplyArea, workZone);
+    await waitLayoutStable();
     moveWorkZoneToSupplyEnd(supplyArea, workZone);
-    await waitLayoutStable(supplyArea, workZone);
+    await waitLayoutStable();
     const decks = getDecks(supplyArea);
     const boundary = decks.length > 0 ? roomAhead(boundaryOf(decks[0], "bottom"), workZone) : workZone.height;
     return {
@@ -742,7 +724,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.00-no-diag" : "unbuilt";
+  var VERSION = true ? "2.01-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
