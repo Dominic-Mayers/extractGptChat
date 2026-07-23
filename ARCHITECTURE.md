@@ -216,8 +216,7 @@ types, so deck geometry and slab geometry remain distinct.
 
 ## Movement Commitment, Flicker, and Lost Jumps
 
-The implementation does not contain a five-state jump protocol. Its actual
-per-jump control flow is:
+The actual per-jump control flow is:
 
 1. calculate a clamped jump from the current anchor-room observation;
 2. call `scrollBy` with the calculated delta;
