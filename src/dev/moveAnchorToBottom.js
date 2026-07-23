@@ -8,7 +8,7 @@ import {
     moveWorkZoneBy,
     supplyRoom
 } from "./supplyWorker.js";
-import { waitLayoutStable } from "./stabilize.js";
+import { waitLayoutStable } from "./waitLayoutStable.js";
 import {
     beginJumpDiagnostics,
     beginOrContinueJumpDiagnostics,

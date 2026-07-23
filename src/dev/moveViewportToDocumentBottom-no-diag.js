@@ -4,7 +4,7 @@
 // position at the true bottom of the conversation — see
 // ASSUMPTIONS.md A9.
 
-import { waitLayoutStable } from "./stabilize-no-diag.js";
+import { waitLayoutStable } from "./waitLayoutStable-no-diag.js";
 import { getDecks } from "./getNextDeckIn-no-diag.js";
 import { boundaryOf } from "./boundary-no-diag.js";
 import {

@@ -8,7 +8,7 @@ import {
     moveWorkZoneBy,
     supplyRoom
 } from "./supplyWorker-no-diag.js";
-import { waitLayoutStable } from "./stabilize-no-diag.js";
+import { waitLayoutStable } from "./waitLayoutStable-no-diag.js";
 export async function moveAnchorToBottom(
     initialRoom,
     viewportHeight,
