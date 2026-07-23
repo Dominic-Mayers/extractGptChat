@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.97
+// @version      1.98
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
+// @noframes
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 (() => {
@@ -1478,7 +1479,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.97" : "unbuilt";
+  var VERSION = true ? "1.98" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
