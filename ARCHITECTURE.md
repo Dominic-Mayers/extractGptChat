@@ -3,9 +3,13 @@
 This extractor works against ChatGPT's live, virtualized DOM. The DOM is not
 the entire conversation saved on the server: it is the observable surface through which ChatGPT's own lazy-loading and rendering systems expose conversation content. The extractor must create a transcript of the conversation.
 
-A walkway analogy is offered as a guide. A foreman builds a walkway from slabs
-while a supplier exposes a changing inventory and employs workers to prepare
-it. The architecture has six levels, from broadest to finest:
+A walkway analogy is offered as a guide. A supplier exposes a changing supply
+area and employs workers who act directly on its physical inventory. A foreman
+guides those workers using only the geometry they report. Once a supplied slab
+has been prepared and traversed, its extracted content is added to a walkway.
+The walkway is the accumulated Markdown output; it is not the structure on
+which supply preparation and movement occur. The supply architecture has six
+levels, from broadest to finest:
 
 ```text
 supply area → active area → ready area → decks → slabs → anchors
@@ -22,9 +26,9 @@ required detail has actually been prepared for the foreman's next operation.
 Active therefore does not mean ready.
 
 Within the ready area, **decks** organize the supplier's batches, **slabs** are
-the units from which the walkway is built, and **anchors** are stable-enough
-local features used to move a long or partially prepared slab through the work
-zone safely.
+the physical content units whose extracted representations are added to the
+walkway, and **anchors** are stable-enough local features used to move a long
+or partially prepared slab through the work zone safely.
 
 The **work zone** is the viewport. It is not a seventh level. It is a moving
 demand signal that intersects the layered model: moving it changes the
@@ -38,6 +42,13 @@ The extractor relies on many assmptions which are partially described in ASSUMPT
 The Supplier is the analogy name for the **environment boundary**: the adapter
 boundary over ChatGPT's DOM and rendering systems. It is the source of the
 supplies currently available to the extractor. In the code, the available supplies are in the container (the supply area), which can be the documentElement or another container.
+
+The Supplier's workers operate on this supply area rather than on the walkway.
+A worker may retain the physical deck, slab, or anchor currently being acted
+upon while reporting only geometric observations to the foreman. These
+temporary physical references are operational details of the environment
+boundary, not traversal state. The foreman's authoritative state consists of
+distances and heights. The walkway remains a separate, append-only result.
 
 The environment boundary does **not** keep the entire conversation in stock.
 New decks, slabs, anchors, and other observable supplies become available as
@@ -63,7 +74,11 @@ toward progressively finer structures such as slabs and anchors. Work-zone
 movements change the renderer's demand signal, allowing activation and
 preparation effects to propagate until new observations become available.
 
-The traversal logic interprets this information when deciding how to continue. Adapters may perform local translation and observation work, but traversal decisions belong to the traversal logic, not to the raw DOM.
+The traversal logic interprets this information when deciding geometrically
+how to continue. Workers behind the environment boundary translate those
+geometric requests into physical selection, observation, and movement of the
+DOM supplies. The selected physical objects remain with the workers; only
+their geometry is reported to traversal logic.
 
 ## Structural Observations
 
@@ -110,8 +125,9 @@ become usable as movement changes the active area and ChatGPT's rendering
 systems attempt to extend the ready area around the work zone.
 
 The work zone corresponds to the visible viewport. In the foreman
-analogy, it is the portion of the walkway around which the Supplier's workers
-are currently active to maintain the ready area.
+analogy, it is a movable region over the supply area around which the
+Supplier's workers are currently active to maintain the ready area. It does
+not intersect or move over the completed walkway.
 
 The Supplier's workers are concerned with detailed structure rather than with
 slabs as traversal units. A deck can be active without being wholly ready, and
@@ -134,12 +150,12 @@ distant boundary may be incomplete, unstable, or derived from content that the
 Supplier's workers have not prepared yet.
 
 Anchors solve this by providing a sequence of local movement references inside
-the slab. The foreman selects a ready, visible anchor whose boundary can be
-measured reliably, moves that anchor toward the bottom of the work zone, and
-then asks for the next anchor exposed by the resulting ready area. Repeating
-this process progressively brings the slab top into the work zone. Once the
-slab top itself is a ready local reference, it can serve as the final anchor
-and be brought to the intended bottom position.
+the slab. The foreman requests one anchor movement using the current geometry.
+A worker selects the corresponding ready, visible physical anchor, moves it
+toward the bottom of the work zone, and reports the resulting geometry.
+Repeating this process progressively brings the slab top into the work zone.
+Once the slab top itself is a ready local reference, the worker can select it
+as the final anchor and bring it to the intended bottom position.
 
 Consequently, the foreman advances the work zone in small jumps relative to
 the current anchor. After each jump, it waits until the newly reached safe part
@@ -155,7 +171,7 @@ therefore not considered traversal events.
 
 Instead, the foreman groups successive small jumps into a single **large work-zone movement**. A large work-zone movement begins when traversal cannot continue without advancing the work zone. It consists of as many small jumps as needed, each followed by waiting for the newly reached safe part to become ready. The movement ends when the work zone has advanced as far as possible while the current slab still intersects it.
 
-Only after the large work-zone movement is complete does normal slab traversal resume. The intermediate jumps are merely the mechanism by which the Supplier's workers progressively prepare the walkway ahead of the foreman.
+Only after the large work-zone movement is complete does normal slab traversal resume. The intermediate jumps are merely the mechanism by which the Supplier's workers progressively prepare the supply area needed for the current and upcoming operations.
 
 ## Current DOM Adapter
 

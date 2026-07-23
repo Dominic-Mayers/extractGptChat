@@ -106,22 +106,33 @@ Common causes of issues include:
 
 For the more precise DOM/deck/slab architecture, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-The extractor can be understood as a **foreman** building a walkway from individual slabs while consulting a **supplier**.
+The extractor can be understood as a **foreman** directing work in a changing
+supply area and building a walkway from the content extracted there. The
+**supplier** employs workers who act on the physical supplies. The walkway is
+only the accumulated Markdown output; it is not the place where the workers
+prepare or move supplies.
 
 The supply model runs from broadest to finest: **supply area → active area →
 ready area → decks → slabs → anchors**. This is a progression from broad scope
 to fine detail, not strict containment: a deck or slab can straddle the ready
 area. The viewport/work zone moves across the model and causes activation.
 
-* **Slabs** are ChatGPT messages (user and assistant prompts). They are the pieces that are extracted and assembled into the final transcript.
+* **Slabs** are ChatGPT messages (user and assistant prompts). They are physical content units in the supply area whose extracted representations are assembled into the final transcript.
 * **Message slab selectors** identify ordinary message slabs. In the currently observed DOM, `[data-message-author-role]` selects the message element that is extracted and captured for diagnostics.
 * **Deck sections** are ChatGPT's internal lazy-loaded containers. They are not part of the transcript; they are structural units used by ChatGPT to manage the DOM.
-* **The work zone** is the viewport area where ChatGPT's loading and rendering systems can prepare deck sections.
-* **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. It answers operational questions about currently available measurements, deck activation, slab candidates, and operation-specific readiness.
+* **The work zone** is the viewport area moving over the supply area where ChatGPT's loading and rendering systems can prepare deck sections.
+* **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. Its workers select and act on physical supplies while reporting measurements, deck activation, slab candidates, and operation-specific readiness.
 
-The foreman's job is simple: build the walkway by repeatedly asking the supplier for the next slab, then recording that slab in the transcript.
+The foreman's job is to guide traversal using the geometry reported by the
+workers. A worker may retain the current physical deck, slab, or anchor while
+acting on it, but the foreman knows only distances and heights. Once a slab has
+been prepared and traversed, its extracted content is recorded in the
+walkway.
 
-The supplier only exposes a changing, partial supply surface. The foreman cannot rely on a complete stable plan of the conversation; it only keeps the current working state, the current slab cursor, and the walkway already built.
+The supplier only exposes a changing, partial supply surface. The foreman
+cannot rely on a complete stable plan of the conversation; it keeps geometric
+traversal state and the walkway already built. Physical references retained by
+the workers remain behind the supplier boundary.
 
 Other slab types, such as generated images and Canvas/textdoc blocks, need their own selectors. They should not be forced into the ordinary-message selector model.
 
@@ -134,7 +145,12 @@ ready. The extractor cannot force either transition. It can only:
 3. Wait for activation, then for the operation-specific ready area it needs.
 4. Continue walking once the relevant slab or anchor is ready.
 
-The foreman also assumes that the work zone cannot be teleported safely. The supplier depends on external workers that appear to respond reliably to ordinary incremental scrolling, not to one large jump into unprepared territory. A large jump can skip the intermediate activation work that ChatGPT's virtualized renderer expects. Therefore the extractor moves the work zone in small jumps and checks local stability between jumps.
+The foreman also assumes that the work zone cannot be teleported safely across
+the supply area. The supplier depends on external workers that appear to
+respond reliably to ordinary incremental scrolling, not to one large jump into
+unprepared territory. A large jump can skip the intermediate activation work
+that ChatGPT's virtualized renderer expects. Therefore the extractor moves the
+work zone in small jumps and checks local stability between jumps.
 
 This warning is about the extractor's scripted scroll movement. It does not mean every large viewport change is equivalent. Clicking a conversation navigation item or using the scrollbar may invoke different ChatGPT/browser positioning behavior. In the analogy, that is a different supplier service, not simply the foreman taking a larger step.
 
@@ -147,7 +163,10 @@ Most failure modes therefore fall into one of two categories:
 * **Preparation failure**: a section never becomes ready despite remaining in the work zone.
 * **Detection failure**: the extractor incorrectly determines whether a section is ready.
 
-This model intentionally separates transcript extraction (slabs) from DOM management (deck sections). The exported walkway is the transcript; the hidden conversation and its DOM realization remain behind the supplier abstraction.
+This model intentionally separates work on the live supply area from
+construction of the exported walkway. The exported walkway is the transcript;
+the physical slabs, deck sections, anchors, and other details of the hidden
+conversation's DOM realization remain behind the supplier abstraction.
 
 ## Permissions
 
