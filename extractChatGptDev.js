@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      1.96
+// @version      1.97
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -549,6 +549,11 @@
   }
   function escapeAttributeDiagnostics(value) {
     return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+  function logCycleContextDiagnostics() {
+    finishCycleTimingDiagnostics(currentCycle);
+    emitSlabDiagnostics(previousCycle, "PREVIOUS");
+    emitSlabDiagnostics(currentCycle, "CURRENT", true);
   }
   function logActiveTraversalDiagnostics() {
     if (!currentCycle) {
@@ -1473,7 +1478,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "1.96" : "unbuilt";
+  var VERSION = true ? "1.97" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
@@ -1487,6 +1492,11 @@
     try {
       await traverseConversation();
       console.log("[dev traversal] finished.");
+    } catch (error) {
+      selectCurrentJumpDiagnostics("error");
+      logCycleContextDiagnostics();
+      console.error("[dev traversal] failed.", error);
+      throw error;
     } finally {
       activeRuns--;
     }

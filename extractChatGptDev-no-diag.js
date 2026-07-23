@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      1.96-no-diag
+// @version      1.97-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -770,7 +770,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "1.96-no-diag" : "unbuilt";
+  var VERSION = true ? "1.97-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
@@ -783,6 +783,9 @@
     try {
       await traverseConversation();
       console.log("[dev traversal] finished.");
+    } catch (error) {
+      console.error("[dev traversal] failed.", error);
+      throw error;
     } finally {
       activeRuns--;
     }

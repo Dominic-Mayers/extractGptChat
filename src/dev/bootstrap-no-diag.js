@@ -32,6 +32,10 @@ const runTraversal = async () => {
     try {
         await traverseConversation();
         console.log('[dev traversal] finished.');
+    } catch (error) {
+
+        console.error('[dev traversal] failed.', error);
+        throw error;
     } finally {
         activeRuns--;
     }

@@ -10,7 +10,9 @@
 
 import { traverseConversation } from './mainOrchestration.js';
 import {
-    logActiveTraversalDiagnostics
+    logActiveTraversalDiagnostics,
+    logCycleContextDiagnostics,
+    selectCurrentJumpDiagnostics
 } from './cycleDiagnostics.js';
 
 // Replaced at build time (scripts/build-dev-userscript.js) with the same
@@ -36,6 +38,11 @@ const runTraversal = async () => {
     try {
         await traverseConversation();
         console.log('[dev traversal] finished.');
+    } catch (error) {
+        selectCurrentJumpDiagnostics("error");
+        logCycleContextDiagnostics();
+        console.error('[dev traversal] failed.', error);
+        throw error;
     } finally {
         activeRuns--;
     }
