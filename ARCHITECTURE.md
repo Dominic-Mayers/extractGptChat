@@ -118,6 +118,27 @@ observation may now occur.
 Readiness observations are fallible. They are evidence, not proof. A readiness
 observation can time out, be too weak, or be invalidated by later diagnostics.
 
+## Activation and Collapsed Margins
+
+Activation can change geometry even when an active deck and its placeholder
+have the same height. In one observed deck, both states were 392 px high, but
+activation mounted a first child with `margin-top: 16px`. Because the deck had
+no border, padding, or formatting context to contain it, that margin collapsed
+through the deck and moved its top from 995.1 px to 1011.1 px below the
+viewport. Those positions straddled the 1000 px activation boundary:
+
+```text
+placeholder activates → child margin appears → deck moves outside boundary
+→ deck deactivates → child margin disappears → deck moves inside boundary
+```
+
+Setting only that first-child top margin to zero stopped the oscillation while
+preserving the deck's 392 px height and the child's bottom margin. Related
+effects of the same CSS rule include
+[virtualized content jumping when margin collapse changes](https://gitlab.com/catamphetamine/virtual-scroller#margin-collapse),
+[an IntersectionObserver reader measuring less than the leaked margin adds](https://jonwinsley.com/notes/armorer-web-reader),
+and [a fixed-height parent acquiring scroll from a collapsed child margin](https://stackoverflow.com/questions/47737935/why-does-this-page-scroll).
+
 # Work-Zone Movements
 
 The Supplier does not keep the entire conversation in stock. New supplies
