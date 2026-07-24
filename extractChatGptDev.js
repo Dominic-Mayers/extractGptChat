@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.09
+// @version      2.10
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -19,7 +19,7 @@
   var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
-  var MIN_SCROLL_HEIGHT_CHANGE = 20;
+  var MAX_FRAMES_FOR_STABILIZATION = 3e3;
 
   // src/dev/geometry.js
   function areaAhead(referenceTop, maxGap) {
@@ -1126,7 +1126,7 @@
 
   // src/dev/waitLayoutStable.js
   async function waitLayoutStable({
-    maxFrames = 300,
+    maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
     const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
@@ -1148,7 +1148,7 @@
       const scrollYChange = Math.abs(
         currentGeometry.scrollY - previous.scrollY
       );
-      const effectiveScrollHeightChange = scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE ? 0 : scrollHeightChange;
+      const effectiveScrollHeightChange = scrollHeightChange < TOLERATED_ROUNDING ? 0 : scrollHeightChange;
       const geometryChangeMagnitude = Math.max(
         effectiveScrollHeightChange,
         scrollYChange
@@ -1238,9 +1238,9 @@
   }
   var thresholdEvaluationDiagnostics = {
     activationCount: 0,
-    activationUpperBound: Infinity,
+    activationClosestDistance: -Infinity,
     deactivationCount: 0,
-    deactivationLowerBound: -Infinity,
+    deactivationClosestDistance: Infinity,
     previousDeckSnapshot: null
   };
   function evaluateThresholdsDiagnostics(current, frame) {
@@ -1258,27 +1258,25 @@
       if (activated && previousDeck.bottom <= 0) {
         const distance = -previousDeck.bottom;
         thresholdEvaluationDiagnostics.activationCount++;
-        thresholdEvaluationDiagnostics.activationUpperBound = Math.min(
-          thresholdEvaluationDiagnostics.activationUpperBound,
+        thresholdEvaluationDiagnostics.activationClosestDistance = Math.max(
+          thresholdEvaluationDiagnostics.activationClosestDistance,
           distance
         );
         evidence = {
           threshold: "activation-above",
-          distance,
-          bound: "upper"
+          distance
         };
       }
       if (deactivated && previousDeck.top >= previous.viewportHeight) {
         const distance = previousDeck.top - previous.viewportHeight;
         thresholdEvaluationDiagnostics.deactivationCount++;
-        thresholdEvaluationDiagnostics.deactivationLowerBound = Math.max(
-          thresholdEvaluationDiagnostics.deactivationLowerBound,
+        thresholdEvaluationDiagnostics.deactivationClosestDistance = Math.min(
+          thresholdEvaluationDiagnostics.deactivationClosestDistance,
           distance
         );
         evidence = {
           threshold: "deactivation-below",
-          distance,
-          bound: "lower"
+          distance
         };
       }
       console.log(
@@ -1307,15 +1305,15 @@
   function thresholdEvaluationSummaryDiagnostics() {
     const {
       activationCount,
-      activationUpperBound,
+      activationClosestDistance,
       deactivationCount,
-      deactivationLowerBound
+      deactivationClosestDistance
     } = thresholdEvaluationDiagnostics;
     return {
       activationCount,
-      activationUpperBound: Number.isFinite(activationUpperBound) ? activationUpperBound : null,
+      activationClosestDistance: Number.isFinite(activationClosestDistance) ? activationClosestDistance : null,
       deactivationCount,
-      deactivationLowerBound: Number.isFinite(deactivationLowerBound) ? deactivationLowerBound : null
+      deactivationClosestDistance: Number.isFinite(deactivationClosestDistance) ? deactivationClosestDistance : null
     };
   }
 
@@ -1543,7 +1541,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.09" : "unbuilt";
+  var VERSION = true ? "2.10" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

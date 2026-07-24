@@ -1,6 +1,7 @@
 import {
     ACTIVATION_DISTANCE,
-    MIN_SCROLL_HEIGHT_CHANGE
+    TOLERATED_ROUNDING,
+    MAX_FRAMES_FOR_STABILIZATION
 } from "./constants.js";
 import {
     anchorRoom,
@@ -22,7 +23,7 @@ import {
 
 export async function waitLayoutStable(
     {
-        maxFrames = 300,
+        maxFrames = MAX_FRAMES_FOR_STABILIZATION,
         trackAnchor = false
     } = {}
 ) {
@@ -52,7 +53,7 @@ export async function waitLayoutStable(
             currentGeometry.scrollY - previous.scrollY
         );
         const effectiveScrollHeightChange =
-            scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE
+            scrollHeightChange < TOLERATED_ROUNDING
                 ? 0
                 : scrollHeightChange;
         const geometryChangeMagnitude = Math.max(
@@ -182,9 +183,9 @@ export function nextAnimationFrame() {
 
 const thresholdEvaluationDiagnostics = {
     activationCount: 0,
-    activationUpperBound: Infinity,
+    activationClosestDistance: -Infinity,
     deactivationCount: 0,
-    deactivationLowerBound: -Infinity,
+    deactivationClosestDistance: Infinity,
     previousDeckSnapshot: null
 };
 
@@ -211,14 +212,13 @@ function evaluateThresholdsDiagnostics(current, frame) {
         if (activated && previousDeck.bottom <= 0) {
             const distance = -previousDeck.bottom;
             thresholdEvaluationDiagnostics.activationCount++;
-            thresholdEvaluationDiagnostics.activationUpperBound = Math.min(
-                thresholdEvaluationDiagnostics.activationUpperBound,
+            thresholdEvaluationDiagnostics.activationClosestDistance = Math.max(
+                thresholdEvaluationDiagnostics.activationClosestDistance,
                 distance
             );
             evidence = {
                 threshold: "activation-above",
-                distance,
-                bound: "upper"
+                distance
             };
         }
 
@@ -229,14 +229,13 @@ function evaluateThresholdsDiagnostics(current, frame) {
             const distance =
                 previousDeck.top - previous.viewportHeight;
             thresholdEvaluationDiagnostics.deactivationCount++;
-            thresholdEvaluationDiagnostics.deactivationLowerBound = Math.max(
-                thresholdEvaluationDiagnostics.deactivationLowerBound,
+            thresholdEvaluationDiagnostics.deactivationClosestDistance = Math.min(
+                thresholdEvaluationDiagnostics.deactivationClosestDistance,
                 distance
             );
             evidence = {
                 threshold: "deactivation-below",
-                distance,
-                bound: "lower"
+                distance
             };
         }
 
@@ -269,21 +268,21 @@ function deckGeometryForThresholdDiagnostics(deck) {
 function thresholdEvaluationSummaryDiagnostics() {
     const {
         activationCount,
-        activationUpperBound,
+        activationClosestDistance,
         deactivationCount,
-        deactivationLowerBound
+        deactivationClosestDistance
     } = thresholdEvaluationDiagnostics;
 
     return {
         activationCount,
-        activationUpperBound:
-            Number.isFinite(activationUpperBound)
-                ? activationUpperBound
+        activationClosestDistance:
+            Number.isFinite(activationClosestDistance)
+                ? activationClosestDistance
                 : null,
         deactivationCount,
-        deactivationLowerBound:
-            Number.isFinite(deactivationLowerBound)
-                ? deactivationLowerBound
+        deactivationClosestDistance:
+            Number.isFinite(deactivationClosestDistance)
+                ? deactivationClosestDistance
                 : null
     };
 }
