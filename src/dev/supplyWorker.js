@@ -233,7 +233,10 @@ export function thresholdDeckSnapshot() {
             turnId: deck.getAttribute("data-turn-id-container"),
             state: deck.getAttribute("data-is-intersecting"),
             geometryChangeDiagnostics:
-                deckGeometryChangeDiagnostics(deck),
+                deckGeometryChangeDiagnostics(
+                    deck,
+                    viewportTop
+                ),
             top: rect.top - viewportTop,
             bottom: rect.bottom - viewportTop,
             height: rect.height
@@ -246,15 +249,60 @@ export function thresholdDeckSnapshot() {
     };
 }
 
-function deckGeometryChangeDiagnostics(deck) {
+function deckGeometryChangeDiagnostics(
+    deck,
+    viewportTop
+) {
     const computedStyle = getComputedStyle(deck);
+    const investigatedDeck =
+        deck.getAttribute("data-turn-id-container") ===
+        "a7c93c21-9530-40b2-8369-5a98541ea360";
     return {
         className: deck.getAttribute("class"),
         inlineLastKnownHeight:
             deck.style.getPropertyValue("--last-known-height"),
         resolvedLastKnownHeight:
             computedStyle.getPropertyValue("--last-known-height"),
-        computedHeight: computedStyle.height
+        computedHeight: computedStyle.height,
+        marginCollapse: investigatedDeck
+            ? {
+                deck: layoutElementDiagnostics(deck, viewportTop),
+                parent: layoutElementDiagnostics(
+                    deck.parentElement,
+                    viewportTop
+                ),
+                previousSibling: layoutElementDiagnostics(
+                    deck.previousElementSibling,
+                    viewportTop
+                ),
+                children: Array.from(deck.children).map(child =>
+                    layoutElementDiagnostics(child, viewportTop)
+                )
+            }
+            : null
+    };
+}
+
+function layoutElementDiagnostics(element, viewportTop) {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+        tagName: element.tagName,
+        className: element.getAttribute("class"),
+        turnId: element.getAttribute("data-turn-id-container"),
+        top: rect.top - viewportTop,
+        bottom: rect.bottom - viewportTop,
+        height: rect.height,
+        marginTop: style.marginTop,
+        marginBottom: style.marginBottom,
+        paddingTop: style.paddingTop,
+        paddingBottom: style.paddingBottom,
+        borderTopWidth: style.borderTopWidth,
+        borderBottomWidth: style.borderBottomWidth,
+        display: style.display,
+        overflow: style.overflow,
+        position: style.position
     };
 }
 

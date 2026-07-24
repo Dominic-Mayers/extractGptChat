@@ -265,6 +265,7 @@ function deckGeometryForThresholdDiagnostics(deck) {
         inlineLastKnownHeight: geometry.inlineLastKnownHeight,
         resolvedLastKnownHeight: geometry.resolvedLastKnownHeight,
         computedHeight: geometry.computedHeight,
+        marginCollapse: geometry.marginCollapse,
         top: deck.top,
         bottom: deck.bottom,
         height: deck.height
