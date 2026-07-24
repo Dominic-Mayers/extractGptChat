@@ -9,6 +9,7 @@ import {
     supplyHeight,
     supplyRoom
 } from "./supplyWorker-no-diag.js";
+
 export async function waitLayoutStable(
     {
         maxFrames = MAX_FRAMES_FOR_STABILIZATION,
@@ -28,6 +29,7 @@ export async function waitLayoutStable(
         await nextAnimationFrame();
 
         const currentGeometry = geometrySnapshot();
+
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
         );

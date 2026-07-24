@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.04
+// @version      2.05
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1102,6 +1102,7 @@
   }
 
   // src/dev/waitLayoutStable.js
+  var longWaitDomDiagnostics = null;
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
@@ -1110,11 +1111,13 @@
     let previous = geometrySnapshot();
     let unchanged = 0;
     beginStabilizationDiagnostics({ stableFrames });
+    beginLongWaitDomDiagnostics(previous.scrollHeight);
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
       await nextAnimationFrame();
       finishRafWaitDiagnostics();
       const currentGeometry = geometrySnapshot();
+      recordLongWaitDomDiagnostics(currentGeometry.scrollHeight, frame + 1);
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
@@ -1162,6 +1165,7 @@
           frames: frame + 1,
           position: positionNowDiagnostics
         });
+        finishLongWaitDomDiagnostics();
         return;
       }
     }
@@ -1169,6 +1173,7 @@
       status: "exceeded-max-frames",
       frames: maxFrames
     });
+    finishLongWaitDomDiagnostics();
     throw new Error(
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
@@ -1208,6 +1213,165 @@
     return new Promise(
       (resolve) => requestAnimationFrame(resolve)
     );
+  }
+  function beginLongWaitDomDiagnostics(initialSupplyHeight) {
+    finishLongWaitDomDiagnostics();
+    const state = {
+      active: false,
+      initialSupplyHeight,
+      lastSupplyHeight: initialSupplyHeight,
+      snapshots: /* @__PURE__ */ new Map(),
+      transitions: /* @__PURE__ */ new Set(),
+      mutations: [],
+      observer: null,
+      timer: null
+    };
+    state.timer = setTimeout(() => {
+      state.active = true;
+      state.snapshots.set(
+        state.lastSupplyHeight,
+        captureDomGeometryDiagnostics()
+      );
+      state.observer = new MutationObserver((records) => {
+        for (const record of records) {
+          state.mutations.push(describeMutationDiagnostics(record));
+        }
+        if (state.mutations.length > 100) {
+          state.mutations.splice(0, state.mutations.length - 100);
+        }
+      });
+      state.observer.observe(document.documentElement, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true
+      });
+      console.log("[diagnostics long stabilization] DOM investigation started.", {
+        supplyHeight: state.lastSupplyHeight
+      });
+    }, 5e3);
+    longWaitDomDiagnostics = state;
+  }
+  function recordLongWaitDomDiagnostics(supplyHeight3, frame) {
+    const state = longWaitDomDiagnostics;
+    if (!state?.active || supplyHeight3 === state.lastSupplyHeight) return;
+    const previousSupplyHeight = state.lastSupplyHeight;
+    const transition = `${previousSupplyHeight}->${supplyHeight3}`;
+    let currentSnapshot = state.snapshots.get(supplyHeight3);
+    if (!currentSnapshot) {
+      currentSnapshot = captureDomGeometryDiagnostics();
+      state.snapshots.set(supplyHeight3, currentSnapshot);
+    }
+    if (!state.transitions.has(transition)) {
+      const previousSnapshot = state.snapshots.get(previousSupplyHeight) ?? /* @__PURE__ */ new Map();
+      console.log("[diagnostics long stabilization] DOM geometry changed.", {
+        frame,
+        previousSupplyHeight,
+        supplyHeight: supplyHeight3,
+        difference: supplyHeight3 - previousSupplyHeight,
+        elements: compareDomGeometryDiagnostics(
+          previousSnapshot,
+          currentSnapshot
+        ),
+        mutations: state.mutations.splice(0)
+      });
+      state.transitions.add(transition);
+    }
+    state.lastSupplyHeight = supplyHeight3;
+  }
+  function finishLongWaitDomDiagnostics() {
+    const state = longWaitDomDiagnostics;
+    if (!state) return;
+    clearTimeout(state.timer);
+    state.observer?.disconnect();
+    longWaitDomDiagnostics = null;
+  }
+  function captureDomGeometryDiagnostics() {
+    const snapshot = /* @__PURE__ */ new Map();
+    for (const element of document.querySelectorAll("*")) {
+      const rect = element.getBoundingClientRect();
+      snapshot.set(element, {
+        selector: selectorForDomDiagnostics(element),
+        depth: elementDepthDiagnostics(element),
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight
+      });
+    }
+    return snapshot;
+  }
+  function compareDomGeometryDiagnostics(previous, current) {
+    const changes = [];
+    const elements = /* @__PURE__ */ new Set([...previous.keys(), ...current.keys()]);
+    for (const element of elements) {
+      const before = previous.get(element);
+      const after = current.get(element);
+      if (!before || !after) {
+        changes.push({
+          selector: before?.selector ?? after?.selector,
+          depth: before?.depth ?? after?.depth,
+          connectedBefore: before != null,
+          connectedAfter: after != null
+        });
+        continue;
+      }
+      const heightChange = after.height - before.height;
+      const topChange = after.top - before.top;
+      const bottomChange = after.bottom - before.bottom;
+      const scrollHeightChange = after.scrollHeight - before.scrollHeight;
+      const clientHeightChange = after.clientHeight - before.clientHeight;
+      if (heightChange === 0 && topChange === 0 && bottomChange === 0 && scrollHeightChange === 0 && clientHeightChange === 0) continue;
+      changes.push({
+        selector: after.selector,
+        depth: after.depth,
+        heightBefore: before.height,
+        heightAfter: after.height,
+        heightChange,
+        topChange,
+        bottomChange,
+        scrollHeightChange,
+        clientHeightChange
+      });
+    }
+    return changes.sort(
+      (first, second) => Math.abs(second.heightChange ?? 0) - Math.abs(first.heightChange ?? 0) || second.depth - first.depth
+    ).slice(0, 50);
+  }
+  function describeMutationDiagnostics(record) {
+    return {
+      type: record.type,
+      target: selectorForDomDiagnostics(record.target.parentElement ?? record.target),
+      attribute: record.attributeName,
+      added: [...record.addedNodes].map(
+        (node) => selectorForDomDiagnostics(node)
+      ),
+      removed: [...record.removedNodes].map(
+        (node) => selectorForDomDiagnostics(node)
+      )
+    };
+  }
+  function selectorForDomDiagnostics(node) {
+    if (node?.nodeType !== 1) return node?.nodeName ?? null;
+    if (node.id) return `#${node.id}`;
+    for (const attribute of [
+      "data-message-id",
+      "data-turn-id-container",
+      "data-testid"
+    ]) {
+      const value = node.getAttribute(attribute);
+      if (value != null) return `[${attribute}="${value}"]`;
+    }
+    const classes = [...node.classList].slice(0, 3);
+    return `${node.tagName.toLowerCase()}${classes.length ? `.${classes.join(".")}` : ""}`;
+  }
+  function elementDepthDiagnostics(element) {
+    let depth = 0;
+    for (let current = element; current; current = current.parentElement) {
+      depth++;
+    }
+    return depth;
   }
 
   // src/dev/moveAnchorToBottom.js
@@ -1434,7 +1598,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.04" : "unbuilt";
+  var VERSION = true ? "2.05" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
