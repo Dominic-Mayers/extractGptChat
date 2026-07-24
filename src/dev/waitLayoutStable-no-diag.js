@@ -1,6 +1,7 @@
 import {
     ACTIVATION_DISTANCE,
-    TOLERATED_ROUNDING
+    TOLERATED_ROUNDING,
+    MAX_FRAMES_FOR_STABILIZATION
 } from "./constants-no-diag.js";
 import {
     anchorRoom,
@@ -10,7 +11,7 @@ import {
 } from "./supplyWorker-no-diag.js";
 export async function waitLayoutStable(
     {
-        maxFrames = 300,
+        maxFrames = MAX_FRAMES_FOR_STABILIZATION,
         trackAnchor = false
     } = {}
 ) {

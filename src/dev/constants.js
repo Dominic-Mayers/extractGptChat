@@ -7,3 +7,4 @@ export const CALIBRATED_JUMP = 480;
 export const MAX_DRIFT = 2;
 export const ADJACENCY_OVERLAP_TOLERANCE = 2; // sub-pixel rendering noise, not real overlap
 export const ACTIVATION_DISTANCE = 1000;
+export const MAX_FRAMES_FOR_STABILIZATION = 3000;

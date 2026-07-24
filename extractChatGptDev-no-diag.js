@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.03-no-diag
+// @version      2.04-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -19,6 +19,7 @@
   var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
+  var MAX_FRAMES_FOR_STABILIZATION = 3e3;
 
   // src/dev/geometry-no-diag.js
   function areaAhead(referenceTop, maxGap) {
@@ -503,7 +504,7 @@
 
   // src/dev/waitLayoutStable-no-diag.js
   async function waitLayoutStable({
-    maxFrames = 300,
+    maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
     const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
@@ -723,7 +724,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.03-no-diag" : "unbuilt";
+  var VERSION = true ? "2.04-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
