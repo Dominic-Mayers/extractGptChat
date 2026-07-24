@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.06
+// @version      2.07
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1266,16 +1266,21 @@
     }
     if (!state.transitions.has(transition)) {
       const previousSnapshot = state.snapshots.get(previousSupplyHeight) ?? /* @__PURE__ */ new Map();
+      const mutationsDiagnostics = state.mutations.splice(0);
       const reportDiagnostics = {
         frame,
         previousSupplyHeight,
         supplyHeight: supplyHeight3,
         difference: supplyHeight3 - previousSupplyHeight,
-        elements: compareDomGeometryDiagnostics(
+        sixteenPixelCandidates: findSixteenPixelElementsDiagnostics(
           previousSnapshot,
           currentSnapshot
         ),
-        mutations: state.mutations.splice(0)
+        mutations: mutationsDiagnostics.slice(-20),
+        elements: compareDomGeometryDiagnostics(
+          previousSnapshot,
+          currentSnapshot
+        ).slice(0, 10)
       };
       console.log(
         "[diagnostics long stabilization] DOM geometry changed.\n" + JSON.stringify(reportDiagnostics, null, 2)
@@ -1298,6 +1303,8 @@
       snapshot.set(element, {
         selector: selectorForDomDiagnostics(element),
         depth: elementDepthDiagnostics(element),
+        turnId: element.closest("[data-turn-id-container]")?.getAttribute("data-turn-id-container") ?? null,
+        messageId: element.closest("[data-message-id]")?.getAttribute("data-message-id") ?? null,
         top: rect.top,
         bottom: rect.bottom,
         height: rect.height,
@@ -1342,12 +1349,43 @@
     }
     return changes.sort(
       (first, second) => Math.abs(second.heightChange ?? 0) - Math.abs(first.heightChange ?? 0) || second.depth - first.depth
-    ).slice(0, 50);
+    );
+  }
+  function findSixteenPixelElementsDiagnostics(previous, current) {
+    const candidates = [];
+    const elements = /* @__PURE__ */ new Set([...previous.keys(), ...current.keys()]);
+    for (const element of elements) {
+      const before = previous.get(element);
+      const after = current.get(element);
+      const heightBefore = before?.height ?? 0;
+      const heightAfter = after?.height ?? 0;
+      const heightChange = heightAfter - heightBefore;
+      const changedBySixteen = Math.abs(Math.abs(heightChange) - 16) <= TOLERATED_ROUNDING;
+      const appearedOrCollapsed = Math.min(heightBefore, heightAfter) <= TOLERATED_ROUNDING;
+      if (!changedBySixteen || !appearedOrCollapsed) continue;
+      candidates.push({
+        selector: before?.selector ?? after?.selector,
+        depth: before?.depth ?? after?.depth,
+        turnId: before?.turnId ?? after?.turnId,
+        messageId: before?.messageId ?? after?.messageId,
+        heightBefore,
+        heightAfter,
+        heightChange,
+        presentBefore: before != null,
+        presentAfter: after != null
+      });
+    }
+    return candidates.sort(
+      (first, second) => second.depth - first.depth
+    );
   }
   function describeMutationDiagnostics(record) {
+    const target = record.target.parentElement ?? record.target;
     return {
       type: record.type,
-      target: selectorForDomDiagnostics(record.target.parentElement ?? record.target),
+      target: selectorForDomDiagnostics(target),
+      turnId: target.closest?.("[data-turn-id-container]")?.getAttribute("data-turn-id-container") ?? null,
+      messageId: target.closest?.("[data-message-id]")?.getAttribute("data-message-id") ?? null,
       attribute: record.attributeName,
       added: [...record.addedNodes].map(
         (node) => selectorForDomDiagnostics(node)
@@ -1603,7 +1641,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.06" : "unbuilt";
+  var VERSION = true ? "2.07" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

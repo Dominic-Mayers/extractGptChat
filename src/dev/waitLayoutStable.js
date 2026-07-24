@@ -243,16 +243,21 @@ function recordLongWaitDomDiagnostics(supplyHeight, frame) {
     if (!state.transitions.has(transition)) {
         const previousSnapshot =
             state.snapshots.get(previousSupplyHeight) ?? new Map();
+        const mutationsDiagnostics = state.mutations.splice(0);
         const reportDiagnostics = {
             frame,
             previousSupplyHeight,
             supplyHeight,
             difference: supplyHeight - previousSupplyHeight,
-            elements: compareDomGeometryDiagnostics(
+            sixteenPixelCandidates: findSixteenPixelElementsDiagnostics(
                 previousSnapshot,
                 currentSnapshot
             ),
-            mutations: state.mutations.splice(0)
+            mutations: mutationsDiagnostics.slice(-20),
+            elements: compareDomGeometryDiagnostics(
+                previousSnapshot,
+                currentSnapshot
+            ).slice(0, 10)
         };
         console.log(
             "[diagnostics long stabilization] DOM geometry changed.\n" +
@@ -280,6 +285,10 @@ function captureDomGeometryDiagnostics() {
         snapshot.set(element, {
             selector: selectorForDomDiagnostics(element),
             depth: elementDepthDiagnostics(element),
+            turnId: element.closest("[data-turn-id-container]")
+                ?.getAttribute("data-turn-id-container") ?? null,
+            messageId: element.closest("[data-message-id]")
+                ?.getAttribute("data-message-id") ?? null,
             top: rect.top,
             bottom: rect.bottom,
             height: rect.height,
@@ -341,15 +350,53 @@ function compareDomGeometryDiagnostics(previous, current) {
             Math.abs(second.heightChange ?? 0) -
                 Math.abs(first.heightChange ?? 0) ||
             second.depth - first.depth
-        )
-        .slice(0, 50);
+        );
+}
+
+function findSixteenPixelElementsDiagnostics(previous, current) {
+    const candidates = [];
+    const elements = new Set([...previous.keys(), ...current.keys()]);
+
+    for (const element of elements) {
+        const before = previous.get(element);
+        const after = current.get(element);
+        const heightBefore = before?.height ?? 0;
+        const heightAfter = after?.height ?? 0;
+        const heightChange = heightAfter - heightBefore;
+        const changedBySixteen =
+            Math.abs(Math.abs(heightChange) - 16) <= TOLERATED_ROUNDING;
+        const appearedOrCollapsed =
+            Math.min(heightBefore, heightAfter) <= TOLERATED_ROUNDING;
+
+        if (!changedBySixteen || !appearedOrCollapsed) continue;
+
+        candidates.push({
+            selector: before?.selector ?? after?.selector,
+            depth: before?.depth ?? after?.depth,
+            turnId: before?.turnId ?? after?.turnId,
+            messageId: before?.messageId ?? after?.messageId,
+            heightBefore,
+            heightAfter,
+            heightChange,
+            presentBefore: before != null,
+            presentAfter: after != null
+        });
+    }
+
+    return candidates.sort((first, second) =>
+        second.depth - first.depth
+    );
 }
 
 function describeMutationDiagnostics(record) {
+    const target = record.target.parentElement ?? record.target;
     return {
         type: record.type,
-        target: selectorForDomDiagnostics(record.target.parentElement ??
-            record.target),
+        target: selectorForDomDiagnostics(target),
+        turnId: target.closest?.("[data-turn-id-container]")
+            ?.getAttribute("data-turn-id-container") ?? null,
+        messageId: target.closest?.("[data-message-id]")
+            ?.getAttribute("data-message-id") ?? null,
         attribute: record.attributeName,
         added: [...record.addedNodes].map(node =>
             selectorForDomDiagnostics(node)
