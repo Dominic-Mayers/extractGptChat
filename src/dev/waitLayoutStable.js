@@ -258,7 +258,13 @@ function evaluateThresholdsDiagnostics(current, frame) {
 }
 
 function deckGeometryForThresholdDiagnostics(deck) {
+    const geometry = deck.geometryChangeDiagnostics;
     return {
+        state: deck.state,
+        className: geometry.className,
+        inlineLastKnownHeight: geometry.inlineLastKnownHeight,
+        resolvedLastKnownHeight: geometry.resolvedLastKnownHeight,
+        computedHeight: geometry.computedHeight,
         top: deck.top,
         bottom: deck.bottom,
         height: deck.height

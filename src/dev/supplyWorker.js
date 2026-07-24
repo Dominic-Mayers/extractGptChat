@@ -232,6 +232,8 @@ export function thresholdDeckSnapshot() {
         decks.set(deck, {
             turnId: deck.getAttribute("data-turn-id-container"),
             state: deck.getAttribute("data-is-intersecting"),
+            geometryChangeDiagnostics:
+                deckGeometryChangeDiagnostics(deck),
             top: rect.top - viewportTop,
             bottom: rect.bottom - viewportTop,
             height: rect.height
@@ -241,6 +243,18 @@ export function thresholdDeckSnapshot() {
     return {
         decks,
         viewportHeight
+    };
+}
+
+function deckGeometryChangeDiagnostics(deck) {
+    const computedStyle = getComputedStyle(deck);
+    return {
+        className: deck.getAttribute("class"),
+        inlineLastKnownHeight:
+            deck.style.getPropertyValue("--last-known-height"),
+        resolvedLastKnownHeight:
+            computedStyle.getPropertyValue("--last-known-height"),
+        computedHeight: computedStyle.height
     };
 }
 

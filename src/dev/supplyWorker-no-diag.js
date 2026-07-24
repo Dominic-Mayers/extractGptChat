@@ -181,6 +181,7 @@ export function thresholdDeckSnapshot() {
         decks.set(deck, {
             turnId: deck.getAttribute("data-turn-id-container"),
             state: deck.getAttribute("data-is-intersecting"),
+
             top: rect.top - viewportTop,
             bottom: rect.bottom - viewportTop,
             height: rect.height

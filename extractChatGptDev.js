@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.10
+// @version      2.11
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -937,6 +937,7 @@
       decks.set(deck, {
         turnId: deck.getAttribute("data-turn-id-container"),
         state: deck.getAttribute("data-is-intersecting"),
+        geometryChangeDiagnostics: deckGeometryChangeDiagnostics(deck),
         top: rect.top - viewportTop,
         bottom: rect.bottom - viewportTop,
         height: rect.height
@@ -945,6 +946,15 @@
     return {
       decks,
       viewportHeight: viewportHeight2
+    };
+  }
+  function deckGeometryChangeDiagnostics(deck) {
+    const computedStyle = getComputedStyle(deck);
+    return {
+      className: deck.getAttribute("class"),
+      inlineLastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
+      resolvedLastKnownHeight: computedStyle.getPropertyValue("--last-known-height"),
+      computedHeight: computedStyle.height
     };
   }
   function moveWorkZoneBy(jump) {
@@ -1296,7 +1306,13 @@
     }
   }
   function deckGeometryForThresholdDiagnostics(deck) {
+    const geometry = deck.geometryChangeDiagnostics;
     return {
+      state: deck.state,
+      className: geometry.className,
+      inlineLastKnownHeight: geometry.inlineLastKnownHeight,
+      resolvedLastKnownHeight: geometry.resolvedLastKnownHeight,
+      computedHeight: geometry.computedHeight,
       top: deck.top,
       bottom: deck.bottom,
       height: deck.height
@@ -1541,7 +1557,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.10" : "unbuilt";
+  var VERSION = true ? "2.11" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
