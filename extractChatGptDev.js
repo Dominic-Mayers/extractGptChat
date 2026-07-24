@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.08
+// @version      2.09
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -19,7 +19,7 @@
   var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
-  var MAX_FRAMES_FOR_STABILIZATION = 3e3;
+  var MIN_SCROLL_HEIGHT_CHANGE = 20;
 
   // src/dev/geometry.js
   function areaAhead(referenceTop, maxGap) {
@@ -924,6 +924,29 @@
     const { activeArea, workZone } = environment();
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
   }
+  function thresholdDeckSnapshot() {
+    const { activeArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    const viewportHeight2 = workZone.height;
+    const decks = /* @__PURE__ */ new Map();
+    for (const deck of elementsIn(
+      activeArea,
+      "div[data-turn-id-container]"
+    )) {
+      const rect = deck.getBoundingClientRect();
+      decks.set(deck, {
+        turnId: deck.getAttribute("data-turn-id-container"),
+        state: deck.getAttribute("data-is-intersecting"),
+        top: rect.top - viewportTop,
+        bottom: rect.bottom - viewportTop,
+        height: rect.height
+      });
+    }
+    return {
+      decks,
+      viewportHeight: viewportHeight2
+    };
+  }
   function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
@@ -1102,29 +1125,30 @@
   }
 
   // src/dev/waitLayoutStable.js
-  var longWaitDomDiagnostics = null;
   async function waitLayoutStable({
-    maxFrames = MAX_FRAMES_FOR_STABILIZATION,
+    maxFrames = 300,
     trackAnchor = false
   } = {}) {
     const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
     let unchanged = 0;
     beginStabilizationDiagnostics({ stableFrames });
-    beginLongWaitDomDiagnostics(previous.scrollHeight);
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
       await nextAnimationFrame();
       finishRafWaitDiagnostics();
       const currentGeometry = geometrySnapshot();
-      recordLongWaitDomDiagnostics(currentGeometry.scrollHeight, frame + 1);
+      evaluateThresholdsDiagnostics(
+        thresholdDeckSnapshot(),
+        frame + 1
+      );
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
       const scrollYChange = Math.abs(
         currentGeometry.scrollY - previous.scrollY
       );
-      const effectiveScrollHeightChange = scrollHeightChange < TOLERATED_ROUNDING ? 0 : scrollHeightChange;
+      const effectiveScrollHeightChange = scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE ? 0 : scrollHeightChange;
       const geometryChangeMagnitude = Math.max(
         effectiveScrollHeightChange,
         scrollYChange
@@ -1165,7 +1189,6 @@
           frames: frame + 1,
           position: positionNowDiagnostics
         });
-        finishLongWaitDomDiagnostics();
         return;
       }
     }
@@ -1173,7 +1196,6 @@
       status: "exceeded-max-frames",
       frames: maxFrames
     });
-    finishLongWaitDomDiagnostics();
     throw new Error(
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
@@ -1214,235 +1236,87 @@
       (resolve) => requestAnimationFrame(resolve)
     );
   }
-  function beginLongWaitDomDiagnostics(initialSupplyHeight) {
-    finishLongWaitDomDiagnostics();
-    const state = {
-      active: false,
-      initialSupplyHeight,
-      lastSupplyHeight: initialSupplyHeight,
-      snapshots: /* @__PURE__ */ new Map(),
-      transitions: /* @__PURE__ */ new Set(),
-      mutations: [],
-      observer: null,
-      timer: null
-    };
-    state.timer = setTimeout(() => {
-      state.active = true;
-      state.snapshots.set(
-        state.lastSupplyHeight,
-        captureDomGeometryDiagnostics()
-      );
-      state.observer = new MutationObserver((records) => {
-        for (const record of records) {
-          state.mutations.push(describeMutationDiagnostics(record));
-        }
-        if (state.mutations.length > 100) {
-          state.mutations.splice(0, state.mutations.length - 100);
-        }
-      });
-      state.observer.observe(document.documentElement, {
-        attributes: true,
-        attributeOldValue: true,
-        childList: true,
-        characterData: true,
-        subtree: true
-      });
-      console.log(
-        "[diagnostics long stabilization] DOM investigation started.\n" + JSON.stringify({
-          supplyHeight: state.lastSupplyHeight
-        }, null, 2)
-      );
-    }, 5e3);
-    longWaitDomDiagnostics = state;
-  }
-  function recordLongWaitDomDiagnostics(supplyHeight3, frame) {
-    const state = longWaitDomDiagnostics;
-    if (!state?.active || supplyHeight3 === state.lastSupplyHeight) return;
-    const previousSupplyHeight = state.lastSupplyHeight;
-    const transition = `${previousSupplyHeight}->${supplyHeight3}`;
-    let currentSnapshot = state.snapshots.get(supplyHeight3);
-    if (!currentSnapshot) {
-      currentSnapshot = captureDomGeometryDiagnostics();
-      state.snapshots.set(supplyHeight3, currentSnapshot);
-    }
-    if (!state.transitions.has(transition)) {
-      const previousSnapshot = state.snapshots.get(previousSupplyHeight) ?? /* @__PURE__ */ new Map();
-      const mutationsDiagnostics = state.mutations.splice(0);
-      const reportDiagnostics = {
-        frame,
-        previousSupplyHeight,
-        supplyHeight: supplyHeight3,
-        difference: supplyHeight3 - previousSupplyHeight,
-        sixteenPixelCandidates: findSixteenPixelElementsDiagnostics(
-          previousSnapshot,
-          currentSnapshot
-        ),
-        intersectionChanges: findIntersectionChangesDiagnostics(
-          previousSnapshot,
-          currentSnapshot
-        ),
-        mutations: mutationsDiagnostics.slice(-20),
-        elements: compareDomGeometryDiagnostics(
-          previousSnapshot,
-          currentSnapshot
-        ).slice(0, 10)
-      };
-      console.log(
-        "[diagnostics long stabilization] DOM geometry changed.\n" + JSON.stringify(reportDiagnostics, null, 2)
-      );
-      state.transitions.add(transition);
-    }
-    state.lastSupplyHeight = supplyHeight3;
-  }
-  function finishLongWaitDomDiagnostics() {
-    const state = longWaitDomDiagnostics;
-    if (!state) return;
-    clearTimeout(state.timer);
-    state.observer?.disconnect();
-    longWaitDomDiagnostics = null;
-  }
-  function captureDomGeometryDiagnostics() {
-    const snapshot = /* @__PURE__ */ new Map();
-    for (const element of document.querySelectorAll("*")) {
-      const rect = element.getBoundingClientRect();
-      snapshot.set(element, {
-        selector: selectorForDomDiagnostics(element),
-        depth: elementDepthDiagnostics(element),
-        turnId: element.closest("[data-turn-id-container]")?.getAttribute("data-turn-id-container") ?? null,
-        messageId: element.closest("[data-message-id]")?.getAttribute("data-message-id") ?? null,
-        dataIsIntersecting: element.getAttribute("data-is-intersecting"),
-        top: rect.top,
-        bottom: rect.bottom,
-        height: rect.height,
-        scrollHeight: element.scrollHeight,
-        clientHeight: element.clientHeight
-      });
-    }
-    return snapshot;
-  }
-  function compareDomGeometryDiagnostics(previous, current) {
-    const changes = [];
-    const elements = /* @__PURE__ */ new Set([...previous.keys(), ...current.keys()]);
-    for (const element of elements) {
-      const before = previous.get(element);
-      const after = current.get(element);
-      if (!before || !after) {
-        changes.push({
-          selector: before?.selector ?? after?.selector,
-          depth: before?.depth ?? after?.depth,
-          connectedBefore: before != null,
-          connectedAfter: after != null
-        });
+  var thresholdEvaluationDiagnostics = {
+    activationCount: 0,
+    activationUpperBound: Infinity,
+    deactivationCount: 0,
+    deactivationLowerBound: -Infinity,
+    previousDeckSnapshot: null
+  };
+  function evaluateThresholdsDiagnostics(current, frame) {
+    const previous = thresholdEvaluationDiagnostics.previousDeckSnapshot;
+    thresholdEvaluationDiagnostics.previousDeckSnapshot = current;
+    if (!previous) return;
+    for (const [deck, currentDeck2] of current.decks) {
+      const previousDeck = previous.decks.get(deck);
+      if (!previousDeck || previousDeck.state === currentDeck2.state) {
         continue;
       }
-      const heightChange = after.height - before.height;
-      const topChange = after.top - before.top;
-      const bottomChange = after.bottom - before.bottom;
-      const scrollHeightChange = after.scrollHeight - before.scrollHeight;
-      const clientHeightChange = after.clientHeight - before.clientHeight;
-      if (heightChange === 0 && topChange === 0 && bottomChange === 0 && scrollHeightChange === 0 && clientHeightChange === 0) continue;
-      changes.push({
-        selector: after.selector,
-        depth: after.depth,
-        heightBefore: before.height,
-        heightAfter: after.height,
-        heightChange,
-        topChange,
-        bottomChange,
-        scrollHeightChange,
-        clientHeightChange
-      });
+      const activated = previousDeck.state !== "true" && currentDeck2.state === "true";
+      const deactivated = previousDeck.state === "true" && currentDeck2.state === "false";
+      let evidence = null;
+      if (activated && previousDeck.bottom <= 0) {
+        const distance = -previousDeck.bottom;
+        thresholdEvaluationDiagnostics.activationCount++;
+        thresholdEvaluationDiagnostics.activationUpperBound = Math.min(
+          thresholdEvaluationDiagnostics.activationUpperBound,
+          distance
+        );
+        evidence = {
+          threshold: "activation-above",
+          distance,
+          bound: "upper"
+        };
+      }
+      if (deactivated && previousDeck.top >= previous.viewportHeight) {
+        const distance = previousDeck.top - previous.viewportHeight;
+        thresholdEvaluationDiagnostics.deactivationCount++;
+        thresholdEvaluationDiagnostics.deactivationLowerBound = Math.max(
+          thresholdEvaluationDiagnostics.deactivationLowerBound,
+          distance
+        );
+        evidence = {
+          threshold: "deactivation-below",
+          distance,
+          bound: "lower"
+        };
+      }
+      console.log(
+        "[diagnostics threshold transition]\n" + JSON.stringify({
+          frame,
+          turnId: currentDeck2.turnId,
+          stateBefore: previousDeck.state,
+          stateAfter: currentDeck2.state,
+          previous: deckGeometryForThresholdDiagnostics(previousDeck),
+          current: deckGeometryForThresholdDiagnostics(currentDeck2),
+          viewportHeightBefore: previous.viewportHeight,
+          viewportHeightAfter: current.viewportHeight,
+          evidence,
+          evaluation: thresholdEvaluationSummaryDiagnostics()
+        }, null, 2)
+      );
     }
-    return changes.sort(
-      (first, second) => Math.abs(second.heightChange ?? 0) - Math.abs(first.heightChange ?? 0) || second.depth - first.depth
-    );
   }
-  function findSixteenPixelElementsDiagnostics(previous, current) {
-    const candidates = [];
-    const elements = /* @__PURE__ */ new Set([...previous.keys(), ...current.keys()]);
-    for (const element of elements) {
-      const before = previous.get(element);
-      const after = current.get(element);
-      const heightBefore = before?.height ?? 0;
-      const heightAfter = after?.height ?? 0;
-      const heightChange = heightAfter - heightBefore;
-      const changedBySixteen = Math.abs(Math.abs(heightChange) - 16) <= TOLERATED_ROUNDING;
-      const appearedOrCollapsed = Math.min(heightBefore, heightAfter) <= TOLERATED_ROUNDING;
-      if (!changedBySixteen || !appearedOrCollapsed) continue;
-      candidates.push({
-        selector: before?.selector ?? after?.selector,
-        depth: before?.depth ?? after?.depth,
-        turnId: before?.turnId ?? after?.turnId,
-        messageId: before?.messageId ?? after?.messageId,
-        heightBefore,
-        heightAfter,
-        heightChange,
-        presentBefore: before != null,
-        presentAfter: after != null
-      });
-    }
-    return candidates.sort(
-      (first, second) => second.depth - first.depth
-    );
-  }
-  function findIntersectionChangesDiagnostics(previous, current) {
-    const changes = [];
-    const elements = /* @__PURE__ */ new Set([...previous.keys(), ...current.keys()]);
-    for (const element of elements) {
-      const before = previous.get(element);
-      const after = current.get(element);
-      const valueBefore = before?.dataIsIntersecting ?? null;
-      const valueAfter = after?.dataIsIntersecting ?? null;
-      if (valueBefore === valueAfter || valueBefore == null && valueAfter == null) continue;
-      changes.push({
-        selector: before?.selector ?? after?.selector,
-        turnId: before?.turnId ?? after?.turnId,
-        valueBefore,
-        valueAfter,
-        presentBefore: before != null,
-        presentAfter: after != null
-      });
-    }
-    return changes;
-  }
-  function describeMutationDiagnostics(record) {
-    const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+  function deckGeometryForThresholdDiagnostics(deck) {
     return {
-      type: record.type,
-      target: selectorForDomDiagnostics(target),
-      turnId: target.closest?.("[data-turn-id-container]")?.getAttribute("data-turn-id-container") ?? null,
-      messageId: target.closest?.("[data-message-id]")?.getAttribute("data-message-id") ?? null,
-      attribute: record.attributeName,
-      valueBefore: record.oldValue,
-      valueAfter: record.attributeName ? target.getAttribute?.(record.attributeName) ?? null : null,
-      added: [...record.addedNodes].map(
-        (node) => selectorForDomDiagnostics(node)
-      ),
-      removed: [...record.removedNodes].map(
-        (node) => selectorForDomDiagnostics(node)
-      )
+      top: deck.top,
+      bottom: deck.bottom,
+      height: deck.height
     };
   }
-  function selectorForDomDiagnostics(node) {
-    if (node?.nodeType !== 1) return node?.nodeName ?? null;
-    if (node.id) return `#${node.id}`;
-    for (const attribute of [
-      "data-message-id",
-      "data-turn-id-container",
-      "data-testid"
-    ]) {
-      const value = node.getAttribute(attribute);
-      if (value != null) return `[${attribute}="${value}"]`;
-    }
-    const classes = [...node.classList].slice(0, 3);
-    return `${node.tagName.toLowerCase()}${classes.length ? `.${classes.join(".")}` : ""}`;
-  }
-  function elementDepthDiagnostics(element) {
-    let depth = 0;
-    for (let current = element; current; current = current.parentElement) {
-      depth++;
-    }
-    return depth;
+  function thresholdEvaluationSummaryDiagnostics() {
+    const {
+      activationCount,
+      activationUpperBound,
+      deactivationCount,
+      deactivationLowerBound
+    } = thresholdEvaluationDiagnostics;
+    return {
+      activationCount,
+      activationUpperBound: Number.isFinite(activationUpperBound) ? activationUpperBound : null,
+      deactivationCount,
+      deactivationLowerBound: Number.isFinite(deactivationLowerBound) ? deactivationLowerBound : null
+    };
   }
 
   // src/dev/moveAnchorToBottom.js
@@ -1669,7 +1543,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.08" : "unbuilt";
+  var VERSION = true ? "2.09" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

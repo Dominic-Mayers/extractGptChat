@@ -167,6 +167,32 @@ export function roomUntilFirstNotReadyDeck() {
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
 }
 
+export function thresholdDeckSnapshot() {
+    const { activeArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    const viewportHeight = workZone.height;
+    const decks = new Map();
+
+    for (const deck of elementsIn(
+        activeArea,
+        "div[data-turn-id-container]"
+    )) {
+        const rect = deck.getBoundingClientRect();
+        decks.set(deck, {
+            turnId: deck.getAttribute("data-turn-id-container"),
+            state: deck.getAttribute("data-is-intersecting"),
+            top: rect.top - viewportTop,
+            bottom: rect.bottom - viewportTop,
+            height: rect.height
+        });
+    }
+
+    return {
+        decks,
+        viewportHeight
+    };
+}
+
 export function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
 

@@ -1,18 +1,17 @@
 import {
     ACTIVATION_DISTANCE,
-    TOLERATED_ROUNDING,
-    MAX_FRAMES_FOR_STABILIZATION
+    MIN_SCROLL_HEIGHT_CHANGE
 } from "./constants-no-diag.js";
 import {
     anchorRoom,
     roomUntilFirstNotReadyDeck,
     supplyHeight,
-    supplyRoom
+    supplyRoom,
+    thresholdDeckSnapshot
 } from "./supplyWorker-no-diag.js";
-
 export async function waitLayoutStable(
     {
-        maxFrames = MAX_FRAMES_FOR_STABILIZATION,
+        maxFrames = 300,
         trackAnchor = false
     } = {}
 ) {
@@ -37,7 +36,7 @@ export async function waitLayoutStable(
             currentGeometry.scrollY - previous.scrollY
         );
         const effectiveScrollHeightChange =
-            scrollHeightChange < TOLERATED_ROUNDING
+            scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE
                 ? 0
                 : scrollHeightChange;
         const geometryChangeMagnitude = Math.max(
