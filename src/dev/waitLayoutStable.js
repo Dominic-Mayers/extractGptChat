@@ -212,6 +212,7 @@ function beginLongWaitDomDiagnostics(initialSupplyHeight) {
         });
         state.observer.observe(document.documentElement, {
             attributes: true,
+            attributeOldValue: true,
             childList: true,
             characterData: true,
             subtree: true
@@ -253,6 +254,10 @@ function recordLongWaitDomDiagnostics(supplyHeight, frame) {
                 previousSnapshot,
                 currentSnapshot
             ),
+            intersectionChanges: findIntersectionChangesDiagnostics(
+                previousSnapshot,
+                currentSnapshot
+            ),
             mutations: mutationsDiagnostics.slice(-20),
             elements: compareDomGeometryDiagnostics(
                 previousSnapshot,
@@ -289,6 +294,8 @@ function captureDomGeometryDiagnostics() {
                 ?.getAttribute("data-turn-id-container") ?? null,
             messageId: element.closest("[data-message-id]")
                 ?.getAttribute("data-message-id") ?? null,
+            dataIsIntersecting:
+                element.getAttribute("data-is-intersecting"),
             top: rect.top,
             bottom: rect.bottom,
             height: rect.height,
@@ -388,8 +395,38 @@ function findSixteenPixelElementsDiagnostics(previous, current) {
     );
 }
 
+function findIntersectionChangesDiagnostics(previous, current) {
+    const changes = [];
+    const elements = new Set([...previous.keys(), ...current.keys()]);
+
+    for (const element of elements) {
+        const before = previous.get(element);
+        const after = current.get(element);
+        const valueBefore = before?.dataIsIntersecting ?? null;
+        const valueAfter = after?.dataIsIntersecting ?? null;
+
+        if (
+            valueBefore === valueAfter ||
+            (valueBefore == null && valueAfter == null)
+        ) continue;
+
+        changes.push({
+            selector: before?.selector ?? after?.selector,
+            turnId: before?.turnId ?? after?.turnId,
+            valueBefore,
+            valueAfter,
+            presentBefore: before != null,
+            presentAfter: after != null
+        });
+    }
+
+    return changes;
+}
+
 function describeMutationDiagnostics(record) {
-    const target = record.target.parentElement ?? record.target;
+    const target = record.target.nodeType === 1
+        ? record.target
+        : record.target.parentElement;
     return {
         type: record.type,
         target: selectorForDomDiagnostics(target),
@@ -398,6 +435,10 @@ function describeMutationDiagnostics(record) {
         messageId: target.closest?.("[data-message-id]")
             ?.getAttribute("data-message-id") ?? null,
         attribute: record.attributeName,
+        valueBefore: record.oldValue,
+        valueAfter: record.attributeName
+            ? target.getAttribute?.(record.attributeName) ?? null
+            : null,
         added: [...record.addedNodes].map(node =>
             selectorForDomDiagnostics(node)
         ),

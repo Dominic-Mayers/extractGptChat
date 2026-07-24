@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.07
+// @version      2.08
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1242,6 +1242,7 @@
       });
       state.observer.observe(document.documentElement, {
         attributes: true,
+        attributeOldValue: true,
         childList: true,
         characterData: true,
         subtree: true
@@ -1276,6 +1277,10 @@
           previousSnapshot,
           currentSnapshot
         ),
+        intersectionChanges: findIntersectionChangesDiagnostics(
+          previousSnapshot,
+          currentSnapshot
+        ),
         mutations: mutationsDiagnostics.slice(-20),
         elements: compareDomGeometryDiagnostics(
           previousSnapshot,
@@ -1305,6 +1310,7 @@
         depth: elementDepthDiagnostics(element),
         turnId: element.closest("[data-turn-id-container]")?.getAttribute("data-turn-id-container") ?? null,
         messageId: element.closest("[data-message-id]")?.getAttribute("data-message-id") ?? null,
+        dataIsIntersecting: element.getAttribute("data-is-intersecting"),
         top: rect.top,
         bottom: rect.bottom,
         height: rect.height,
@@ -1379,14 +1385,36 @@
       (first, second) => second.depth - first.depth
     );
   }
+  function findIntersectionChangesDiagnostics(previous, current) {
+    const changes = [];
+    const elements = /* @__PURE__ */ new Set([...previous.keys(), ...current.keys()]);
+    for (const element of elements) {
+      const before = previous.get(element);
+      const after = current.get(element);
+      const valueBefore = before?.dataIsIntersecting ?? null;
+      const valueAfter = after?.dataIsIntersecting ?? null;
+      if (valueBefore === valueAfter || valueBefore == null && valueAfter == null) continue;
+      changes.push({
+        selector: before?.selector ?? after?.selector,
+        turnId: before?.turnId ?? after?.turnId,
+        valueBefore,
+        valueAfter,
+        presentBefore: before != null,
+        presentAfter: after != null
+      });
+    }
+    return changes;
+  }
   function describeMutationDiagnostics(record) {
-    const target = record.target.parentElement ?? record.target;
+    const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
     return {
       type: record.type,
       target: selectorForDomDiagnostics(target),
       turnId: target.closest?.("[data-turn-id-container]")?.getAttribute("data-turn-id-container") ?? null,
       messageId: target.closest?.("[data-message-id]")?.getAttribute("data-message-id") ?? null,
       attribute: record.attributeName,
+      valueBefore: record.oldValue,
+      valueAfter: record.attributeName ? target.getAttribute?.(record.attributeName) ?? null : null,
       added: [...record.addedNodes].map(
         (node) => selectorForDomDiagnostics(node)
       ),
@@ -1641,7 +1669,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.07" : "unbuilt";
+  var VERSION = true ? "2.08" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
