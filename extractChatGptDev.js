@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.12
+// @version      2.13
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1179,6 +1179,7 @@
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
+    suppressInvestigatedDeckTopMarginDiagnostics();
     const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
     let unchanged = 0;
@@ -1248,6 +1249,17 @@
     });
     throw new Error(
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
+    );
+  }
+  function suppressInvestigatedDeckTopMarginDiagnostics() {
+    const id = "dev-traversal-margin-collapse-test";
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = '[data-turn-id-container="a7c93c21-9530-40b2-8369-5a98541ea360"] > .my-4:first-child {margin-top: 0 !important;}';
+    document.head.append(style);
+    console.log(
+      "[diagnostics margin collapse test] Suppressed the investigated deck first-child top margin."
     );
   }
   function geometrySnapshot() {
@@ -1598,7 +1610,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.12" : "unbuilt";
+  var VERSION = true ? "2.13" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

@@ -27,6 +27,7 @@ export async function waitLayoutStable(
         trackAnchor = false
     } = {}
 ) {
+    suppressInvestigatedDeckTopMarginDiagnostics();
     const stableFrames = trackAnchor &&
         roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE
         ? 1
@@ -115,6 +116,24 @@ export async function waitLayoutStable(
     });
     throw new Error(
         `Exceeded ${maxFrames} frames waiting for layout stabilization.`
+    );
+}
+
+function suppressInvestigatedDeckTopMarginDiagnostics() {
+    const id = "dev-traversal-margin-collapse-test";
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent =
+        '[data-turn-id-container="' +
+        'a7c93c21-9530-40b2-8369-5a98541ea360' +
+        '"] > .my-4:first-child {' +
+        "margin-top: 0 !important;" +
+        "}";
+    document.head.append(style);
+    console.log(
+        "[diagnostics margin collapse test] " +
+        "Suppressed the investigated deck first-child top margin."
     );
 }
 

@@ -16,6 +16,7 @@ export async function waitLayoutStable(
         trackAnchor = false
     } = {}
 ) {
+
     const stableFrames = trackAnchor &&
         roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE
         ? 1
