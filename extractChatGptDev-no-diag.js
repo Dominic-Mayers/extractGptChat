@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.02-no-diag
+// @version      2.03-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -17,7 +17,6 @@
   var MAX_DECK_GAP = 20;
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
-  var MIN_SCROLL_HEIGHT_CHANGE = 20;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
 
@@ -519,7 +518,7 @@
       const scrollYChange = Math.abs(
         currentGeometry.scrollY - previous.scrollY
       );
-      const effectiveScrollHeightChange = scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE ? 0 : scrollHeightChange;
+      const effectiveScrollHeightChange = scrollHeightChange < TOLERATED_ROUNDING ? 0 : scrollHeightChange;
       const geometryChangeMagnitude = Math.max(
         effectiveScrollHeightChange,
         scrollYChange
@@ -724,7 +723,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.02-no-diag" : "unbuilt";
+  var VERSION = true ? "2.03-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

@@ -1,6 +1,6 @@
 import {
     ACTIVATION_DISTANCE,
-    MIN_SCROLL_HEIGHT_CHANGE
+    TOLERATED_ROUNDING
 } from "./constants.js";
 import {
     anchorRoom,
@@ -47,7 +47,7 @@ export async function waitLayoutStable(
             currentGeometry.scrollY - previous.scrollY
         );
         const effectiveScrollHeightChange =
-            scrollHeightChange < MIN_SCROLL_HEIGHT_CHANGE
+            scrollHeightChange < TOLERATED_ROUNDING
                 ? 0
                 : scrollHeightChange;
         const geometryChangeMagnitude = Math.max(
