@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.05
+// @version      2.06
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1246,9 +1246,11 @@
         characterData: true,
         subtree: true
       });
-      console.log("[diagnostics long stabilization] DOM investigation started.", {
-        supplyHeight: state.lastSupplyHeight
-      });
+      console.log(
+        "[diagnostics long stabilization] DOM investigation started.\n" + JSON.stringify({
+          supplyHeight: state.lastSupplyHeight
+        }, null, 2)
+      );
     }, 5e3);
     longWaitDomDiagnostics = state;
   }
@@ -1264,7 +1266,7 @@
     }
     if (!state.transitions.has(transition)) {
       const previousSnapshot = state.snapshots.get(previousSupplyHeight) ?? /* @__PURE__ */ new Map();
-      console.log("[diagnostics long stabilization] DOM geometry changed.", {
+      const reportDiagnostics = {
         frame,
         previousSupplyHeight,
         supplyHeight: supplyHeight3,
@@ -1274,7 +1276,10 @@
           currentSnapshot
         ),
         mutations: state.mutations.splice(0)
-      });
+      };
+      console.log(
+        "[diagnostics long stabilization] DOM geometry changed.\n" + JSON.stringify(reportDiagnostics, null, 2)
+      );
       state.transitions.add(transition);
     }
     state.lastSupplyHeight = supplyHeight3;
@@ -1598,7 +1603,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.05" : "unbuilt";
+  var VERSION = true ? "2.06" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

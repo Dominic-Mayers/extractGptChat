@@ -216,9 +216,12 @@ function beginLongWaitDomDiagnostics(initialSupplyHeight) {
             characterData: true,
             subtree: true
         });
-        console.log("[diagnostics long stabilization] DOM investigation started.", {
-            supplyHeight: state.lastSupplyHeight
-        });
+        console.log(
+            "[diagnostics long stabilization] DOM investigation started.\n" +
+            JSON.stringify({
+                supplyHeight: state.lastSupplyHeight
+            }, null, 2)
+        );
     }, 5000);
 
     longWaitDomDiagnostics = state;
@@ -240,7 +243,7 @@ function recordLongWaitDomDiagnostics(supplyHeight, frame) {
     if (!state.transitions.has(transition)) {
         const previousSnapshot =
             state.snapshots.get(previousSupplyHeight) ?? new Map();
-        console.log("[diagnostics long stabilization] DOM geometry changed.", {
+        const reportDiagnostics = {
             frame,
             previousSupplyHeight,
             supplyHeight,
@@ -250,7 +253,11 @@ function recordLongWaitDomDiagnostics(supplyHeight, frame) {
                 currentSnapshot
             ),
             mutations: state.mutations.splice(0)
-        });
+        };
+        console.log(
+            "[diagnostics long stabilization] DOM geometry changed.\n" +
+            JSON.stringify(reportDiagnostics, null, 2)
+        );
         state.transitions.add(transition);
     }
 
