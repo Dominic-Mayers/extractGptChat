@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.16-no-diag
+// @version      2.17-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -229,12 +229,14 @@
   var currentSlab;
   var currentAnchor;
   var imageReady;
+  var savedDeckActivationStatus;
   function resetSupplyWorker() {
     supplier = observeSupplier();
     currentDeck = null;
     currentSlab = null;
     currentAnchor = null;
     imageReady = false;
+    savedDeckActivationStatus = null;
   }
   async function selectNextDeckRoom(area) {
     const { supplyArea, activeArea, workZone } = environment();
@@ -339,6 +341,66 @@
   function roomUntilFirstNotReadyDeck() {
     const { activeArea, workZone } = environment();
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
+  }
+  function thresholdDeckSnapshot() {
+    const { activeArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    const viewportHeight2 = workZone.height;
+    const decks = /* @__PURE__ */ new Map();
+    for (const deck of elementsIn(
+      activeArea,
+      "div[data-turn-id-container]"
+    )) {
+      const rect = deck.getBoundingClientRect();
+      decks.set(deck, {
+        turnId: deck.getAttribute("data-turn-id-container"),
+        state: deck.getAttribute("data-is-intersecting"),
+        top: rect.top - viewportTop,
+        bottom: rect.bottom - viewportTop,
+        height: rect.height
+      });
+    }
+    return {
+      decks,
+      viewportHeight: viewportHeight2
+    };
+  }
+  function deckActivationTransitions(current) {
+    const activations = [];
+    const deactivations = [];
+    const previous = savedDeckActivationStatus;
+    if (!previous) return { activations, deactivations };
+    for (const [deck, currentDeck2] of current.decks) {
+      const previousDeck = previous.decks.get(deck);
+      if (!previousDeck || previousDeck.state === currentDeck2.state) {
+        continue;
+      }
+      const transition = {
+        deck,
+        turnId: currentDeck2.turnId,
+        location: deckLocation(
+          previousDeck,
+          previous.viewportHeight
+        ),
+        previous: previousDeck,
+        current: currentDeck2
+      };
+      if (previousDeck.state !== "true" && currentDeck2.state === "true") {
+        activations.push(transition);
+      }
+      if (previousDeck.state === "true" && currentDeck2.state === "false") {
+        deactivations.push(transition);
+      }
+    }
+    return { activations, deactivations };
+  }
+  function saveDeckActivationStatus(status) {
+    savedDeckActivationStatus = status;
+  }
+  function deckLocation(deck, viewportHeight2) {
+    if (deck.bottom <= 0) return "above";
+    if (deck.top >= viewportHeight2) return "below";
+    return "viewport";
   }
   function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
@@ -510,9 +572,13 @@
     const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
     let unchanged = 0;
+    saveDeckActivationStatus(thresholdDeckSnapshot());
     for (let frame = 0; frame < maxFrames; frame++) {
       await nextAnimationFrame();
       const currentGeometry = geometrySnapshot();
+      const deckStatus = thresholdDeckSnapshot();
+      const deckTransitions = deckActivationTransitions(deckStatus);
+      saveDeckActivationStatus(deckStatus);
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
@@ -526,6 +592,10 @@
       );
       const geometryChanged = geometryChangeMagnitude !== 0;
       const positionAtFrame = trackAnchor ? anchorRoom() : null;
+      if (shouldIgnoreRaf(deckTransitions)) {
+        warnIgnoredDeckTransitions(deckTransitions, frame + 1);
+        continue;
+      }
       if (geometryChanged) {
         previous = currentGeometry;
         unchanged = 0;
@@ -547,6 +617,25 @@
     }
     throw new Error(
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
+    );
+  }
+  function shouldIgnoreRaf({ activations, deactivations }) {
+    return activations.some(({ location }) => location === "below") || deactivations.some(({ location }) => location === "above");
+  }
+  function warnIgnoredDeckTransitions({ activations, deactivations }, frame) {
+    const ignoredTransitions = [
+      ...activations.filter(({ location }) => location === "below").map((transition) => ({
+        turnId: transition.turnId,
+        transition: "activation-below"
+      })),
+      ...deactivations.filter(({ location }) => location === "above").map((transition) => ({
+        turnId: transition.turnId,
+        transition: "deactivation-above"
+      }))
+    ];
+    console.warn(
+      "[stabilization] Ignored rAF with reverse deck transition.",
+      { frame, transitions: ignoredTransitions }
     );
   }
   function geometrySnapshot() {
@@ -724,7 +813,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.16-no-diag" : "unbuilt";
+  var VERSION = true ? "2.17-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

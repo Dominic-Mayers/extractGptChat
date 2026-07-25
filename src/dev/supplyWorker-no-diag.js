@@ -19,6 +19,7 @@ let currentDeck;
 let currentSlab;
 let currentAnchor;
 let imageReady;
+let savedDeckActivationStatus;
 
 export function resetSupplyWorker() {
     supplier = observeSupplier();
@@ -26,6 +27,7 @@ export function resetSupplyWorker() {
     currentSlab = null;
     currentAnchor = null;
     imageReady = false;
+    savedDeckActivationStatus = null;
 }
 
 export async function selectNextDeckRoom(area) {
@@ -192,6 +194,58 @@ export function thresholdDeckSnapshot() {
         decks,
         viewportHeight
     };
+}
+
+export function deckActivationTransitions(current) {
+    const activations = [];
+    const deactivations = [];
+    const previous = savedDeckActivationStatus;
+
+    if (!previous) return { activations, deactivations };
+
+    for (const [deck, currentDeck] of current.decks) {
+        const previousDeck = previous.decks.get(deck);
+        if (!previousDeck || previousDeck.state === currentDeck.state) {
+            continue;
+        }
+
+        const transition = {
+            deck,
+            turnId: currentDeck.turnId,
+            location: deckLocation(
+                previousDeck,
+                previous.viewportHeight
+            ),
+            previous: previousDeck,
+            current: currentDeck
+        };
+
+        if (
+            previousDeck.state !== "true" &&
+            currentDeck.state === "true"
+        ) {
+            activations.push(transition);
+        }
+
+        if (
+            previousDeck.state === "true" &&
+            currentDeck.state === "false"
+        ) {
+            deactivations.push(transition);
+        }
+    }
+
+    return { activations, deactivations };
+}
+
+export function saveDeckActivationStatus(status) {
+    savedDeckActivationStatus = status;
+}
+
+function deckLocation(deck, viewportHeight) {
+    if (deck.bottom <= 0) return "above";
+    if (deck.top >= viewportHeight) return "below";
+    return "viewport";
 }
 
 export function moveWorkZoneBy(jump) {

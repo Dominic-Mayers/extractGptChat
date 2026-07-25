@@ -5,7 +5,9 @@ import {
 } from "./constants-no-diag.js";
 import {
     anchorRoom,
+    deckActivationTransitions,
     roomUntilFirstNotReadyDeck,
+    saveDeckActivationStatus,
     supplyHeight,
     supplyRoom,
     thresholdDeckSnapshot
@@ -23,12 +25,16 @@ export async function waitLayoutStable(
 
     let previous = geometrySnapshot();
     let unchanged = 0;
+    saveDeckActivationStatus(thresholdDeckSnapshot());
 
     for (let frame = 0; frame < maxFrames; frame++) {
 
         await nextAnimationFrame();
 
         const currentGeometry = geometrySnapshot();
+        const deckStatus = thresholdDeckSnapshot();
+        const deckTransitions = deckActivationTransitions(deckStatus);
+        saveDeckActivationStatus(deckStatus);
 
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
@@ -48,6 +54,12 @@ export async function waitLayoutStable(
         const positionAtFrame = trackAnchor
             ? anchorRoom()
             : null;
+
+        if (shouldIgnoreRaf(deckTransitions)) {
+            warnIgnoredDeckTransitions(deckTransitions, frame + 1);
+
+            continue;
+        }
 
         if (geometryChanged) {
 
@@ -78,6 +90,36 @@ export async function waitLayoutStable(
 
     throw new Error(
         `Exceeded ${maxFrames} frames waiting for layout stabilization.`
+    );
+}
+
+function shouldIgnoreRaf({ activations, deactivations }) {
+    return activations.some(({ location }) => location === "below") ||
+        deactivations.some(({ location }) => location === "above");
+}
+
+function warnIgnoredDeckTransitions(
+    { activations, deactivations },
+    frame
+) {
+    const ignoredTransitions = [
+        ...activations
+            .filter(({ location }) => location === "below")
+            .map(transition => ({
+                turnId: transition.turnId,
+                transition: "activation-below"
+            })),
+        ...deactivations
+            .filter(({ location }) => location === "above")
+            .map(transition => ({
+                turnId: transition.turnId,
+                transition: "deactivation-above"
+            }))
+    ];
+
+    console.warn(
+        "[stabilization] Ignored rAF with reverse deck transition.",
+        { frame, transitions: ignoredTransitions }
     );
 }
 
