@@ -1,7 +1,9 @@
 import {
 
     ADJACENCY_OVERLAP_TOLERANCE,
-    MAX_SLAB_GAP
+    ACTIVATION_DISTANCE,
+    MAX_SLAB_GAP,
+    TOLERATED_ROUNDING
 } from "./constants.js";
 import { slabType } from "./slabType.js";
 import { getNextAnchorIn } from "./getNextAnchorIn.js";
@@ -29,6 +31,7 @@ import {
 } from "./cycleDiagnostics.js";
 import {
     compileDeck,
+    compiledDeckFor,
     storeCompiledDeck
 } from "./extraction.js";
 
@@ -48,6 +51,53 @@ export function resetSupplyWorker() {
 
 export async function compileCurrentDeck() {
     const deck = retainedDeck();
+    const unit = await compileDeck(deck, getSlabsIn(deck));
+    storeCompiledDeck(unit);
+}
+
+export async function checkUpdateNeededBeforeDeactivation(jump) {
+    const { activeArea, workZone } = environment();
+    const deactivationBoundary =
+        workZoneTop(workZone) + workZone.height + ACTIVATION_DISTANCE;
+    const decks = elementsIn(
+        activeArea,
+        '[data-turn-id-container][data-is-intersecting]' +
+        ':not([data-is-intersecting="false"])'
+    );
+
+    for (const deck of decks) {
+        const topAfterJump = deck.getBoundingClientRect().top + jump;
+        if (
+            topAfterJump <
+            deactivationBoundary - TOLERATED_ROUNDING
+        ) {
+            continue;
+        }
+        if (isUpdated(deck)) await replaceByUpdate(deck);
+    }
+}
+
+export function isUpdated(deck) {
+    const turnId = deck.getAttribute("data-turn-id-container");
+    const previous = compiledDeckFor(turnId);
+    if (!previous) {
+        throw new Error(
+            `No compiled walkway unit for deck ${turnId}.`
+        );
+    }
+
+    const height = deck.getBoundingClientRect().height;
+    if (height < previous.height - TOLERATED_ROUNDING) {
+        throw new Error(
+            `Deck ${turnId} height decreased from ` +
+            `${previous.height} to ${height}.`
+        );
+    }
+
+    return height > previous.height + TOLERATED_ROUNDING;
+}
+
+export async function replaceByUpdate(deck) {
     const unit = await compileDeck(deck, getSlabsIn(deck));
     storeCompiledDeck(unit);
 }

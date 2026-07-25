@@ -6,6 +6,7 @@ import {
 } from "./constants.js";
 import {
     anchorRoom,
+    checkUpdateNeededBeforeDeactivation,
     moveWorkZoneBy,
     supplyRoom
 } from "./supplyWorker.js";
@@ -78,6 +79,7 @@ export async function moveAnchorToBottom(
         beginOrContinueJumpDiagnostics({
             requestedJump: jump
         });
+        await checkUpdateNeededBeforeDeactivation(jump);
         moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 

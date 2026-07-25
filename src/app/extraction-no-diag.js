@@ -58,6 +58,7 @@ export async function waitSlabReady(type, slab, {
 export async function compileDeck(deck, slabs) {
     const unit = {
         turnId: deck.getAttribute("data-turn-id-container"),
+        height: null,
         prompts: [],
         images: [],
         canvases: []
@@ -70,7 +71,12 @@ export async function compileDeck(deck, slabs) {
         if (prompt) unit.prompts.push(prompt);
     }
 
+    unit.height = deck.getBoundingClientRect().height;
     return unit;
+}
+
+export function compiledDeckFor(turnId) {
+    return walkway.find(deck => deck.turnId === turnId) ?? null;
 }
 
 export function storeCompiledDeck(unit) {
