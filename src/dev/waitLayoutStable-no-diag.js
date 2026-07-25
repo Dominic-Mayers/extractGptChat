@@ -24,6 +24,7 @@ export async function waitLayoutStable(
         : 2;
 
     let previous = geometrySnapshot();
+    let previousRafGeometry = previous;
     let unchanged = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
 
@@ -54,9 +55,31 @@ export async function waitLayoutStable(
         const positionAtFrame = trackAnchor
             ? anchorRoom()
             : null;
+        const previousRafScrollHeightChange = Math.abs(
+            currentGeometry.scrollHeight -
+            previousRafGeometry.scrollHeight
+        );
+        const previousRafScrollYChange = Math.abs(
+            currentGeometry.scrollY - previousRafGeometry.scrollY
+        );
+
+        const ignoredRafContext = {
+            currentGeometry,
+            previousRafGeometry,
+            previousRafScrollHeightChange,
+            previousRafScrollYChange,
+            acceptedGeometry: previous,
+            acceptedScrollHeightChange: scrollHeightChange,
+            acceptedScrollYChange: scrollYChange
+        };
+        previousRafGeometry = currentGeometry;
 
         if (shouldIgnoreRaf(deckTransitions)) {
-            warnIgnoredDeckTransitions(deckTransitions, frame + 1);
+            warnIgnoredDeckTransitions(
+                deckTransitions,
+                frame + 1,
+                ignoredRafContext
+            );
 
             continue;
         }
@@ -100,27 +123,45 @@ function shouldIgnoreRaf({ activations, deactivations }) {
 
 function warnIgnoredDeckTransitions(
     { activations, deactivations },
-    frame
+    frame,
+    geometry
 ) {
     const ignoredTransitions = [
         ...activations
             .filter(({ location }) => location === "below")
             .map(transition => ({
                 turnId: transition.turnId,
-                transition: "activation-below"
+                transition: "activation-below",
+                previous: transitionGeometry(transition.previous),
+                current: transitionGeometry(transition.current)
             })),
         ...deactivations
             .filter(({ location }) => location === "above")
             .map(transition => ({
                 turnId: transition.turnId,
-                transition: "deactivation-above"
+                transition: "deactivation-above",
+                previous: transitionGeometry(transition.previous),
+                current: transitionGeometry(transition.current)
             }))
     ];
 
     console.warn(
-        "[stabilization] Ignored rAF with reverse deck transition.",
-        { frame, transitions: ignoredTransitions }
+        "[stabilization] Ignored rAF with reverse deck transition.\n" +
+        JSON.stringify({
+            frame,
+            geometry,
+            transitions: ignoredTransitions
+        }, null, 2)
     );
+}
+
+function transitionGeometry(deck) {
+    return {
+        state: deck.state,
+        top: deck.top,
+        bottom: deck.bottom,
+        height: deck.height
+    };
 }
 
 /**

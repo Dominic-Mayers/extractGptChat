@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.17
+// @version      2.18
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1220,6 +1220,7 @@
   } = {}) {
     const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
+    let previousRafGeometry = previous;
     let unchanged = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
     beginStabilizationDiagnostics({ stableFrames });
@@ -1245,6 +1246,12 @@
       );
       const geometryChanged = geometryChangeMagnitude !== 0;
       const positionAtFrame = trackAnchor ? anchorRoom() : null;
+      const previousRafScrollHeightChange = Math.abs(
+        currentGeometry.scrollHeight - previousRafGeometry.scrollHeight
+      );
+      const previousRafScrollYChange = Math.abs(
+        currentGeometry.scrollY - previousRafGeometry.scrollY
+      );
       recordRafTelemetryDiagnostics({
         geometryChangeMagnitude,
         scrollHeightChange,
@@ -1252,10 +1259,30 @@
         scrollYChange,
         scrollHeight: currentGeometry.scrollHeight,
         scrollY: currentGeometry.scrollY,
+        previousRafScrollHeight: previousRafGeometry.scrollHeight,
+        previousRafScrollY: previousRafGeometry.scrollY,
+        previousRafScrollHeightChange,
+        previousRafScrollYChange,
+        acceptedScrollHeight: previous.scrollHeight,
+        acceptedScrollY: previous.scrollY,
         anchorPosition: positionAtFrame
       });
+      const ignoredRafContext = {
+        currentGeometry,
+        previousRafGeometry,
+        previousRafScrollHeightChange,
+        previousRafScrollYChange,
+        acceptedGeometry: previous,
+        acceptedScrollHeightChange: scrollHeightChange,
+        acceptedScrollYChange: scrollYChange
+      };
+      previousRafGeometry = currentGeometry;
       if (shouldIgnoreRaf(deckTransitions)) {
-        warnIgnoredDeckTransitions(deckTransitions, frame + 1);
+        warnIgnoredDeckTransitions(
+          deckTransitions,
+          frame + 1,
+          ignoredRafContext
+        );
         finishRafDiagnostics({
           status: "ignored-reverse-deck-transition"
         });
@@ -1300,21 +1327,36 @@
   function shouldIgnoreRaf({ activations, deactivations }) {
     return activations.some(({ location }) => location === "below") || deactivations.some(({ location }) => location === "above");
   }
-  function warnIgnoredDeckTransitions({ activations, deactivations }, frame) {
+  function warnIgnoredDeckTransitions({ activations, deactivations }, frame, geometry) {
     const ignoredTransitions = [
       ...activations.filter(({ location }) => location === "below").map((transition) => ({
         turnId: transition.turnId,
-        transition: "activation-below"
+        transition: "activation-below",
+        previous: transitionGeometry(transition.previous),
+        current: transitionGeometry(transition.current)
       })),
       ...deactivations.filter(({ location }) => location === "above").map((transition) => ({
         turnId: transition.turnId,
-        transition: "deactivation-above"
+        transition: "deactivation-above",
+        previous: transitionGeometry(transition.previous),
+        current: transitionGeometry(transition.current)
       }))
     ];
     console.warn(
-      "[stabilization] Ignored rAF with reverse deck transition.",
-      { frame, transitions: ignoredTransitions }
+      "[stabilization] Ignored rAF with reverse deck transition.\n" + JSON.stringify({
+        frame,
+        geometry,
+        transitions: ignoredTransitions
+      }, null, 2)
     );
+  }
+  function transitionGeometry(deck) {
+    return {
+      state: deck.state,
+      top: deck.top,
+      bottom: deck.bottom,
+      height: deck.height
+    };
   }
   function geometrySnapshot() {
     return {
@@ -1664,7 +1706,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.17" : "unbuilt";
+  var VERSION = true ? "2.18" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
