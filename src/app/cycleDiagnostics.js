@@ -12,6 +12,7 @@ let executionTimeStatisticsDiagnostics = null;
 let deckSectionAtActivationDiagnostics = null;
 let enumeratedDecksDiagnostics = null;
 let deckSectionReadinessDiagnostics = null;
+let deckUpdatesDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -46,6 +47,7 @@ export function resetCycleDiagnostics() {
         missingAtEnumeration: [],
         changedBeforeEnumeration: []
     };
+    deckUpdatesDiagnostics = [];
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -387,6 +389,13 @@ export function recordDeckSectionEnumerationDiagnostics(snapshot) {
     }
 }
 
+export function recordDeckUpdateDiagnostics(data) {
+    deckUpdatesDiagnostics.push({
+        clock: clockDiagnostics(),
+        ...data
+    });
+}
+
 function clockDiagnostics() {
     return {
         performanceMs: performance.now() - runPerformanceOriginDiagnostics,
@@ -513,6 +522,7 @@ export function flushCycleDiagnostics() {
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
+    emitDeckUpdatesDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
 }
 
@@ -520,6 +530,13 @@ function emitDeckSectionReadinessDiagnostics() {
     console.log(
         "[deck section readiness]\n" +
         JSON.stringify(deckSectionReadinessDiagnostics, null, 2)
+    );
+}
+
+function emitDeckUpdatesDiagnostics() {
+    console.log(
+        "[deck updates before deactivation]\n" +
+        JSON.stringify(deckUpdatesDiagnostics, null, 2)
     );
 }
 

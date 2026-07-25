@@ -27,6 +27,7 @@ import {
     recordCycleStageDiagnostics,
     recordDeckSectionActivationDiagnostics,
     recordDeckSectionEnumerationDiagnostics,
+    recordDeckUpdateDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 import {
@@ -66,14 +67,41 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
     );
 
     for (const deck of decks) {
-        const topAfterJump = deck.getBoundingClientRect().top + jump;
+        const rect = deck.getBoundingClientRect();
+        const topAfterJump = rect.top + jump;
         if (
             topAfterJump <
             deactivationBoundary - TOLERATED_ROUNDING
         ) {
             continue;
         }
-        if (isUpdated(deck)) await replaceByUpdate(deck);
+
+        const turnIdDiagnostics =
+            deck.getAttribute("data-turn-id-container");
+        const previousDiagnostics = compiledDeckFor(turnIdDiagnostics);
+        const slabTypesBeforeDiagnostics =
+            getSlabsIn(deck).map(slab => slabType(slab));
+        const updated = isUpdated(deck);
+
+        if (updated) await replaceByUpdate(deck);
+
+        recordDeckUpdateDiagnostics({
+            turnId: turnIdDiagnostics,
+            jump,
+            deactivationBoundary,
+            top: rect.top,
+            topAfterJump,
+            compiledHeight: previousDiagnostics.height,
+            currentHeight: rect.height,
+            slabTypesBefore: slabTypesBeforeDiagnostics,
+            decision: updated ? "replaced" : "unchanged",
+            replacementHeight: updated
+                ? compiledDeckFor(turnIdDiagnostics).height
+                : null,
+            slabTypesAfter: updated
+                ? getSlabsIn(deck).map(slab => slabType(slab))
+                : null
+        });
     }
 }
 

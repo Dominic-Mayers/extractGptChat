@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.45
+// @version      2.46
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -247,6 +247,7 @@
   var deckSectionAtActivationDiagnostics = null;
   var enumeratedDecksDiagnostics = null;
   var deckSectionReadinessDiagnostics = null;
+  var deckUpdatesDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -278,6 +279,7 @@
       missingAtEnumeration: [],
       changedBeforeEnumeration: []
     };
+    deckUpdatesDiagnostics = [];
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -561,6 +563,12 @@
       });
     }
   }
+  function recordDeckUpdateDiagnostics(data) {
+    deckUpdatesDiagnostics.push({
+      clock: clockDiagnostics(),
+      ...data
+    });
+  }
   function clockDiagnostics() {
     return {
       performanceMs: performance.now() - runPerformanceOriginDiagnostics,
@@ -651,11 +659,17 @@
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
+    emitDeckUpdatesDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
   }
   function emitDeckSectionReadinessDiagnostics() {
     console.log(
       "[deck section readiness]\n" + JSON.stringify(deckSectionReadinessDiagnostics, null, 2)
+    );
+  }
+  function emitDeckUpdatesDiagnostics() {
+    console.log(
+      "[deck updates before deactivation]\n" + JSON.stringify(deckUpdatesDiagnostics, null, 2)
     );
   }
   function emitExecutionTimeStatisticsDiagnostics() {
@@ -1284,11 +1298,29 @@ ${fence}
       '[data-turn-id-container][data-is-intersecting]:not([data-is-intersecting="false"])'
     );
     for (const deck of decks) {
-      const topAfterJump = deck.getBoundingClientRect().top + jump;
+      const rect = deck.getBoundingClientRect();
+      const topAfterJump = rect.top + jump;
       if (topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
         continue;
       }
-      if (isUpdated(deck)) await replaceByUpdate(deck);
+      const turnIdDiagnostics = deck.getAttribute("data-turn-id-container");
+      const previousDiagnostics = compiledDeckFor(turnIdDiagnostics);
+      const slabTypesBeforeDiagnostics = getSlabsIn(deck).map((slab) => slabType(slab));
+      const updated = isUpdated(deck);
+      if (updated) await replaceByUpdate(deck);
+      recordDeckUpdateDiagnostics({
+        turnId: turnIdDiagnostics,
+        jump,
+        deactivationBoundary,
+        top: rect.top,
+        topAfterJump,
+        compiledHeight: previousDiagnostics.height,
+        currentHeight: rect.height,
+        slabTypesBefore: slabTypesBeforeDiagnostics,
+        decision: updated ? "replaced" : "unchanged",
+        replacementHeight: updated ? compiledDeckFor(turnIdDiagnostics).height : null,
+        slabTypesAfter: updated ? getSlabsIn(deck).map((slab) => slabType(slab)) : null
+      });
     }
   }
   function isUpdated(deck) {
@@ -2571,7 +2603,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.45" : "unbuilt";
+  var VERSION = true ? "2.46" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

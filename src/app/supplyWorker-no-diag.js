@@ -56,14 +56,19 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
     );
 
     for (const deck of decks) {
-        const topAfterJump = deck.getBoundingClientRect().top + jump;
+        const rect = deck.getBoundingClientRect();
+        const topAfterJump = rect.top + jump;
         if (
             topAfterJump <
             deactivationBoundary - TOLERATED_ROUNDING
         ) {
             continue;
         }
-        if (isUpdated(deck)) await replaceByUpdate(deck);
+
+        const updated = isUpdated(deck);
+
+        if (updated) await replaceByUpdate(deck);
+
     }
 }
 
