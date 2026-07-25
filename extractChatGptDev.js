@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.22
+// @version      2.23
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -2067,7 +2067,7 @@ ${fence}
 7. A fenced Python code block containing a function with a docstring.
 Do not omit or combine any item.`;
   var IMAGE_PROMPT = "Generate a simple image containing only a red circle centered inside a blue square. Use a plain white background. Do not include text, labels, diagrams, or any other objects.";
-  var CANVAS_PROMPT = `Create a Canvas document titled "Extractor Compatibility Canvas". Include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
+  var CANVAS_PROMPT = `Use the ChatGPT Canvas tool to open and create a Canvas document titled "Extractor Compatibility Canvas". Do not provide the document only as an ordinary chat response. In the Canvas, include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
   var MARKUP_CHECKS = [
     ["Heading", /^## Compatibility Results$/m],
     ["Bold", /\*\*[^*\n]+\*\*/],
@@ -2078,7 +2078,7 @@ Do not omit or combine any item.`;
     ["Unordered list", /^- /m],
     ["Blockquote", /^> /m],
     ["Table", /^\| .+ \|$/m],
-    ["Code block", /^```+python$/m]
+    ["Code block", /^```+$/m]
   ];
   function showCompatibilityCheck(version) {
     const id = "dev-extractor-compatibility";
@@ -2334,7 +2334,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.22" : "unbuilt";
+  var VERSION = true ? "2.23" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

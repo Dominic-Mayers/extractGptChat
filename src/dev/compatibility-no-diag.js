@@ -12,7 +12,7 @@ Do not omit or combine any item.`;
 
 const IMAGE_PROMPT = "Generate a simple image containing only a red circle centered inside a blue square. Use a plain white background. Do not include text, labels, diagrams, or any other objects.";
 
-const CANVAS_PROMPT = `Create a Canvas document titled "Extractor Compatibility Canvas". Include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
+const CANVAS_PROMPT = `Use the ChatGPT Canvas tool to open and create a Canvas document titled "Extractor Compatibility Canvas". Do not provide the document only as an ordinary chat response. In the Canvas, include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
 
 const MARKUP_CHECKS = [
     ["Heading", /^## Compatibility Results$/m],
@@ -24,7 +24,7 @@ const MARKUP_CHECKS = [
     ["Unordered list", /^- /m],
     ["Blockquote", /^> /m],
     ["Table", /^\| .+ \|$/m],
-    ["Code block", /^```+python$/m]
+    ["Code block", /^```+$/m]
 ];
 
 export function showCompatibilityCheck(version) {
