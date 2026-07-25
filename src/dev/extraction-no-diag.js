@@ -21,6 +21,20 @@ export function resetExtraction() {
     canvasCounter = 0;
 }
 
+export function compatibilityExtraction() {
+    return {
+        count: prompts.length,
+        users: prompts.filter(prompt => prompt.role === "user").length,
+        assistants: prompts.filter(prompt => prompt.role === "assistant").length,
+        unknown: prompts.filter(prompt =>
+            prompt.role !== "user" && prompt.role !== "assistant"
+        ).length,
+        images: pendingImages.length,
+        canvases: pendingCanvases.length,
+        markdown: prompts.map(prompt => prompt.text).join("\n")
+    };
+}
+
 export async function waitSlabReady(type, slab, {
     timeout = 30000,
     poll = 100

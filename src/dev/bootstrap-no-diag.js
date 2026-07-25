@@ -9,6 +9,7 @@
 // observe the geometry layer in a real browser.
 
 import { traverseConversation } from './mainOrchestration-no-diag.js';
+import { showCompatibilityCheck } from './compatibility-no-diag.js';
 // Replaced at build time (scripts/build-dev-userscript.js) with the same
 // version string as the @version header — shown in the menu label so it's
 // obvious whether Tampermonkey is running the build you just made.
@@ -50,6 +51,10 @@ const registerMenuCommand = typeof GM_registerMenuCommand === 'function'
 
 if (registerMenuCommand) {
     registerMenuCommand(menuLabel, runTraversal);
+    registerMenuCommand(
+        `Dev compatibility check v${VERSION}`,
+        () => showCompatibilityCheck(VERSION)
+    );
     console.log(`[dev traversal] menu command registered: ${menuLabel}`);
 } else {
     console.log(

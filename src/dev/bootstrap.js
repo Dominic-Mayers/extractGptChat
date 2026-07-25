@@ -9,6 +9,7 @@
 // observe the geometry layer in a real browser.
 
 import { traverseConversation } from './mainOrchestration.js';
+import { showCompatibilityCheck } from './compatibility.js';
 import {
     logActiveTraversalDiagnostics,
     logCycleContextDiagnostics,
@@ -57,6 +58,10 @@ const registerMenuCommand = typeof GM_registerMenuCommand === 'function'
 
 if (registerMenuCommand) {
     registerMenuCommand(menuLabel, runTraversal);
+    registerMenuCommand(
+        `Dev compatibility check v${VERSION}`,
+        () => showCompatibilityCheck(VERSION)
+    );
     console.log(`[dev traversal] menu command registered: ${menuLabel}`);
 } else {
     console.log(
