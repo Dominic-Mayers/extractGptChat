@@ -42,6 +42,7 @@ export async function moveAnchorToBottom(
         }
 
         const jump = clampJump(calibratedJump, room, viewportHeight);
+
         moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 

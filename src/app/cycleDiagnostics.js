@@ -8,6 +8,7 @@ let previousCycle = null;
 let currentCycle = null;
 let runPerformanceOriginDiagnostics = 0;
 let runWallOriginDiagnostics = 0;
+let executionTimeStatisticsDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -22,6 +23,15 @@ export function resetCycleDiagnostics() {
     currentCycle = null;
     runPerformanceOriginDiagnostics = performance.now();
     runWallOriginDiagnostics = Date.now();
+    executionTimeStatisticsDiagnostics = {
+        jumpCount: 0,
+        sumJumpSize: 0,
+        sumJumpSizeSquared: 0,
+        sumJumpElapsedMs: 0,
+        sumJumpWallElapsedMs: 0,
+        sumJumpSizeElapsedMs: 0,
+        sumJumpSizeWallElapsedMs: 0
+    };
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -219,7 +229,29 @@ export function finishJumpDiagnostics(data = {}) {
         status: data.status ?? "complete"
     });
 
+    recordExecutionTimeStatisticsDiagnostics(jumpDiagnostics);
+
     return jumpDiagnostics.elapsedMs;
+}
+
+function recordExecutionTimeStatisticsDiagnostics(jumpDiagnostics) {
+    const jumpSize = jumpDiagnostics.requestedJump;
+    if (
+        executionTimeStatisticsDiagnostics == null ||
+        !Number.isFinite(jumpSize)
+    ) return;
+
+    executionTimeStatisticsDiagnostics.jumpCount++;
+    executionTimeStatisticsDiagnostics.sumJumpSize += jumpSize;
+    executionTimeStatisticsDiagnostics.sumJumpSizeSquared += jumpSize * jumpSize;
+    executionTimeStatisticsDiagnostics.sumJumpElapsedMs +=
+        jumpDiagnostics.elapsedMs;
+    executionTimeStatisticsDiagnostics.sumJumpWallElapsedMs +=
+        jumpDiagnostics.wallElapsedMs;
+    executionTimeStatisticsDiagnostics.sumJumpSizeElapsedMs +=
+        jumpSize * jumpDiagnostics.elapsedMs;
+    executionTimeStatisticsDiagnostics.sumJumpSizeWallElapsedMs +=
+        jumpSize * jumpDiagnostics.wallElapsedMs;
 }
 
 export function logSlowJumpDiagnosticsIfNeeded() {
@@ -431,6 +463,40 @@ export function flushCycleDiagnostics() {
     finishCycleTimingDiagnostics(currentCycle);
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
+    emitExecutionTimeStatisticsDiagnostics();
+}
+
+function emitExecutionTimeStatisticsDiagnostics() {
+    if (executionTimeStatisticsDiagnostics == null) return;
+
+    const runElapsedMs = performance.now() - runPerformanceOriginDiagnostics;
+    const runWallElapsedMs = Date.now() - runWallOriginDiagnostics;
+    const {
+        jumpCount,
+        sumJumpSize,
+        sumJumpElapsedMs,
+        sumJumpWallElapsedMs
+    } = executionTimeStatisticsDiagnostics;
+
+    console.log(
+        `════ EXECUTION TIME STATISTICS ════\n` +
+        `     ${formatValueDiagnostics({
+            ...executionTimeStatisticsDiagnostics,
+            runElapsedMs,
+            runWallElapsedMs,
+            nonJumpElapsedMs: runElapsedMs - sumJumpElapsedMs,
+            nonJumpWallElapsedMs: runWallElapsedMs - sumJumpWallElapsedMs,
+            averageJumpSize: jumpCount === 0
+                ? null
+                : sumJumpSize / jumpCount,
+            averageJumpElapsedMs: jumpCount === 0
+                ? null
+                : sumJumpElapsedMs / jumpCount,
+            averageJumpWallElapsedMs: jumpCount === 0
+                ? null
+                : sumJumpWallElapsedMs / jumpCount
+        })}`
+    );
 }
 
 function emitCompletedSelectionDiagnostics() {

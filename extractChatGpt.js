@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -243,6 +243,7 @@
   var currentCycle = null;
   var runPerformanceOriginDiagnostics = 0;
   var runWallOriginDiagnostics = 0;
+  var executionTimeStatisticsDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -254,6 +255,15 @@
     currentCycle = null;
     runPerformanceOriginDiagnostics = performance.now();
     runWallOriginDiagnostics = Date.now();
+    executionTimeStatisticsDiagnostics = {
+      jumpCount: 0,
+      sumJumpSize: 0,
+      sumJumpSizeSquared: 0,
+      sumJumpElapsedMs: 0,
+      sumJumpWallElapsedMs: 0,
+      sumJumpSizeElapsedMs: 0,
+      sumJumpSizeWallElapsedMs: 0
+    };
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -431,7 +441,19 @@
       finishedClock: clockDiagnostics(),
       status: data.status ?? "complete"
     });
+    recordExecutionTimeStatisticsDiagnostics(jumpDiagnostics);
     return jumpDiagnostics.elapsedMs;
+  }
+  function recordExecutionTimeStatisticsDiagnostics(jumpDiagnostics) {
+    const jumpSize = jumpDiagnostics.requestedJump;
+    if (executionTimeStatisticsDiagnostics == null || !Number.isFinite(jumpSize)) return;
+    executionTimeStatisticsDiagnostics.jumpCount++;
+    executionTimeStatisticsDiagnostics.sumJumpSize += jumpSize;
+    executionTimeStatisticsDiagnostics.sumJumpSizeSquared += jumpSize * jumpSize;
+    executionTimeStatisticsDiagnostics.sumJumpElapsedMs += jumpDiagnostics.elapsedMs;
+    executionTimeStatisticsDiagnostics.sumJumpWallElapsedMs += jumpDiagnostics.wallElapsedMs;
+    executionTimeStatisticsDiagnostics.sumJumpSizeElapsedMs += jumpSize * jumpDiagnostics.elapsedMs;
+    executionTimeStatisticsDiagnostics.sumJumpSizeWallElapsedMs += jumpSize * jumpDiagnostics.wallElapsedMs;
   }
   function logSlowJumpDiagnosticsIfNeeded() {
     const jumpDiagnostics = currentJumpDiagnostics();
@@ -587,6 +609,31 @@
     finishCycleTimingDiagnostics(currentCycle);
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
+    emitExecutionTimeStatisticsDiagnostics();
+  }
+  function emitExecutionTimeStatisticsDiagnostics() {
+    if (executionTimeStatisticsDiagnostics == null) return;
+    const runElapsedMs = performance.now() - runPerformanceOriginDiagnostics;
+    const runWallElapsedMs = Date.now() - runWallOriginDiagnostics;
+    const {
+      jumpCount,
+      sumJumpSize,
+      sumJumpElapsedMs,
+      sumJumpWallElapsedMs
+    } = executionTimeStatisticsDiagnostics;
+    console.log(
+      `\u2550\u2550\u2550\u2550 EXECUTION TIME STATISTICS \u2550\u2550\u2550\u2550
+     ${formatValueDiagnostics({
+        ...executionTimeStatisticsDiagnostics,
+        runElapsedMs,
+        runWallElapsedMs,
+        nonJumpElapsedMs: runElapsedMs - sumJumpElapsedMs,
+        nonJumpWallElapsedMs: runWallElapsedMs - sumJumpWallElapsedMs,
+        averageJumpSize: jumpCount === 0 ? null : sumJumpSize / jumpCount,
+        averageJumpElapsedMs: jumpCount === 0 ? null : sumJumpElapsedMs / jumpCount,
+        averageJumpWallElapsedMs: jumpCount === 0 ? null : sumJumpWallElapsedMs / jumpCount
+      })}`
+    );
   }
   function emitCompletedSelectionDiagnostics() {
     if (!currentCycle || !cycleHasSelectedJumpDiagnostics(currentCycle) && currentCycle.forceLogDiagnostics !== true) return;
@@ -1875,6 +1922,9 @@ ${fence}
         return room;
       }
       const jump = clampJump(calibratedJump, room, viewportHeight2);
+      beginOrContinueJumpDiagnostics({
+        requestedJump: jump
+      });
       moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
@@ -2393,7 +2443,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.1" : "unbuilt";
+  var VERSION = true ? "5.2" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",
