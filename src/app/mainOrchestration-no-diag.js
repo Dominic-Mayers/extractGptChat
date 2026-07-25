@@ -10,7 +10,7 @@ import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
 import {
-    extractCurrentSlab,
+    compileCurrentDeck,
     resetSupplyWorker,
     selectNextSlabRoom
 } from "./supplyWorker-no-diag.js";
@@ -89,10 +89,11 @@ export async function traverseConversation() {
             if (nextSlabRoom == null) {
                 throw new Error("No slab found in active deck.");
             }
+
+            await compileCurrentDeck();
         }
 
         slabRoom = nextSlabRoom;
-        await extractCurrentSlab();
 
     }
     await exportMarkdown();

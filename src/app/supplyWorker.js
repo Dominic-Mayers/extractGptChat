@@ -28,8 +28,8 @@ import {
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 import {
-    extractSlab,
-    waitSlabReady
+    compileDeck,
+    storeCompiledDeck
 } from "./extraction.js";
 
 let supplier;
@@ -46,11 +46,10 @@ export function resetSupplyWorker() {
     savedDeckActivationStatus = null;
 }
 
-export async function extractCurrentSlab() {
-    const slab = retainedSlab();
-    const type = slabType(slab);
-    await waitSlabReady(type, slab);
-    extractSlab(type, slab);
+export async function compileCurrentDeck() {
+    const deck = retainedDeck();
+    const unit = await compileDeck(deck, getSlabsIn(deck));
+    storeCompiledDeck(unit);
 }
 
 export async function selectNextDeckRoom(area) {

@@ -1,9 +1,7 @@
-let prompts = [];
+import { slabType } from "./slabType.js";
 
-let pendingImages = [];
-let pendingCanvases = [];
-let imageCounter = 0;
-let canvasCounter = 0;
+let walkway = [];
+let assetCounter = 0;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const escapeLabel = value => value.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
@@ -15,14 +13,14 @@ const escapeHtml = value => value
     .replace(/>/g, "&gt;");
 
 export function resetExtraction() {
-    prompts = [];
-    pendingImages = [];
-    pendingCanvases = [];
-    imageCounter = 0;
-    canvasCounter = 0;
+    walkway = [];
+    assetCounter = 0;
 }
 
 export function compatibilityExtraction() {
+    const prompts = walkway.flatMap(deck => deck.prompts);
+    const pendingImages = walkway.flatMap(deck => deck.images);
+    const pendingCanvases = walkway.flatMap(deck => deck.canvases);
     return {
         count: prompts.length,
         users: prompts.filter(prompt => prompt.role === "user").length,
@@ -57,12 +55,37 @@ export async function waitSlabReady(type, slab, {
     }
 }
 
-export function extractSlab(type, slab) {
-    const prompt = promptFrom(type, slab);
-    if (prompt) prompts.unshift(prompt);
+export async function compileDeck(deck, slabs) {
+    const unit = {
+        turnId: deck.getAttribute("data-turn-id-container"),
+        prompts: [],
+        images: [],
+        canvases: []
+    };
+
+    for (const slab of [...slabs].reverse()) {
+        const type = slabType(slab);
+        await waitSlabReady(type, slab);
+        const prompt = promptFrom(type, slab, unit);
+        if (prompt) unit.prompts.push(prompt);
+    }
+
+    return unit;
+}
+
+export function storeCompiledDeck(unit) {
+    const index = walkway.findIndex(deck => deck.turnId === unit.turnId);
+    if (index < 0) {
+        walkway.unshift(unit);
+    } else {
+        walkway[index] = unit;
+    }
 }
 
 export async function exportMarkdown(timestamp = Date.now()) {
+    const prompts = walkway.flatMap(deck => deck.prompts);
+    const pendingImages = walkway.flatMap(deck => deck.images);
+    const pendingCanvases = walkway.flatMap(deck => deck.canvases);
     const title = chatTitle();
     const slug = titleSlug(title);
     const date = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
@@ -163,7 +186,7 @@ function slabReady(type, slab) {
     throw new Error(`Cannot extract unknown slab type: ${type}.`);
 }
 
-function promptFrom(type, slab) {
+function promptFrom(type, slab, unit) {
     if (type === "empty") {
         const deck = slab.deck;
         return {
@@ -177,14 +200,14 @@ function promptFrom(type, slab) {
     }
     if (type === "canvas") {
         const root = canvasRoot(slab);
-        const text = root ? htmlToMarkdown(root) : "";
+        const text = root ? htmlToMarkdown(root, unit) : "";
         if (!text) return null;
         const titleElement = slab.querySelector(
             "span.font-semibold, [class*=\"font-semibold\"]"
         );
         const title = (titleElement?.textContent || "Canvas document").trim();
-        const token = `__CANVAS_PLACEHOLDER_${++canvasCounter}__`;
-        pendingCanvases.push({ text, token });
+        const token = assetToken("CANVAS");
+        unit.canvases.push({ text, token });
         return promptIdentity(
             slab,
             `[${title}](${token})`,
@@ -193,7 +216,7 @@ function promptFrom(type, slab) {
     }
     if (type === "image") {
         const image = primaryImage(slab);
-        const text = image ? htmlToMarkdown(image) : "";
+        const text = image ? htmlToMarkdown(image, unit) : "";
         if (!text) return null;
         return promptIdentity(
             slab,
@@ -204,7 +227,7 @@ function promptFrom(type, slab) {
     if (type === "message") {
         const message = messageRoot(slab);
         if (!message) return null;
-        const text = htmlToMarkdown(message);
+        const text = htmlToMarkdown(message, unit);
         if (!text) return null;
         return {
             role: message.getAttribute("data-message-author-role") ||
@@ -250,15 +273,16 @@ function primaryImage(slab) {
 }
 
 function dryMarkdownFor(element) {
-    const savedImageCounter = imageCounter;
-    const savedImageLength = pendingImages.length;
-    const markdown = htmlToMarkdown(element);
-    imageCounter = savedImageCounter;
-    pendingImages.length = savedImageLength;
+    const savedAssetCounter = assetCounter;
+    const markdown = htmlToMarkdown(element, {
+        images: [],
+        canvases: []
+    });
+    assetCounter = savedAssetCounter;
     return markdown;
 }
 
-function htmlToMarkdown(element) {
+function htmlToMarkdown(element, unit) {
     function walk(node, depth) {
         if (node.nodeType === Node.TEXT_NODE) {
             const text = node.textContent;
@@ -319,8 +343,8 @@ function htmlToMarkdown(element) {
             const alt = node.getAttribute("alt") || "";
             const source = node.getAttribute("src") || "";
             if (!source) return alt ? `[image: ${escapeLabel(alt)}]` : "[image]";
-            const token = `__IMG_PLACEHOLDER_${++imageCounter}__`;
-            pendingImages.push({ url: source, token });
+            const token = assetToken("IMG");
+            unit.images.push({ url: source, token });
             const rect = node.getBoundingClientRect();
             const width = Math.round(rect.width);
             const height = Math.round(rect.height);
@@ -385,6 +409,10 @@ function htmlToMarkdown(element) {
     }
 
     return walk(element, 0).trim().replace(/\n{3,}/g, "\n\n");
+}
+
+function assetToken(kind) {
+    return `__${kind}_PLACEHOLDER_${++assetCounter}__`;
 }
 
 function fencedCode(text, language) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.17
+// @version      5.18
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -862,23 +862,20 @@
   }
 
   // src/app/extraction.js
-  var prompts = [];
-  var pendingImages = [];
-  var pendingCanvases = [];
-  var imageCounter = 0;
-  var canvasCounter = 0;
+  var walkway = [];
+  var assetCounter = 0;
   var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var escapeLabel = (value) => value.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
   var escapeUrl = (value) => value.replace(/>/g, "%3E");
   var escapeHtml = (value) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   function resetExtraction() {
-    prompts = [];
-    pendingImages = [];
-    pendingCanvases = [];
-    imageCounter = 0;
-    canvasCounter = 0;
+    walkway = [];
+    assetCounter = 0;
   }
   function compatibilityExtraction() {
+    const prompts = walkway.flatMap((deck) => deck.prompts);
+    const pendingImages = walkway.flatMap((deck) => deck.images);
+    const pendingCanvases = walkway.flatMap((deck) => deck.canvases);
     return {
       count: prompts.length,
       users: prompts.filter((prompt) => prompt.role === "user").length,
@@ -911,11 +908,33 @@
       if (typeof image.decode === "function") await image.decode();
     }
   }
-  function extractSlab(type, slab) {
-    const prompt = promptFrom(type, slab);
-    if (prompt) prompts.unshift(prompt);
+  async function compileDeck(deck, slabs) {
+    const unit = {
+      turnId: deck.getAttribute("data-turn-id-container"),
+      prompts: [],
+      images: [],
+      canvases: []
+    };
+    for (const slab of [...slabs].reverse()) {
+      const type = slabType(slab);
+      await waitSlabReady(type, slab);
+      const prompt = promptFrom(type, slab, unit);
+      if (prompt) unit.prompts.push(prompt);
+    }
+    return unit;
+  }
+  function storeCompiledDeck(unit) {
+    const index = walkway.findIndex((deck) => deck.turnId === unit.turnId);
+    if (index < 0) {
+      walkway.unshift(unit);
+    } else {
+      walkway[index] = unit;
+    }
   }
   async function exportMarkdown(timestamp = Date.now()) {
+    const prompts = walkway.flatMap((deck) => deck.prompts);
+    const pendingImages = walkway.flatMap((deck) => deck.images);
+    const pendingCanvases = walkway.flatMap((deck) => deck.canvases);
     const title = chatTitle();
     const slug = titleSlug(title);
     const date = (/* @__PURE__ */ new Date()).toISOString().replace("T", " ").slice(0, 19) + " UTC";
@@ -1004,7 +1023,7 @@ ${prompt.text}
     }
     throw new Error(`Cannot extract unknown slab type: ${type}.`);
   }
-  function promptFrom(type, slab) {
+  function promptFrom(type, slab, unit) {
     if (type === "empty") {
       const deck = slab.deck;
       return {
@@ -1017,14 +1036,14 @@ ${prompt.text}
     }
     if (type === "canvas") {
       const root = canvasRoot(slab);
-      const text = root ? htmlToMarkdown(root) : "";
+      const text = root ? htmlToMarkdown(root, unit) : "";
       if (!text) return null;
       const titleElement = slab.querySelector(
         'span.font-semibold, [class*="font-semibold"]'
       );
       const title = (titleElement?.textContent || "Canvas document").trim();
-      const token = `__CANVAS_PLACEHOLDER_${++canvasCounter}__`;
-      pendingCanvases.push({ text, token });
+      const token = assetToken("CANVAS");
+      unit.canvases.push({ text, token });
       return promptIdentity(
         slab,
         `[${title}](${token})`,
@@ -1033,7 +1052,7 @@ ${prompt.text}
     }
     if (type === "image") {
       const image = primaryImage(slab);
-      const text = image ? htmlToMarkdown(image) : "";
+      const text = image ? htmlToMarkdown(image, unit) : "";
       if (!text) return null;
       return promptIdentity(
         slab,
@@ -1044,7 +1063,7 @@ ${prompt.text}
     if (type === "message") {
       const message = messageRoot(slab);
       if (!message) return null;
-      const text = htmlToMarkdown(message);
+      const text = htmlToMarkdown(message, unit);
       if (!text) return null;
       return {
         role: message.getAttribute("data-message-author-role") || message.closest("[data-turn]")?.getAttribute("data-turn") || "unknown",
@@ -1076,14 +1095,15 @@ ${prompt.text}
     return slab.matches('img:not([aria-hidden="true"])') ? slab : slab.querySelector('img:not([aria-hidden="true"])');
   }
   function dryMarkdownFor(element) {
-    const savedImageCounter = imageCounter;
-    const savedImageLength = pendingImages.length;
-    const markdown = htmlToMarkdown(element);
-    imageCounter = savedImageCounter;
-    pendingImages.length = savedImageLength;
+    const savedAssetCounter = assetCounter;
+    const markdown = htmlToMarkdown(element, {
+      images: [],
+      canvases: []
+    });
+    assetCounter = savedAssetCounter;
     return markdown;
   }
-  function htmlToMarkdown(element) {
+  function htmlToMarkdown(element, unit) {
     function walk(node, depth) {
       if (node.nodeType === Node.TEXT_NODE) {
         const text = node.textContent;
@@ -1140,8 +1160,8 @@ ${prompt.text}
         const alt = node.getAttribute("alt") || "";
         const source = node.getAttribute("src") || "";
         if (!source) return alt ? `[image: ${escapeLabel(alt)}]` : "[image]";
-        const token = `__IMG_PLACEHOLDER_${++imageCounter}__`;
-        pendingImages.push({ url: source, token });
+        const token = assetToken("IMG");
+        unit.images.push({ url: source, token });
         const rect = node.getBoundingClientRect();
         const width = Math.round(rect.width);
         const height = Math.round(rect.height);
@@ -1201,6 +1221,9 @@ Upload: ${label.trim()}
     }
     return walk(element, 0).trim().replace(/\n{3,}/g, "\n\n");
   }
+  function assetToken(kind) {
+    return `__${kind}_PLACEHOLDER_${++assetCounter}__`;
+  }
   function fencedCode(text, language) {
     const fence = "`".repeat(Math.max(3, longestRun(text, "`") + 1));
     return `
@@ -1243,11 +1266,10 @@ ${fence}
     currentAnchor = null;
     savedDeckActivationStatus = null;
   }
-  async function extractCurrentSlab() {
-    const slab = retainedSlab();
-    const type = slabType(slab);
-    await waitSlabReady(type, slab);
-    extractSlab(type, slab);
+  async function compileCurrentDeck() {
+    const deck = retainedDeck();
+    const unit = await compileDeck(deck, getSlabsIn(deck));
+    storeCompiledDeck(unit);
   }
   async function selectNextDeckRoom(area) {
     const { supplyArea, activeArea, workZone } = environment();
@@ -2156,10 +2178,10 @@ ${fence}
         if (nextSlabRoom == null) {
           throw new Error("No slab found in active deck.");
         }
+        await compileCurrentDeck();
       }
       slabCountDiagnostics++;
       slabRoom2 = nextSlabRoom;
-      await extractCurrentSlab();
       recordCycleStageDiagnostics("selected", {
         slabCount: slabCountDiagnostics,
         deckCount: deckCountDiagnostics,
@@ -2260,13 +2282,13 @@ Do not omit or combine any item.`;
       "Start a new conversation and send each copied prompt as a separate user message. Run the dev extractor, reopen this panel, then check the extracted content.",
       { color: "#bac2de", marginBottom: "8px" }
     );
-    const prompts2 = [
+    const prompts = [
       ["Copy markup prompt", MARKUP_PROMPT],
       ["Copy image prompt", IMAGE_PROMPT],
       ["Copy Canvas prompt*", CANVAS_PROMPT]
     ];
     const promptControls = document.createElement("div");
-    for (const [label, prompt] of prompts2) {
+    for (const [label, prompt] of prompts) {
       const copy = button(label, async () => {
         await navigator.clipboard.writeText(prompt);
         const original = copy.textContent;
@@ -2508,7 +2530,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.17" : "unbuilt";
+  var VERSION = true ? "5.18" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

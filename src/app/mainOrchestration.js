@@ -10,7 +10,7 @@ import { getNextDeckRoomIn } from "./getNextDeckIn.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
 import {
-    extractCurrentSlab,
+    compileCurrentDeck,
     resetSupplyWorker,
     selectNextSlabRoom
 } from "./supplyWorker.js";
@@ -131,12 +131,13 @@ export async function traverseConversation() {
             if (nextSlabRoom == null) {
                 throw new Error("No slab found in active deck.");
             }
+
+            await compileCurrentDeck();
         }
 
         slabCountDiagnostics++;
 
         slabRoom = nextSlabRoom;
-        await extractCurrentSlab();
 
         recordCycleStageDiagnostics("selected", {
             slabCount: slabCountDiagnostics,
