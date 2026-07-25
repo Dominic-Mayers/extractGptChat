@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const sourceDirectory = path.resolve('src/dev');
+const sourceDirectory = path.resolve('src/app');
 
 function buildNoDiagnostics() {
     for (const filename of fs.readdirSync(sourceDirectory)) {

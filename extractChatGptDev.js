@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.26
+// @version      2.27
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -9,7 +9,7 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 (() => {
-  // src/dev/constants.js
+  // src/app/constants.js
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
   var TOLERATED_ROUNDING = 1;
@@ -21,7 +21,7 @@
   var ACTIVATION_DISTANCE = 1e3;
   var MAX_FRAMES_FOR_STABILIZATION = 3e3;
 
-  // src/dev/geometry.js
+  // src/app/geometry.js
   function areaAhead(referenceTop, maxGap) {
     return {
       top: referenceTop - maxGap,
@@ -29,7 +29,7 @@
     };
   }
 
-  // src/dev/slabType.js
+  // src/app/slabType.js
   function slabType(slab) {
     if (!slab?.matches) return "empty";
     if (slab.matches(".group\\/imagegen-image")) return "image";
@@ -38,7 +38,7 @@
     return "unknown";
   }
 
-  // src/dev/scrollContainer.js
+  // src/app/scrollContainer.js
   var containers = /* @__PURE__ */ new WeakMap();
   function findScrollContainer() {
     const messageEl = document.querySelector("[data-message-author-role]");
@@ -132,12 +132,12 @@
     target.scrollTo({ top, behavior: "instant" });
   }
 
-  // src/dev/boundary.js
+  // src/app/boundary.js
   function boundaryOf(element, edge) {
     return { element, edge };
   }
 
-  // src/dev/getNextAnchorIn.js
+  // src/app/getNextAnchorIn.js
   var TEXT_ANCHOR_SELECTOR = [
     "p",
     "h1",
@@ -238,7 +238,7 @@
     }
   }
 
-  // src/dev/cycleDiagnostics.js
+  // src/app/cycleDiagnostics.js
   var previousCycle = null;
   var currentCycle = null;
   var runPerformanceOriginDiagnostics = 0;
@@ -767,7 +767,7 @@
     return Number.isFinite(value) ? Math.round(value * 100) / 100 : value;
   }
 
-  // src/dev/extraction.js
+  // src/app/extraction.js
   var prompts = [];
   var pendingImages = [];
   var pendingCanvases = [];
@@ -1136,7 +1136,7 @@ ${fence}
     setTimeout(() => URL.revokeObjectURL(url), 100);
   }
 
-  // src/dev/supplyWorker.js
+  // src/app/supplyWorker.js
   var supplier;
   var currentDeck;
   var currentSlab;
@@ -1546,7 +1546,7 @@ ${fence}
     return currentAnchor;
   }
 
-  // src/dev/getNextSlabIn.js
+  // src/app/getNextSlabIn.js
   function getNextSlabRoomIn(slabRoom2, deckRoom2) {
     return selectNextSlabRoom(
       areaAhead(slabRoom2, MAX_SLAB_GAP),
@@ -1554,14 +1554,14 @@ ${fence}
     );
   }
 
-  // src/dev/getNextDeckIn.js
+  // src/app/getNextDeckIn.js
   function getNextDeckRoomIn(deckRoom2) {
     return selectNextDeckRoom(
       areaAhead(deckRoom2, MAX_DECK_GAP)
     );
   }
 
-  // src/dev/waitLayoutStable.js
+  // src/app/waitLayoutStable.js
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
@@ -1830,7 +1830,7 @@ ${fence}
     };
   }
 
-  // src/dev/moveAnchorToBottom.js
+  // src/app/moveAnchorToBottom.js
   async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
     beginJumpDiagnostics({
       kind: "anchor-move"
@@ -1919,7 +1919,7 @@ ${fence}
     return room >= targetRoom - TOLERATED_ROUNDING;
   }
 
-  // src/dev/moveSlabTopToBottom.js
+  // src/app/moveSlabTopToBottom.js
   async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
     let room = initialSlabRoom;
@@ -1939,7 +1939,7 @@ ${fence}
     };
   }
 
-  // src/dev/moveViewportToDocumentBottom.js
+  // src/app/moveViewportToDocumentBottom.js
   async function moveViewportToDocumentBottom() {
     const supplier2 = observeSupplier();
     const { supplyArea, workZone } = supplier2;
@@ -1972,7 +1972,7 @@ ${fence}
     );
   }
 
-  // src/dev/mainOrchestration.js
+  // src/app/mainOrchestration.js
   async function traverseConversation() {
     resetCycleDiagnostics();
     resetSupplyWorker();
@@ -2056,7 +2056,7 @@ ${fence}
     flushCycleDiagnostics();
   }
 
-  // src/dev/compatibility.js
+  // src/app/compatibility.js
   var MARKUP_PROMPT = `Create one response containing all of the following:
 1. A level-2 heading named "Compatibility Results".
 2. A sentence containing bold text, italic text, strikethrough text, and inline code.
@@ -2346,42 +2346,58 @@ Do not omit or combine any item.`;
     return element;
   }
 
-  // src/dev/bootstrap.js
-  var VERSION = true ? "2.26" : "unbuilt";
-  console.log(`[dev traversal] loaded, version ${VERSION}`);
-  var activeRuns = 0;
-  var runTraversal = async () => {
-    if (activeRuns > 0) {
-      console.log("[dev traversal] ignored: a traversal is already in progress.");
-      logActiveTraversalDiagnostics();
-      return;
+  // src/app/installExtractorApp.js
+  function installExtractorApp({
+    version,
+    runLabel,
+    compatibilityLabel,
+    logPrefix
+  }) {
+    const VERSION2 = version;
+    console.log(`[${logPrefix}] loaded, version ${VERSION2}`);
+    let activeRuns = 0;
+    const runTraversal = async () => {
+      if (activeRuns > 0) {
+        console.log(`[${logPrefix}] ignored: a traversal is already in progress.`);
+        logActiveTraversalDiagnostics();
+        return;
+      }
+      activeRuns++;
+      console.log(`[${logPrefix}] started.`);
+      try {
+        await traverseConversation();
+        console.log(`[${logPrefix}] finished.`);
+      } catch (error) {
+        selectCurrentJumpDiagnostics("error");
+        logCycleContextDiagnostics();
+        console.error(`[${logPrefix}] failed.`, error);
+        throw error;
+      } finally {
+        activeRuns--;
+      }
+    };
+    const menuLabel = `${runLabel} v${VERSION2}`;
+    const registerMenuCommand = typeof GM_registerMenuCommand === "function" ? GM_registerMenuCommand : typeof GM !== "undefined" && typeof GM.registerMenuCommand === "function" ? GM.registerMenuCommand.bind(GM) : null;
+    if (registerMenuCommand) {
+      registerMenuCommand(menuLabel, runTraversal);
+      registerMenuCommand(
+        `${compatibilityLabel} v${VERSION2}`,
+        () => showCompatibilityCheck(VERSION2)
+      );
+      console.log(`[${logPrefix}] menu command registered: ${menuLabel}`);
+    } else {
+      console.log(
+        `[${logPrefix}] cannot register menu command: neither GM_registerMenuCommand nor GM.registerMenuCommand is available.`
+      );
     }
-    activeRuns++;
-    console.log("[dev traversal] started.");
-    try {
-      await traverseConversation();
-      console.log("[dev traversal] finished.");
-    } catch (error) {
-      selectCurrentJumpDiagnostics("error");
-      logCycleContextDiagnostics();
-      console.error("[dev traversal] failed.", error);
-      throw error;
-    } finally {
-      activeRuns--;
-    }
-  };
-  var menuLabel = `Run dev extractor v${VERSION}`;
-  var registerMenuCommand = typeof GM_registerMenuCommand === "function" ? GM_registerMenuCommand : typeof GM !== "undefined" && typeof GM.registerMenuCommand === "function" ? GM.registerMenuCommand.bind(GM) : null;
-  if (registerMenuCommand) {
-    registerMenuCommand(menuLabel, runTraversal);
-    registerMenuCommand(
-      `Dev compatibility check v${VERSION}`,
-      () => showCompatibilityCheck(VERSION)
-    );
-    console.log(`[dev traversal] menu command registered: ${menuLabel}`);
-  } else {
-    console.log(
-      "[dev traversal] cannot register menu command: neither GM_registerMenuCommand nor GM.registerMenuCommand is available."
-    );
   }
+
+  // src/dev/bootstrap.js
+  var VERSION = true ? "2.27" : "unbuilt";
+  installExtractorApp({
+    version: VERSION,
+    runLabel: "Run dev extractor",
+    compatibilityLabel: "Dev compatibility check",
+    logPrefix: "dev traversal"
+  });
 })();

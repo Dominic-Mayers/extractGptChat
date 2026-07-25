@@ -1,12 +1,12 @@
 # ChatGPT Chat Extractor
 
-A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by navigating to the first user prompt then scrolling down to the end, waiting for lazy-loaded content to appear at each step, and downloading a `.md` file.
+A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by starting at the bottom and traversing upward through ChatGPT's lazy-loaded content.
 
 ## Features
 
 * Exports ChatGPT conversations as Markdown
 * Preserves message roles `USER` and `ASSISTANT`
-* Handles long conversations by scrolling automatically — navigates to the first prompt using the navigation menu, then scrolls to the end
+* Handles long conversations by scrolling automatically through ChatGPT's virtualized conversation
 * Converts common HTML content to Markdown, including:
   * headings
   * lists
@@ -19,8 +19,8 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
 * Preserves uploaded file references as `Upload: filename` at the top of each user message — filenames remain meaningful even though the files themselves are not included in the export
 * Strips interactive UI elements (copy buttons, edit controls, show-more toggles) that have no representation in a plain-text export
 * Generates a table of contents at the top of the export, with one entry per user prompt and anchor links to each prompt in the body
-* Includes a small in-page control panel
-* Supports partial export with a Stop button
+* Downloads generated images and Canvas documents as companion files
+* Includes a compatibility check for the DOM selectors and extracted markup
 
 ## Installation
 
@@ -34,9 +34,8 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
 
 1. Open the ChatGPT conversation you want to export.
 2. Open the Tampermonkey menu.
-3. Select **Show / Hide Extractor Panel**.
-4. Click **Start Extraction** — the script navigates to the first user prompt via the navigation menu, then scrolls down to the end, collecting content at each step.
-5. When done, click **Export** to download the Markdown file.
+3. Select **Run extractor**.
+4. Wait for traversal to finish. The Markdown file and any companion image or Canvas files download automatically.
 
 The exported file name is based on the chat title and a timestamp.
 
@@ -86,7 +85,7 @@ Assistant response...
 
 ## Notes
 
-* Extraction speed is limited by ChatGPT's server-side lazy loading. Expect roughly **1 second per user prompt** — for example, about 3 minutes for a 180-prompt conversation.
+* Extraction speed is limited by ChatGPT's lazy loading and browser layout work.
 * The script depends on ChatGPT's DOM structure. If ChatGPT changes its markup, extraction may need adjustment.
 
 ## Troubleshooting
