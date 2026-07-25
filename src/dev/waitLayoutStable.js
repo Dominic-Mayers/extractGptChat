@@ -43,16 +43,10 @@ export async function waitLayoutStable(
         finishRafWaitDiagnostics();
 
         const currentGeometry = geometrySnapshot();
-        const discardRaf = evaluateDeckTransitions(
+        evaluateThresholdsDiagnostics(
             thresholdDeckSnapshot(),
             frame + 1
         );
-        if (discardRaf) {
-            finishRafDiagnostics({
-                status: "discarded-reverse-deck-transition"
-            });
-            continue;
-        }
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
         );
@@ -210,19 +204,15 @@ const thresholdEvaluationDiagnostics = {
     activationCount: 0,
     activationClosestDistance: -Infinity,
     deactivationCount: 0,
-    deactivationClosestDistance: Infinity
+    deactivationClosestDistance: Infinity,
+    previousDeckSnapshot: null
 };
 
-let previousThresholdDeckSnapshot = null;
-
-function evaluateDeckTransitions(current, frame) {
-    const previous = previousThresholdDeckSnapshot;
-    if (!previous) {
-        previousThresholdDeckSnapshot = current;
-        return false;
-    }
-
-    const transitions = [];
+function evaluateThresholdsDiagnostics(current, frame) {
+    const previous =
+        thresholdEvaluationDiagnostics.previousDeckSnapshot;
+    thresholdEvaluationDiagnostics.previousDeckSnapshot = current;
+    if (!previous) return;
 
     for (const [deck, currentDeck] of current.decks) {
         const previousDeck = previous.decks.get(deck);
@@ -230,61 +220,12 @@ function evaluateDeckTransitions(current, frame) {
             continue;
         }
 
-        transitions.push({
-            previousDeck,
-            currentDeck,
-            activated:
-                previousDeck.state !== "true" &&
-                currentDeck.state === "true",
-            deactivated:
-                previousDeck.state === "true" &&
-                currentDeck.state === "false"
-        });
-    }
-
-    const reverseTransitions = transitions.filter(transition =>
-        (
-            transition.activated &&
-            transition.currentDeck.top >= current.viewportHeight
-        ) ||
-        (
-            transition.deactivated &&
-            transition.currentDeck.bottom <= 0
-        )
-    );
-
-    if (reverseTransitions.length > 0) {
-        warnReverseDeckTransitionsDiagnostics(
-            reverseTransitions,
-            previous,
-            current,
-            frame
-        );
-        return true;
-    }
-
-    previousThresholdDeckSnapshot = current;
-    recordThresholdTransitionsDiagnostics(
-        transitions,
-        previous,
-        current,
-        frame
-    );
-    return false;
-}
-
-function recordThresholdTransitionsDiagnostics(
-    transitions,
-    previous,
-    current,
-    frame
-) {
-    for (const {
-        previousDeck,
-        currentDeck,
-        activated,
-        deactivated
-    } of transitions) {
+        const activated =
+            previousDeck.state !== "true" &&
+            currentDeck.state === "true";
+        const deactivated =
+            previousDeck.state === "true" &&
+            currentDeck.state === "false";
         let evidence = null;
 
         if (activated && previousDeck.bottom <= 0) {
@@ -333,38 +274,6 @@ function recordThresholdTransitionsDiagnostics(
             }, null, 2)
         );
     }
-}
-
-function warnReverseDeckTransitionsDiagnostics(
-    transitions,
-    previous,
-    current,
-    frame
-) {
-    console.warn(
-        "[diagnostics reverse deck transition] rAF discarded.\n" +
-        JSON.stringify({
-            frame,
-            transitions: transitions.map(({
-                previousDeck,
-                currentDeck,
-                activated
-            }) => ({
-                turnId: currentDeck.turnId,
-                transition: activated
-                    ? "activation-below"
-                    : "deactivation-above",
-                stateBefore: previousDeck.state,
-                stateAfter: currentDeck.state,
-                previous:
-                    deckGeometryForThresholdDiagnostics(previousDeck),
-                current:
-                    deckGeometryForThresholdDiagnostics(currentDeck)
-            })),
-            viewportHeightBefore: previous.viewportHeight,
-            viewportHeightAfter: current.viewportHeight
-        }, null, 2)
-    );
 }
 
 function deckGeometryForThresholdDiagnostics(deck) {

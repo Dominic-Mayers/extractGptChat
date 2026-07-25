@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.15-no-diag
+// @version      2.14-no-diag
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -340,29 +340,6 @@
     const { activeArea, workZone } = environment();
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
   }
-  function thresholdDeckSnapshot() {
-    const { activeArea, workZone } = environment();
-    const viewportTop = workZoneTop(workZone);
-    const viewportHeight2 = workZone.height;
-    const decks = /* @__PURE__ */ new Map();
-    for (const deck of elementsIn(
-      activeArea,
-      "div[data-turn-id-container]"
-    )) {
-      const rect = deck.getBoundingClientRect();
-      decks.set(deck, {
-        turnId: deck.getAttribute("data-turn-id-container"),
-        state: deck.getAttribute("data-is-intersecting"),
-        top: rect.top - viewportTop,
-        bottom: rect.bottom - viewportTop,
-        height: rect.height
-      });
-    }
-    return {
-      decks,
-      viewportHeight: viewportHeight2
-    };
-  }
   function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
     moveWorkZone(jump, supplyArea, workZone);
@@ -536,13 +513,6 @@
     for (let frame = 0; frame < maxFrames; frame++) {
       await nextAnimationFrame();
       const currentGeometry = geometrySnapshot();
-      const discardRaf = evaluateDeckTransitions(
-        thresholdDeckSnapshot(),
-        frame + 1
-      );
-      if (discardRaf) {
-        continue;
-      }
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
@@ -609,35 +579,6 @@
     return new Promise(
       (resolve) => requestAnimationFrame(resolve)
     );
-  }
-  var previousThresholdDeckSnapshot = null;
-  function evaluateDeckTransitions(current, frame) {
-    const previous = previousThresholdDeckSnapshot;
-    if (!previous) {
-      previousThresholdDeckSnapshot = current;
-      return false;
-    }
-    const transitions = [];
-    for (const [deck, currentDeck2] of current.decks) {
-      const previousDeck = previous.decks.get(deck);
-      if (!previousDeck || previousDeck.state === currentDeck2.state) {
-        continue;
-      }
-      transitions.push({
-        previousDeck,
-        currentDeck: currentDeck2,
-        activated: previousDeck.state !== "true" && currentDeck2.state === "true",
-        deactivated: previousDeck.state === "true" && currentDeck2.state === "false"
-      });
-    }
-    const reverseTransitions = transitions.filter(
-      (transition) => transition.activated && transition.currentDeck.top >= current.viewportHeight || transition.deactivated && transition.currentDeck.bottom <= 0
-    );
-    if (reverseTransitions.length > 0) {
-      return true;
-    }
-    previousThresholdDeckSnapshot = current;
-    return false;
   }
 
   // src/dev/moveAnchorToBottom-no-diag.js
@@ -783,7 +724,7 @@
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.15-no-diag" : "unbuilt";
+  var VERSION = true ? "2.14-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

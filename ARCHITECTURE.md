@@ -118,7 +118,7 @@ observation may now occur.
 Readiness observations are fallible. They are evidence, not proof. A readiness
 observation can time out, be too weak, or be invalidated by later diagnostics.
 
-## Activation and Collapsed Margins
+## Activation, Collapsed Margins and Oscillation
 
 Activation can change geometry even when an active deck and its placeholder
 have the same height. In one observed deck, both states were 392 px high, but
