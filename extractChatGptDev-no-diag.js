@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.25-no-diag
+// @version      2.26-no-diag
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -249,6 +249,7 @@
         (prompt) => prompt.role !== "user" && prompt.role !== "assistant"
       ).length,
       images: pendingImages.length,
+      canvases: pendingCanvases.length,
       markdown: prompts.map((prompt) => prompt.text).join("\n")
     };
   }
@@ -1217,6 +1218,7 @@ ${fence}
 7. A fenced Python code block containing a function with a docstring.
 Do not omit or combine any item.`;
   var IMAGE_PROMPT = "Generate a simple image containing only a red circle centered inside a blue square. Use a plain white background. Do not include text, labels, diagrams, or any other objects.";
+  var CANVAS_PROMPT = `Use the ChatGPT Canvas tool to open and create a Canvas document titled "Extractor Compatibility Canvas". Do not provide the document only as an ordinary chat response. In the Canvas, include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
   var MARKUP_CHECKS = [
     ["Heading", /^## Compatibility Results$/m],
     ["Bold", /\*\*[^*\n]+\*\*/],
@@ -1296,7 +1298,8 @@ Do not omit or combine any item.`;
     );
     const prompts2 = [
       ["Copy markup prompt", MARKUP_PROMPT],
-      ["Copy image prompt", IMAGE_PROMPT]
+      ["Copy image prompt", IMAGE_PROMPT],
+      ["Copy Canvas prompt*", CANVAS_PROMPT]
     ];
     const promptControls = document.createElement("div");
     for (const [label, prompt] of prompts2) {
@@ -1311,6 +1314,11 @@ Do not omit or combine any item.`;
       copy.style.marginRight = "6px";
       promptControls.appendChild(copy);
     }
+    const canvasNote = textElement(
+      "div",
+      "* Canvas is not available in all plans. Skip this prompt when the Canvas tool is unavailable.",
+      { color: "#f9e2af", marginTop: "4px" }
+    );
     panel.append(
       titleRow,
       structuralHeading,
@@ -1321,7 +1329,8 @@ Do not omit or combine any item.`;
       checkExtraction,
       conversationHeading,
       instructions,
-      promptControls
+      promptControls,
+      canvasNote
     );
     document.body.appendChild(panel);
     renderStructural(structuralResults);
@@ -1380,6 +1389,15 @@ Do not omit or combine any item.`;
       "Generated-image selector",
       `${generatedImages} mounted now`
     );
+    const canvases = document.querySelectorAll(
+      '[id^="textdoc-message-"]'
+    ).length;
+    addResult(
+      target,
+      canvases > 0 ? true : null,
+      "Canvas selector",
+      canvases > 0 ? `${canvases} mounted now` : "not mounted or not tested"
+    );
   }
   function renderExtraction(target) {
     target.replaceChildren();
@@ -1401,6 +1419,12 @@ Do not omit or combine any item.`;
       target,
       state.images > 0,
       "Generated image"
+    );
+    addResult(
+      target,
+      state.canvases > 0 ? true : null,
+      "Canvas document",
+      state.canvases > 0 ? `${state.canvases} extracted` : "not present or not tested"
     );
   }
   function findScrollContainer2() {
@@ -1474,7 +1498,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.25-no-diag" : "unbuilt";
+  var VERSION = true ? "2.26-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
