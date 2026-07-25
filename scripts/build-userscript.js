@@ -1,6 +1,6 @@
 const esbuild = require('esbuild');
 
-const version = '5.5';
+const version = '5.6';
 
 const userscriptHeader = `// ==UserScript==
 // @name         ChatGPT Chat Extractor
