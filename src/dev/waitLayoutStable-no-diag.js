@@ -30,7 +30,14 @@ export async function waitLayoutStable(
         await nextAnimationFrame();
 
         const currentGeometry = geometrySnapshot();
+        const discardRaf = evaluateDeckTransitions(
+            thresholdDeckSnapshot(),
+            frame + 1
+        );
+        if (discardRaf) {
 
+            continue;
+        }
         const scrollHeightChange = Math.abs(
             currentGeometry.scrollHeight - previous.scrollHeight
         );
@@ -137,4 +144,54 @@ export function nextAnimationFrame() {
     return new Promise(resolve =>
         requestAnimationFrame(resolve)
     );
+}
+
+let previousThresholdDeckSnapshot = null;
+
+function evaluateDeckTransitions(current, frame) {
+    const previous = previousThresholdDeckSnapshot;
+    if (!previous) {
+        previousThresholdDeckSnapshot = current;
+        return false;
+    }
+
+    const transitions = [];
+
+    for (const [deck, currentDeck] of current.decks) {
+        const previousDeck = previous.decks.get(deck);
+        if (!previousDeck || previousDeck.state === currentDeck.state) {
+            continue;
+        }
+
+        transitions.push({
+            previousDeck,
+            currentDeck,
+            activated:
+                previousDeck.state !== "true" &&
+                currentDeck.state === "true",
+            deactivated:
+                previousDeck.state === "true" &&
+                currentDeck.state === "false"
+        });
+    }
+
+    const reverseTransitions = transitions.filter(transition =>
+        (
+            transition.activated &&
+            transition.currentDeck.top >= current.viewportHeight
+        ) ||
+        (
+            transition.deactivated &&
+            transition.currentDeck.bottom <= 0
+        )
+    );
+
+    if (reverseTransitions.length > 0) {
+
+        return true;
+    }
+
+    previousThresholdDeckSnapshot = current;
+
+    return false;
 }

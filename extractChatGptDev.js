@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.14
+// @version      2.15
 // @description  Runs the in-progress src/dev/ geometric traversal only (no extraction yet).
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1189,10 +1189,16 @@
       await nextAnimationFrame();
       finishRafWaitDiagnostics();
       const currentGeometry = geometrySnapshot();
-      evaluateThresholdsDiagnostics(
+      const discardRaf = evaluateDeckTransitions(
         thresholdDeckSnapshot(),
         frame + 1
       );
+      if (discardRaf) {
+        finishRafDiagnostics({
+          status: "discarded-reverse-deck-transition"
+        });
+        continue;
+      }
       const scrollHeightChange = Math.abs(
         currentGeometry.scrollHeight - previous.scrollHeight
       );
@@ -1302,20 +1308,56 @@
     activationCount: 0,
     activationClosestDistance: -Infinity,
     deactivationCount: 0,
-    deactivationClosestDistance: Infinity,
-    previousDeckSnapshot: null
+    deactivationClosestDistance: Infinity
   };
-  function evaluateThresholdsDiagnostics(current, frame) {
-    const previous = thresholdEvaluationDiagnostics.previousDeckSnapshot;
-    thresholdEvaluationDiagnostics.previousDeckSnapshot = current;
-    if (!previous) return;
+  var previousThresholdDeckSnapshot = null;
+  function evaluateDeckTransitions(current, frame) {
+    const previous = previousThresholdDeckSnapshot;
+    if (!previous) {
+      previousThresholdDeckSnapshot = current;
+      return false;
+    }
+    const transitions = [];
     for (const [deck, currentDeck2] of current.decks) {
       const previousDeck = previous.decks.get(deck);
       if (!previousDeck || previousDeck.state === currentDeck2.state) {
         continue;
       }
-      const activated = previousDeck.state !== "true" && currentDeck2.state === "true";
-      const deactivated = previousDeck.state === "true" && currentDeck2.state === "false";
+      transitions.push({
+        previousDeck,
+        currentDeck: currentDeck2,
+        activated: previousDeck.state !== "true" && currentDeck2.state === "true",
+        deactivated: previousDeck.state === "true" && currentDeck2.state === "false"
+      });
+    }
+    const reverseTransitions = transitions.filter(
+      (transition) => transition.activated && transition.currentDeck.top >= current.viewportHeight || transition.deactivated && transition.currentDeck.bottom <= 0
+    );
+    if (reverseTransitions.length > 0) {
+      warnReverseDeckTransitionsDiagnostics(
+        reverseTransitions,
+        previous,
+        current,
+        frame
+      );
+      return true;
+    }
+    previousThresholdDeckSnapshot = current;
+    recordThresholdTransitionsDiagnostics(
+      transitions,
+      previous,
+      current,
+      frame
+    );
+    return false;
+  }
+  function recordThresholdTransitionsDiagnostics(transitions, previous, current, frame) {
+    for (const {
+      previousDeck,
+      currentDeck: currentDeck2,
+      activated,
+      deactivated
+    } of transitions) {
       let evidence = null;
       if (activated && previousDeck.bottom <= 0) {
         const distance = -previousDeck.bottom;
@@ -1356,6 +1398,27 @@
         }, null, 2)
       );
     }
+  }
+  function warnReverseDeckTransitionsDiagnostics(transitions, previous, current, frame) {
+    console.warn(
+      "[diagnostics reverse deck transition] rAF discarded.\n" + JSON.stringify({
+        frame,
+        transitions: transitions.map(({
+          previousDeck,
+          currentDeck: currentDeck2,
+          activated
+        }) => ({
+          turnId: currentDeck2.turnId,
+          transition: activated ? "activation-below" : "deactivation-above",
+          stateBefore: previousDeck.state,
+          stateAfter: currentDeck2.state,
+          previous: deckGeometryForThresholdDiagnostics(previousDeck),
+          current: deckGeometryForThresholdDiagnostics(currentDeck2)
+        })),
+        viewportHeightBefore: previous.viewportHeight,
+        viewportHeightAfter: current.viewportHeight
+      }, null, 2)
+    );
   }
   function deckGeometryForThresholdDiagnostics(deck) {
     const geometry = deck.geometryChangeDiagnostics;
@@ -1610,7 +1673,7 @@
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.14" : "unbuilt";
+  var VERSION = true ? "2.15" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {
