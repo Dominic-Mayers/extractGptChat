@@ -9,7 +9,14 @@ import { getNextSlabRoomIn } from "./getNextSlabIn.js";
 import { getNextDeckRoomIn } from "./getNextDeckIn.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
-import { resetSupplyWorker } from "./supplyWorker.js";
+import {
+    extractCurrentSlab,
+    resetSupplyWorker
+} from "./supplyWorker.js";
+import {
+    exportMarkdown,
+    resetExtraction
+} from "./extraction.js";
 import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
@@ -26,6 +33,7 @@ export async function traverseConversation() {
     resetCycleDiagnostics();
 
     resetSupplyWorker();
+    resetExtraction();
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
     const initial = await moveViewportToDocumentBottom();
@@ -127,6 +135,7 @@ export async function traverseConversation() {
         slabCountDiagnostics++;
 
         slabRoom = nextSlabRoom;
+        await extractCurrentSlab();
 
         recordCycleStageDiagnostics("selected", {
             slabCount: slabCountDiagnostics,
@@ -135,13 +144,7 @@ export async function traverseConversation() {
             deckRoom
         });
 
-        //
-        // Conceptually, the extraction phase goes here:
-        //
-        // const type = slabType(current);
-        // await waitSlabReady(type, current);
-        // extractSlab(type, current);
     }
-    // exportMarkdown();
+    await exportMarkdown();
     flushCycleDiagnostics();
 }

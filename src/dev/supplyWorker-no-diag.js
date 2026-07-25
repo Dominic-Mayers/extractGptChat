@@ -14,6 +14,11 @@ import {
     workZonePosition,
     workZoneTop
 } from "./scrollContainer-no-diag.js";
+import {
+    extractSlab,
+    waitSlabReady
+} from "./extraction-no-diag.js";
+
 let supplier;
 let currentDeck;
 let currentSlab;
@@ -28,6 +33,13 @@ export function resetSupplyWorker() {
     currentAnchor = null;
     imageReady = false;
     savedDeckActivationStatus = null;
+}
+
+export async function extractCurrentSlab() {
+    const slab = retainedSlab();
+    const type = slabType(slab);
+    await waitSlabReady(type, slab);
+    extractSlab(type, slab);
 }
 
 export async function selectNextDeckRoom(area) {
@@ -368,6 +380,7 @@ function getSlabsIn(deck) {
 
 function makeEmptySlab(deck) {
     return {
+        deck,
         getBoundingClientRect() {
             const rect = deck.getBoundingClientRect();
             return {

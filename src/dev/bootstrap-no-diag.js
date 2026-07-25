@@ -41,7 +41,7 @@ const runTraversal = async () => {
     }
 };
 
-const menuLabel = `Run dev traversal v${VERSION} (geometry only)`;
+const menuLabel = `Run dev extractor v${VERSION}`;
 const registerMenuCommand = typeof GM_registerMenuCommand === 'function'
     ? GM_registerMenuCommand
     : typeof GM !== 'undefined' && typeof GM.registerMenuCommand === 'function'
