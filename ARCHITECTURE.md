@@ -48,7 +48,9 @@ A worker may retain the physical deck, slab, or anchor currently being acted
 upon while reporting only geometric observations to the foreman. These
 temporary physical references are operational details of the environment
 boundary, not traversal state. The foreman's authoritative state consists of
-distances and heights. The walkway remains a separate, append-only result.
+distances and heights. The walkway remains a separate accumulated result.
+The current bottom-up traversal prepends each newly discovered entry to keep
+that result in chronological order.
 
 The environment boundary does **not** keep the entire conversation in stock.
 New decks, slabs, anchors, and other observable supplies become available as
@@ -211,14 +213,44 @@ An **anchor** is a local geometric feature of a slab: an element boundary that
 can be measured and moved without requiring the whole slab to be ready at
 once. Anchors are movement instruments, not extractable transcript units.
 
-Ordinary text messages use `[data-message-author-role]` as a strong selector.
-For ordinary text messages, the selected element is treated as the message slab
-scope: it is the element whose content is serialized and whose outer HTML can
-be captured for diagnostics.
+Ordinary text messages are discovered as slabs with `[data-message-id]`.
+After selection and readiness, extraction resolves the slab's
+`[data-message-author-role]` element as the content scope that is serialized.
 
 Non-message slabs need their own selectors. They should not be forced into the
 ordinary-message selector model. A deck may contain multiple selected slab
 types, so deck geometry and slab geometry remain distinct.
+
+## Current Production Flow
+
+The production traversal begins at the bottom of the conversation. It uses the
+bottom-most measured deck boundary as its initial search boundary, then selects
+decks and slabs upward by geometry. A selected deck must expose activation
+through `data-is-intersecting` before its slabs are used.
+
+Each selected slab passes one consolidated content-readiness operation before
+serialization. Ordinary messages require a mounted content scope, extractable
+text or images, no recognized placeholder elements, and sources for their
+images. Generated-image slabs additionally require a loaded image with non-zero
+natural dimensions and completed decoding. Canvas/textdoc slabs require a
+mounted ProseMirror content surface that produces non-empty Markdown. Explicit
+empty slabs are ready immediately.
+
+The slab is serialized as soon as that readiness operation succeeds. Because
+discovery runs from newest to oldest, each extracted entry is inserted at the
+front of the accumulated result. This restores chronological reading order
+without changing traversal direction.
+
+On a later cycle, if traversal cannot reach the next slab directly, the current
+slab is moved geometrically through the work zone. Long message and
+Canvas/textdoc slabs use local anchors; generated-image and empty slabs use
+their top boundary. Each small work-zone movement is followed by layout and
+anchor stabilization.
+
+Traversal ends when no next deck exists above the current boundary. Export then
+creates the Markdown transcript, downloads generated images and Canvas/textdoc
+documents as companion files, replaces their deferred tokens with filenames,
+and downloads the final transcript.
 
 ## Diagnostics
 

@@ -16,10 +16,11 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
   * images
   * tables
   * blockquotes
+  * strikethrough
 * Preserves uploaded file references as `Upload: filename` at the top of each user message — filenames remain meaningful even though the files themselves are not included in the export
 * Strips interactive UI elements (copy buttons, edit controls, show-more toggles) that have no representation in a plain-text export
 * Generates a table of contents at the top of the export, with one entry per user prompt and anchor links to each prompt in the body
-* Downloads generated images and Canvas documents as companion files
+* Downloads generated images and Canvas/textdoc documents as companion files and links them from the transcript
 * Includes a compatibility check for the DOM selectors and extracted markup
 
 ## Installation
@@ -37,7 +38,13 @@ A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown b
 3. Select **Run extractor**.
 4. Wait for traversal to finish. The Markdown file and any companion image or Canvas files download automatically.
 
-The exported file name is based on the chat title and a timestamp.
+The exported file name is based on the chat title and a timestamp. Generated images and Canvas/textdoc files use the same title and timestamp prefix.
+
+## Performance
+
+Five repeat runs over a conversation containing 174 user prompts and 368 total slabs completed in approximately 43–51 seconds. That is about **0.25–0.29 seconds per user prompt**, or **0.12–0.14 seconds per slab** for that conversation.
+
+These measurements are a practical baseline, not a fixed rate. Runtime depends on message length, the number of anchors needed for long slabs, ChatGPT's virtualization behavior, browser layout work, and asset downloads.
 
 ## Output Format
 
@@ -85,7 +92,7 @@ Assistant response...
 
 ## Notes
 
-* Extraction speed is limited by ChatGPT's lazy loading and browser layout work.
+* Extraction starts at the bottom of the conversation and walks upward. Entries are inserted into the result in reverse discovery order so the exported transcript remains chronological.
 * The script depends on ChatGPT's DOM structure. If ChatGPT changes its markup, extraction may need adjustment.
 
 ## Troubleshooting
@@ -94,12 +101,12 @@ If the export misses content or stops too early:
 
 1. Reload the ChatGPT page.
 2. Run the extractor again.
-3. Open **Compatibility Check** from the Tampermonkey menu to identify which selectors have changed.
+3. Open **Compatibility check** from the Tampermonkey menu to identify which selectors or markup conversions have changed.
 
 Common causes of issues include:
 
 * Change in ChatGPT markup structure
-* Incomplete lazy-loading under heavy network throttling (the 5-second per-step timeout may need increasing)
+* A deck, slab, image, or Canvas surface that does not become ready before its operation-specific timeout
 
 ## Design Model: The Walkway Analogy
 
@@ -116,8 +123,8 @@ ready area → decks → slabs → anchors**. This is a progression from broad s
 to fine detail, not strict containment: a deck or slab can straddle the ready
 area. The viewport/work zone moves across the model and causes activation.
 
-* **Slabs** are ChatGPT messages (user and assistant prompts). They are physical content units in the supply area whose extracted representations are assembled into the final transcript.
-* **Message slab selectors** identify ordinary message slabs. In the currently observed DOM, `[data-message-author-role]` selects the message element that is extracted and captured for diagnostics.
+* **Slabs** are ordinary messages, generated images, Canvas/textdoc blocks, or explicit empty turn placeholders. They are physical content units in the supply area whose extracted representations are assembled into the final transcript.
+* **Message slab selectors** identify ordinary message slabs. `[data-message-id]` discovers an ordinary slab; extraction then resolves its `[data-message-author-role]` content scope.
 * **Deck sections** are ChatGPT's internal lazy-loaded containers. They are not part of the transcript; they are structural units used by ChatGPT to manage the DOM.
 * **The work zone** is the viewport area moving over the supply area where ChatGPT's loading and rendering systems can prepare deck sections.
 * **The supplier** is the abstraction over ChatGPT's DOM and rendering systems. Its workers select and act on physical supplies while reporting measurements, deck activation, slab candidates, and operation-specific readiness.
@@ -181,7 +188,7 @@ It uses:
 GM_registerMenuCommand
 ```
 
-to add the Tampermonkey menu command for showing or hiding the extractor panel.
+to add Tampermonkey menu commands for running extraction and opening the compatibility check.
 
 ## Authors
 
