@@ -12,8 +12,6 @@ Do not omit or combine any item.`;
 
 const IMAGE_PROMPT = "Generate a simple image containing only a red circle centered inside a blue square. Use a plain white background. Do not include text, labels, diagrams, or any other objects.";
 
-const CANVAS_PROMPT = `Use the ChatGPT Canvas tool to open and create a Canvas document titled "Extractor Compatibility Canvas". Do not provide the document only as an ordinary chat response. In the Canvas, include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
-
 const MARKUP_CHECKS = [
     ["Heading", /^## Compatibility Results$/m],
     ["Bold", /\*\*[^*\n]+\*\*/],
@@ -97,8 +95,7 @@ export function showCompatibilityCheck(version) {
     );
     const prompts = [
         ["Copy markup prompt", MARKUP_PROMPT],
-        ["Copy image prompt", IMAGE_PROMPT],
-        ["Copy Canvas prompt", CANVAS_PROMPT]
+        ["Copy image prompt", IMAGE_PROMPT]
     ];
     const promptControls = document.createElement("div");
     for (const [label, prompt] of prompts) {
@@ -180,17 +177,25 @@ function renderStructural(target) {
             ? `${navigation.length} buttons`
             : "not found; bottom movement still has an absolute-scroll fallback"
     );
+    const generatedImages = document.querySelectorAll(
+        ".group\\/imagegen-image"
+    ).length;
     addResult(
         target,
-        null,
+        generatedImages > 0 ? true : null,
         "Generated-image selector",
-        `${document.querySelectorAll(".group\\/imagegen-image").length} mounted now`
+        `${generatedImages} mounted now`
     );
+    const canvases = document.querySelectorAll(
+        "[id^=\"textdoc-message-\"]"
+    ).length;
     addResult(
         target,
-        null,
+        canvases > 0 ? true : null,
         "Canvas selector",
-        `${document.querySelectorAll("[id^=\"textdoc-message-\"]").length} mounted now`
+        canvases > 0
+            ? `${canvases} mounted now`
+            : "not mounted or unavailable"
     );
 }
 
@@ -217,8 +222,11 @@ function renderExtraction(target) {
     );
     addResult(
         target,
-        state.canvases > 0,
-        "Canvas document"
+        state.canvases > 0 ? true : null,
+        "Canvas document",
+        state.canvases > 0
+            ? `${state.canvases} extracted`
+            : "not present or unavailable"
     );
 }
 
