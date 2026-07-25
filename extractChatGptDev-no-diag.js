@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.24-no-diag
+// @version      2.25-no-diag
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -249,7 +249,6 @@
         (prompt) => prompt.role !== "user" && prompt.role !== "assistant"
       ).length,
       images: pendingImages.length,
-      canvases: pendingCanvases.length,
       markdown: prompts.map((prompt) => prompt.text).join("\n")
     };
   }
@@ -1381,15 +1380,6 @@ Do not omit or combine any item.`;
       "Generated-image selector",
       `${generatedImages} mounted now`
     );
-    const canvases = document.querySelectorAll(
-      '[id^="textdoc-message-"]'
-    ).length;
-    addResult(
-      target,
-      canvases > 0 ? true : null,
-      "Canvas selector",
-      canvases > 0 ? `${canvases} mounted now` : "not mounted or unavailable"
-    );
   }
   function renderExtraction(target) {
     target.replaceChildren();
@@ -1411,12 +1401,6 @@ Do not omit or combine any item.`;
       target,
       state.images > 0,
       "Generated image"
-    );
-    addResult(
-      target,
-      state.canvases > 0 ? true : null,
-      "Canvas document",
-      state.canvases > 0 ? `${state.canvases} extracted` : "not present or unavailable"
     );
   }
   function findScrollContainer2() {
@@ -1490,7 +1474,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.24-no-diag" : "unbuilt";
+  var VERSION = true ? "2.25-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

@@ -30,7 +30,6 @@ export function compatibilityExtraction() {
             prompt.role !== "user" && prompt.role !== "assistant"
         ).length,
         images: pendingImages.length,
-        canvases: pendingCanvases.length,
         markdown: prompts.map(prompt => prompt.text).join("\n")
     };
 }

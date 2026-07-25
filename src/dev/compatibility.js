@@ -186,17 +186,6 @@ function renderStructural(target) {
         "Generated-image selector",
         `${generatedImages} mounted now`
     );
-    const canvases = document.querySelectorAll(
-        "[id^=\"textdoc-message-\"]"
-    ).length;
-    addResult(
-        target,
-        canvases > 0 ? true : null,
-        "Canvas selector",
-        canvases > 0
-            ? `${canvases} mounted now`
-            : "not mounted or unavailable"
-    );
 }
 
 function renderExtraction(target) {
@@ -219,14 +208,6 @@ function renderExtraction(target) {
         target,
         state.images > 0,
         "Generated image"
-    );
-    addResult(
-        target,
-        state.canvases > 0 ? true : null,
-        "Canvas document",
-        state.canvases > 0
-            ? `${state.canvases} extracted`
-            : "not present or unavailable"
     );
 }
 
