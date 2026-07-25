@@ -10,7 +10,7 @@ const MARKUP_PROMPT = `Create one response containing all of the following:
 7. A fenced Python code block containing a function with a docstring.
 Do not omit or combine any item.`;
 
-const IMAGE_PROMPT = "Generate an image of a red circle inside a blue square for extractor compatibility testing.";
+const IMAGE_PROMPT = "Generate a simple image containing only a red circle centered inside a blue square. Use a plain white background. Do not include text, labels, diagrams, or any other objects.";
 
 const CANVAS_PROMPT = `Create a Canvas document titled "Extractor Compatibility Canvas". Include a heading, a paragraph, a bullet list, and a JavaScript code block.`;
 
