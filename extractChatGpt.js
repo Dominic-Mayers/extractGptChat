@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.16
+// @version      5.17
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1289,9 +1289,10 @@ ${fence}
     captureDeckSectionActivationDiagnostics(deck);
     return deckGeometry(deck, workZone).room;
   }
-  function selectNextSlabRoom(area, deckRoom2) {
+  function selectNextSlabRoom(slabRoom2, deckRoom2) {
     const { workZone } = environment();
     const deck = retainedDeck();
+    const area = areaAhead(slabRoom2, MAX_SLAB_GAP);
     captureDeckSectionEnumerationDiagnostics(deck);
     const slabs = getSlabsIn(deck);
     const candidates = slabs.filter((candidate) => {
@@ -1663,14 +1664,6 @@ ${fence}
   function retainedAnchor() {
     if (!currentAnchor) throw new Error("No current anchor.");
     return currentAnchor;
-  }
-
-  // src/app/getNextSlabIn.js
-  function getNextSlabRoomIn(slabRoom2, deckRoom2) {
-    return selectNextSlabRoom(
-      areaAhead(slabRoom2, MAX_SLAB_GAP),
-      deckRoom2
-    );
   }
 
   // src/app/getNextDeckIn.js
@@ -2133,7 +2126,7 @@ ${fence}
       recordCycleStageDiagnostics("deck-room", {
         deckRoom: deckRoom2
       });
-      let nextSlabRoom = deckRoom2 != null && slabRoom2 - deckRoom2 >= MINIMUM_SLAB_HEIGHT ? getNextSlabRoomIn(
+      let nextSlabRoom = deckRoom2 != null && slabRoom2 - deckRoom2 >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
         slabRoom2,
         deckRoom2
       ) : null;
@@ -2156,7 +2149,7 @@ ${fence}
         }
         deckCountDiagnostics++;
         deckRoom2 = nextDeckRoom;
-        nextSlabRoom = getNextSlabRoomIn(
+        nextSlabRoom = selectNextSlabRoom(
           slabRoom2 ?? initialSlabRoom,
           deckRoom2
         );
@@ -2515,7 +2508,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.16" : "unbuilt";
+  var VERSION = true ? "5.17" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

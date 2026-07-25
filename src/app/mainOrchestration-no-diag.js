@@ -6,13 +6,13 @@
 // This file implements only the geometric part of the
 // traversal.  Content extraction is intentionally omitted.
 
-import { getNextSlabRoomIn } from "./getNextSlabIn-no-diag.js";
 import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
 import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
 import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
 import {
     extractCurrentSlab,
-    resetSupplyWorker
+    resetSupplyWorker,
+    selectNextSlabRoom
 } from "./supplyWorker-no-diag.js";
 import {
     exportMarkdown,
@@ -61,7 +61,7 @@ export async function traverseConversation() {
             deckRoom != null &&
             slabRoom - deckRoom >= MINIMUM_SLAB_HEIGHT
         )
-            ? getNextSlabRoomIn(
+            ? selectNextSlabRoom(
                 slabRoom,
                 deckRoom
             )
@@ -81,7 +81,7 @@ export async function traverseConversation() {
             }
 
             deckRoom = nextDeckRoom;
-            nextSlabRoom = getNextSlabRoomIn(
+            nextSlabRoom = selectNextSlabRoom(
                 slabRoom ?? initialSlabRoom,
                 deckRoom
             );

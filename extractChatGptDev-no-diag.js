@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.42-no-diag
+// @version      2.43-no-diag
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -626,9 +626,10 @@ ${fence}
     await waitDeckActive(deck, activeArea);
     return deckGeometry(deck, workZone).room;
   }
-  function selectNextSlabRoom(area, deckRoom2) {
+  function selectNextSlabRoom(slabRoom2, deckRoom2) {
     const { workZone } = environment();
     const deck = retainedDeck();
+    const area = areaAhead(slabRoom2, MAX_SLAB_GAP);
     const slabs = getSlabsIn(deck);
     const candidates = slabs.filter((candidate) => {
       const geometry = slabGeometry(candidate, workZone);
@@ -905,14 +906,6 @@ ${fence}
     return currentAnchor;
   }
 
-  // src/app/getNextSlabIn-no-diag.js
-  function getNextSlabRoomIn(slabRoom2, deckRoom2) {
-    return selectNextSlabRoom(
-      areaAhead(slabRoom2, MAX_SLAB_GAP),
-      deckRoom2
-    );
-  }
-
   // src/app/getNextDeckIn-no-diag.js
   function getNextDeckRoomIn(deckRoom2) {
     return selectNextDeckRoom(
@@ -1181,7 +1174,7 @@ ${fence}
           slabRoom2
         ));
       }
-      let nextSlabRoom = deckRoom2 != null && slabRoom2 - deckRoom2 >= MINIMUM_SLAB_HEIGHT ? getNextSlabRoomIn(
+      let nextSlabRoom = deckRoom2 != null && slabRoom2 - deckRoom2 >= MINIMUM_SLAB_HEIGHT ? selectNextSlabRoom(
         slabRoom2,
         deckRoom2
       ) : null;
@@ -1193,7 +1186,7 @@ ${fence}
           break;
         }
         deckRoom2 = nextDeckRoom;
-        nextSlabRoom = getNextSlabRoomIn(
+        nextSlabRoom = selectNextSlabRoom(
           slabRoom2 ?? initialSlabRoom,
           deckRoom2
         );
@@ -1541,7 +1534,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.42-no-diag" : "unbuilt";
+  var VERSION = true ? "2.43-no-diag" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

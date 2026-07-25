@@ -1,10 +1,12 @@
 import {
 
-    ADJACENCY_OVERLAP_TOLERANCE
+    ADJACENCY_OVERLAP_TOLERANCE,
+    MAX_SLAB_GAP
 } from "./constants.js";
 import { slabType } from "./slabType.js";
 import { getNextAnchorIn } from "./getNextAnchorIn.js";
 import { boundaryOf } from "./boundary.js";
+import { areaAhead } from "./geometry.js";
 import {
     contains,
     elementsIn,
@@ -102,9 +104,10 @@ export async function selectNextDeckRoom(area) {
     return deckGeometry(deck, workZone).room;
 }
 
-export function selectNextSlabRoom(area, deckRoom) {
+export function selectNextSlabRoom(slabRoom, deckRoom) {
     const { workZone } = environment();
     const deck = retainedDeck();
+    const area = areaAhead(slabRoom, MAX_SLAB_GAP);
     captureDeckSectionEnumerationDiagnostics(deck);
     const slabs = getSlabsIn(deck);
 
