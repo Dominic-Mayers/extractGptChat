@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.46
+// @version      2.47
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -279,7 +279,13 @@
       missingAtEnumeration: [],
       changedBeforeEnumeration: []
     };
-    deckUpdatesDiagnostics = [];
+    deckUpdatesDiagnostics = {
+      checkedCount: 0,
+      unchangedCount: 0,
+      replacedCount: 0,
+      replacements: [],
+      recentUnchanged: []
+    };
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -564,10 +570,21 @@
     }
   }
   function recordDeckUpdateDiagnostics(data) {
-    deckUpdatesDiagnostics.push({
+    const record = {
       clock: clockDiagnostics(),
       ...data
-    });
+    };
+    deckUpdatesDiagnostics.checkedCount++;
+    if (data.decision === "replaced") {
+      deckUpdatesDiagnostics.replacedCount++;
+      deckUpdatesDiagnostics.replacements.push(record);
+      return;
+    }
+    deckUpdatesDiagnostics.unchangedCount++;
+    deckUpdatesDiagnostics.recentUnchanged.push(record);
+    if (deckUpdatesDiagnostics.recentUnchanged.length > 10) {
+      deckUpdatesDiagnostics.recentUnchanged.shift();
+    }
   }
   function clockDiagnostics() {
     return {
@@ -2603,7 +2620,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.46" : "unbuilt";
+  var VERSION = true ? "2.47" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

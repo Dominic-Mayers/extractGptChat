@@ -47,7 +47,13 @@ export function resetCycleDiagnostics() {
         missingAtEnumeration: [],
         changedBeforeEnumeration: []
     };
-    deckUpdatesDiagnostics = [];
+    deckUpdatesDiagnostics = {
+        checkedCount: 0,
+        unchangedCount: 0,
+        replacedCount: 0,
+        replacements: [],
+        recentUnchanged: []
+    };
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -390,10 +396,23 @@ export function recordDeckSectionEnumerationDiagnostics(snapshot) {
 }
 
 export function recordDeckUpdateDiagnostics(data) {
-    deckUpdatesDiagnostics.push({
+    const record = {
         clock: clockDiagnostics(),
         ...data
-    });
+    };
+    deckUpdatesDiagnostics.checkedCount++;
+
+    if (data.decision === "replaced") {
+        deckUpdatesDiagnostics.replacedCount++;
+        deckUpdatesDiagnostics.replacements.push(record);
+        return;
+    }
+
+    deckUpdatesDiagnostics.unchangedCount++;
+    deckUpdatesDiagnostics.recentUnchanged.push(record);
+    if (deckUpdatesDiagnostics.recentUnchanged.length > 10) {
+        deckUpdatesDiagnostics.recentUnchanged.shift();
+    }
 }
 
 function clockDiagnostics() {
