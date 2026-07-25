@@ -21,6 +21,8 @@ import {
     beginOrContinueJumpDiagnostics,
     updateJumpDiagnostics,
     recordCycleStageDiagnostics,
+    recordDeckSectionActivationDiagnostics,
+    recordDeckSectionEnumerationDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics.js";
 import {
@@ -95,6 +97,7 @@ export async function selectNextDeckRoom(area) {
         deck: snapshotElementDiagnostics(deck),
         activation: deck.getAttribute("data-is-intersecting")
     });
+    captureDeckSectionActivationDiagnostics(deck);
 
     return deckGeometry(deck, workZone).room;
 }
@@ -102,6 +105,7 @@ export async function selectNextDeckRoom(area) {
 export function selectNextSlabRoom(area, deckRoom) {
     const { workZone } = environment();
     const deck = retainedDeck();
+    captureDeckSectionEnumerationDiagnostics(deck);
     const slabs = getSlabsIn(deck);
 
     const candidates = slabs.filter(candidate => {
@@ -127,6 +131,36 @@ export function selectNextSlabRoom(area, deckRoom) {
     currentAnchor = null;
 
     return slabGeometry(slab, workZone).room;
+}
+
+function captureDeckSectionActivationDiagnostics(deck) {
+    const snapshot = deckSectionSnapshotDiagnostics(deck);
+    recordDeckSectionActivationDiagnostics(snapshot);
+}
+
+function captureDeckSectionEnumerationDiagnostics(deck) {
+    recordDeckSectionEnumerationDiagnostics(
+        deckSectionSnapshotDiagnostics(deck)
+    );
+}
+
+function deckSectionSnapshotDiagnostics(deck) {
+    const sections = Array.from(deck.children)
+        .filter(child => child.matches("section"));
+    const section = sections[0] ?? null;
+    const rect = section?.getBoundingClientRect();
+
+    return {
+        turnId: deck.getAttribute("data-turn-id-container"),
+        sectionCount: sections.length,
+        sectionHeight: rect?.height ?? null,
+        sectionChildCount: section?.childElementCount ?? null,
+        messageCount: section?.querySelectorAll("[data-message-id]").length ?? 0,
+        imageCount:
+            section?.querySelectorAll(".group\\/imagegen-image").length ?? 0,
+        canvasCount:
+            section?.querySelectorAll('[id^="textdoc-message-"]').length ?? 0
+    };
 }
 
 function retainedDeck() {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.40
+// @version      2.41
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -244,6 +244,9 @@
   var runPerformanceOriginDiagnostics = 0;
   var runWallOriginDiagnostics = 0;
   var executionTimeStatisticsDiagnostics = null;
+  var deckSectionAtActivationDiagnostics = null;
+  var enumeratedDecksDiagnostics = null;
+  var deckSectionReadinessDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -263,6 +266,17 @@
       sumJumpWallElapsedMs: 0,
       sumJumpSizeElapsedMs: 0,
       sumJumpSizeWallElapsedMs: 0
+    };
+    deckSectionAtActivationDiagnostics = /* @__PURE__ */ new Map();
+    enumeratedDecksDiagnostics = /* @__PURE__ */ new Set();
+    deckSectionReadinessDiagnostics = {
+      activatedDeckCount: 0,
+      activationSectionPresentCount: 0,
+      enumeratedDeckCount: 0,
+      enumerationSectionPresentCount: 0,
+      missingAtActivation: [],
+      missingAtEnumeration: [],
+      changedBeforeEnumeration: []
     };
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
@@ -520,6 +534,33 @@
       ...data
     });
   }
+  function recordDeckSectionActivationDiagnostics(snapshot) {
+    deckSectionAtActivationDiagnostics.set(snapshot.turnId, snapshot);
+    deckSectionReadinessDiagnostics.activatedDeckCount++;
+    if (snapshot.sectionCount > 0) {
+      deckSectionReadinessDiagnostics.activationSectionPresentCount++;
+    } else {
+      deckSectionReadinessDiagnostics.missingAtActivation.push(snapshot);
+    }
+  }
+  function recordDeckSectionEnumerationDiagnostics(snapshot) {
+    if (enumeratedDecksDiagnostics.has(snapshot.turnId)) return;
+    enumeratedDecksDiagnostics.add(snapshot.turnId);
+    const activated = deckSectionAtActivationDiagnostics.get(snapshot.turnId) ?? null;
+    deckSectionReadinessDiagnostics.enumeratedDeckCount++;
+    if (snapshot.sectionCount > 0) {
+      deckSectionReadinessDiagnostics.enumerationSectionPresentCount++;
+    } else {
+      deckSectionReadinessDiagnostics.missingAtEnumeration.push(snapshot);
+    }
+    if (activated != null && JSON.stringify(activated) !== JSON.stringify(snapshot)) {
+      deckSectionReadinessDiagnostics.changedBeforeEnumeration.push({
+        turnId: snapshot.turnId,
+        activated,
+        enumerated: snapshot
+      });
+    }
+  }
   function clockDiagnostics() {
     return {
       performanceMs: performance.now() - runPerformanceOriginDiagnostics,
@@ -609,7 +650,13 @@
     finishCycleTimingDiagnostics(currentCycle);
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
+    emitDeckSectionReadinessDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+  }
+  function emitDeckSectionReadinessDiagnostics() {
+    console.log(
+      "[deck section readiness]\n" + JSON.stringify(deckSectionReadinessDiagnostics, null, 2)
+    );
   }
   function emitExecutionTimeStatisticsDiagnostics() {
     if (executionTimeStatisticsDiagnostics == null) return;
@@ -1239,11 +1286,13 @@ ${fence}
       deck: snapshotElementDiagnostics(deck),
       activation: deck.getAttribute("data-is-intersecting")
     });
+    captureDeckSectionActivationDiagnostics(deck);
     return deckGeometry(deck, workZone).room;
   }
   function selectNextSlabRoom(area, deckRoom2) {
     const { workZone } = environment();
     const deck = retainedDeck();
+    captureDeckSectionEnumerationDiagnostics(deck);
     const slabs = getSlabsIn(deck);
     const candidates = slabs.filter((candidate) => {
       const geometry = slabGeometry(candidate, workZone);
@@ -1262,6 +1311,29 @@ ${fence}
     currentSlab = slab;
     currentAnchor = null;
     return slabGeometry(slab, workZone).room;
+  }
+  function captureDeckSectionActivationDiagnostics(deck) {
+    const snapshot = deckSectionSnapshotDiagnostics(deck);
+    recordDeckSectionActivationDiagnostics(snapshot);
+  }
+  function captureDeckSectionEnumerationDiagnostics(deck) {
+    recordDeckSectionEnumerationDiagnostics(
+      deckSectionSnapshotDiagnostics(deck)
+    );
+  }
+  function deckSectionSnapshotDiagnostics(deck) {
+    const sections = Array.from(deck.children).filter((child) => child.matches("section"));
+    const section = sections[0] ?? null;
+    const rect = section?.getBoundingClientRect();
+    return {
+      turnId: deck.getAttribute("data-turn-id-container"),
+      sectionCount: sections.length,
+      sectionHeight: rect?.height ?? null,
+      sectionChildCount: section?.childElementCount ?? null,
+      messageCount: section?.querySelectorAll("[data-message-id]").length ?? 0,
+      imageCount: section?.querySelectorAll(".group\\/imagegen-image").length ?? 0,
+      canvasCount: section?.querySelectorAll('[id^="textdoc-message-"]').length ?? 0
+    };
   }
   function retainedDeck() {
     if (!currentDeck) throw new Error("No current deck.");
@@ -2443,7 +2515,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.40" : "unbuilt";
+  var VERSION = true ? "2.41" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

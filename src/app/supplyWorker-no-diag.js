@@ -67,6 +67,7 @@ export async function selectNextDeckRoom(area) {
 export function selectNextSlabRoom(area, deckRoom) {
     const { workZone } = environment();
     const deck = retainedDeck();
+
     const slabs = getSlabsIn(deck);
 
     const candidates = slabs.filter(candidate => {

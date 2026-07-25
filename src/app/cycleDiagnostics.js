@@ -9,6 +9,9 @@ let currentCycle = null;
 let runPerformanceOriginDiagnostics = 0;
 let runWallOriginDiagnostics = 0;
 let executionTimeStatisticsDiagnostics = null;
+let deckSectionAtActivationDiagnostics = null;
+let enumeratedDecksDiagnostics = null;
+let deckSectionReadinessDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -31,6 +34,17 @@ export function resetCycleDiagnostics() {
         sumJumpWallElapsedMs: 0,
         sumJumpSizeElapsedMs: 0,
         sumJumpSizeWallElapsedMs: 0
+    };
+    deckSectionAtActivationDiagnostics = new Map();
+    enumeratedDecksDiagnostics = new Set();
+    deckSectionReadinessDiagnostics = {
+        activatedDeckCount: 0,
+        activationSectionPresentCount: 0,
+        enumeratedDeckCount: 0,
+        enumerationSectionPresentCount: 0,
+        missingAtActivation: [],
+        missingAtEnumeration: [],
+        changedBeforeEnumeration: []
     };
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
@@ -338,6 +352,41 @@ export function recordCycleStageDiagnostics(stage, data = {}) {
     });
 }
 
+export function recordDeckSectionActivationDiagnostics(snapshot) {
+    deckSectionAtActivationDiagnostics.set(snapshot.turnId, snapshot);
+    deckSectionReadinessDiagnostics.activatedDeckCount++;
+    if (snapshot.sectionCount > 0) {
+        deckSectionReadinessDiagnostics.activationSectionPresentCount++;
+    } else {
+        deckSectionReadinessDiagnostics.missingAtActivation.push(snapshot);
+    }
+}
+
+export function recordDeckSectionEnumerationDiagnostics(snapshot) {
+    if (enumeratedDecksDiagnostics.has(snapshot.turnId)) return;
+    enumeratedDecksDiagnostics.add(snapshot.turnId);
+
+    const activated =
+        deckSectionAtActivationDiagnostics.get(snapshot.turnId) ?? null;
+    deckSectionReadinessDiagnostics.enumeratedDeckCount++;
+    if (snapshot.sectionCount > 0) {
+        deckSectionReadinessDiagnostics.enumerationSectionPresentCount++;
+    } else {
+        deckSectionReadinessDiagnostics.missingAtEnumeration.push(snapshot);
+    }
+
+    if (
+        activated != null &&
+        JSON.stringify(activated) !== JSON.stringify(snapshot)
+    ) {
+        deckSectionReadinessDiagnostics.changedBeforeEnumeration.push({
+            turnId: snapshot.turnId,
+            activated,
+            enumerated: snapshot
+        });
+    }
+}
+
 function clockDiagnostics() {
     return {
         performanceMs: performance.now() - runPerformanceOriginDiagnostics,
@@ -463,7 +512,15 @@ export function flushCycleDiagnostics() {
     finishCycleTimingDiagnostics(currentCycle);
     currentCycle.forceLogDiagnostics = true;
     emitSlabDiagnostics(currentCycle, "FINAL", true);
+    emitDeckSectionReadinessDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+}
+
+function emitDeckSectionReadinessDiagnostics() {
+    console.log(
+        "[deck section readiness]\n" +
+        JSON.stringify(deckSectionReadinessDiagnostics, null, 2)
+    );
 }
 
 function emitExecutionTimeStatisticsDiagnostics() {
