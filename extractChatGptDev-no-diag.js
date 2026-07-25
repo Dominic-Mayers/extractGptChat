@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.19-no-diag
+// @version      2.20-no-diag
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -255,6 +255,10 @@
       }
       await sleep(poll);
     }
+    if (type === "image") {
+      const image = primaryImage(slab);
+      if (typeof image.decode === "function") await image.decode();
+    }
   }
   function extractSlab(type, slab) {
     const prompt = promptFrom(type, slab);
@@ -328,7 +332,7 @@ ${prompt.text}
   function slabReady(type, slab) {
     if (type === "canvas") {
       const root = canvasRoot(slab);
-      return Boolean(root && htmlToMarkdown(root).trim());
+      return Boolean(root && dryMarkdownFor(root).trim());
     }
     if (type === "image") {
       const image = primaryImage(slab);
@@ -340,8 +344,11 @@ ${prompt.text}
       const message = messageRoot(slab);
       if (!message) return false;
       const images = [...message.querySelectorAll('img:not([aria-hidden="true"])')];
+      const placeholders = message.querySelectorAll(
+        '[class*="skeleton"], [class*="placeholder"], [data-placeholder]'
+      );
       return Boolean(
-        (message.innerText.trim() || images.length) && images.every((image) => image.getAttribute("src"))
+        (message.innerText.trim() || images.length) && placeholders.length === 0 && images.every((image) => image.getAttribute("src"))
       );
     }
     throw new Error(`Cannot extract unknown slab type: ${type}.`);
@@ -416,6 +423,14 @@ ${prompt.text}
   }
   function primaryImage(slab) {
     return slab.matches('img:not([aria-hidden="true"])') ? slab : slab.querySelector('img:not([aria-hidden="true"])');
+  }
+  function dryMarkdownFor(element) {
+    const savedImageCounter = imageCounter;
+    const savedImageLength = pendingImages.length;
+    const markdown = htmlToMarkdown(element);
+    imageCounter = savedImageCounter;
+    pendingImages.length = savedImageLength;
+    return markdown;
   }
   function htmlToMarkdown(element) {
     function walk(node, depth) {
@@ -569,14 +584,12 @@ ${fence}
   var currentDeck;
   var currentSlab;
   var currentAnchor;
-  var imageReady;
   var savedDeckActivationStatus;
   function resetSupplyWorker() {
     supplier = observeSupplier();
     currentDeck = null;
     currentSlab = null;
     currentAnchor = null;
-    imageReady = false;
     savedDeckActivationStatus = null;
   }
   async function extractCurrentSlab() {
@@ -597,7 +610,6 @@ ${fence}
     currentDeck = deck;
     currentSlab = null;
     currentAnchor = null;
-    imageReady = false;
     await waitDeckActive(deck, activeArea);
     return deckGeometry(deck, workZone).room;
   }
@@ -613,7 +625,6 @@ ${fence}
     if (slab == null) return null;
     currentSlab = slab;
     currentAnchor = null;
-    imageReady = false;
     return slabGeometry(slab, workZone).room;
   }
   function retainedDeck() {
@@ -651,10 +662,6 @@ ${fence}
       throw new Error("Cannot move an unknown slab type.");
     }
     if (type === "image" || type === "empty") {
-      if (!imageReady) {
-        await waitImageReady(slab);
-        imageReady = true;
-      }
       currentAnchor = boundaryOf(slab, "top");
     } else if (room > 0) {
       currentAnchor = boundaryOf(slab, "top");
@@ -883,18 +890,6 @@ ${fence}
   function retainedAnchor() {
     if (!currentAnchor) throw new Error("No current anchor.");
     return currentAnchor;
-  }
-  async function waitImageReady(slab) {
-    const images = slab.matches?.("img") ? [slab] : slab.querySelectorAll ? [...slab.querySelectorAll("img")] : [];
-    for (const image of images) {
-      if (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
-        await new Promise((resolve, reject) => {
-          image.addEventListener("load", resolve, { once: true });
-          image.addEventListener("error", reject, { once: true });
-        });
-      }
-      if (typeof image.decode === "function") await image.decode();
-    }
   }
 
   // src/dev/getNextSlabIn-no-diag.js
@@ -1200,7 +1195,7 @@ ${fence}
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.19-no-diag" : "unbuilt";
+  var VERSION = true ? "2.20-no-diag" : "unbuilt";
   console.log(`[dev traversal] loaded, version ${VERSION}`);
   var activeRuns = 0;
   var runTraversal = async () => {

@@ -36,6 +36,10 @@ export async function waitSlabReady(type, slab, {
         }
         await sleep(poll);
     }
+    if (type === "image") {
+        const image = primaryImage(slab);
+        if (typeof image.decode === "function") await image.decode();
+    }
 }
 
 export function extractSlab(type, slab) {
@@ -116,7 +120,7 @@ export async function exportMarkdown(timestamp = Date.now()) {
 function slabReady(type, slab) {
     if (type === "canvas") {
         const root = canvasRoot(slab);
-        return Boolean(root && htmlToMarkdown(root).trim());
+        return Boolean(root && dryMarkdownFor(root).trim());
     }
     if (type === "image") {
         const image = primaryImage(slab);
@@ -132,8 +136,12 @@ function slabReady(type, slab) {
         const message = messageRoot(slab);
         if (!message) return false;
         const images = [...message.querySelectorAll("img:not([aria-hidden=\"true\"])")];
+        const placeholders = message.querySelectorAll(
+            "[class*=\"skeleton\"], [class*=\"placeholder\"], [data-placeholder]"
+        );
         return Boolean(
             (message.innerText.trim() || images.length) &&
+            placeholders.length === 0 &&
             images.every(image => image.getAttribute("src"))
         );
     }
@@ -224,6 +232,15 @@ function primaryImage(slab) {
     return slab.matches("img:not([aria-hidden=\"true\"])")
         ? slab
         : slab.querySelector("img:not([aria-hidden=\"true\"])");
+}
+
+function dryMarkdownFor(element) {
+    const savedImageCounter = imageCounter;
+    const savedImageLength = pendingImages.length;
+    const markdown = htmlToMarkdown(element);
+    imageCounter = savedImageCounter;
+    pendingImages.length = savedImageLength;
+    return markdown;
 }
 
 function htmlToMarkdown(element) {

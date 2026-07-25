@@ -31,7 +31,6 @@ let supplier;
 let currentDeck;
 let currentSlab;
 let currentAnchor;
-let imageReady;
 let savedDeckActivationStatus;
 
 export function resetSupplyWorker() {
@@ -39,7 +38,6 @@ export function resetSupplyWorker() {
     currentDeck = null;
     currentSlab = null;
     currentAnchor = null;
-    imageReady = false;
     savedDeckActivationStatus = null;
 }
 
@@ -78,7 +76,6 @@ export async function selectNextDeckRoom(area) {
     currentDeck = deck;
     currentSlab = null;
     currentAnchor = null;
-    imageReady = false;
 
     const startedAtDiagnostics = performance.now();
 
@@ -127,7 +124,6 @@ export function selectNextSlabRoom(area, deckRoom) {
 
     currentSlab = slab;
     currentAnchor = null;
-    imageReady = false;
 
     return slabGeometry(slab, workZone).room;
 }
@@ -176,18 +172,6 @@ export async function selectAnchor(room) {
     }
 
     if (type === "image" || type === "empty") {
-        if (!imageReady) {
-            beginPendingAwaitDiagnostics("image-readiness", {
-                slab: snapshotElementDiagnostics(slab),
-                type
-            });
-            await waitImageReady(slab);
-            finishPendingAwaitDiagnostics({
-                slab: snapshotElementDiagnostics(slab),
-                type
-            });
-            imageReady = true;
-        }
         currentAnchor = boundaryOf(slab, "top");
     } else if (room > 0) {
         currentAnchor = boundaryOf(slab, "top");
@@ -561,22 +545,4 @@ function retainedSlab() {
 function retainedAnchor() {
     if (!currentAnchor) throw new Error("No current anchor.");
     return currentAnchor;
-}
-
-async function waitImageReady(slab) {
-    const images = slab.matches?.("img")
-        ? [slab]
-        : slab.querySelectorAll
-            ? [...slab.querySelectorAll("img")]
-            : [];
-
-    for (const image of images) {
-        if (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0) {
-            await new Promise((resolve, reject) => {
-                image.addEventListener("load", resolve, { once: true });
-                image.addEventListener("error", reject, { once: true });
-            });
-        }
-        if (typeof image.decode === "function") await image.decode();
-    }
 }
