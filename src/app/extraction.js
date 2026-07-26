@@ -180,6 +180,7 @@ export async function exportMarkdown(timestamp = Date.now()) {
 }
 
 export function isSlabReady(type, slab) {
+    if (type === "empty") return true;
     if (type === "canvas") {
         const root = canvasRoot(slab);
         return Boolean(root && dryMarkdownFor(root).trim());
