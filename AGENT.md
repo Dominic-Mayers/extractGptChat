@@ -12,6 +12,7 @@ The `*-dev.js` files are the canonical development sources. Plain `*.js` files a
 * For example, do not make a function depends on a policy unless I decide that the policy is external to the function, not hardcoded in the function. (You did that in a previous session and that surprised me a lot.)
 * Minimize the use of `try` blocks.
 * Never add a `try` block solely for diagnostic purposes. Collect and log relevant information during the run, let errors bubble to the end, and use the collected information there when needed.
+* You should do every thing possible so that I never met structures or abtsractions (small wrappers, etc.) that seem to implement an architectural need or principle that fits your internal patterns but is not part of what we discussed. Keeps the code straightforward and non opaque.
 
 ## Bumping version, building and committing
 
