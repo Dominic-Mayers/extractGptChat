@@ -3,7 +3,7 @@ const {
     buildProductionSources
 } = require('./build-production-sources');
 
-const version = '5.26';
+const version = '5.27';
 
 const userscriptHeader = `// ==UserScript==
 // @name         ChatGPT Chat Extractor

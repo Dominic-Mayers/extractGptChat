@@ -7,7 +7,6 @@ import {
 } from "./constants.js";
 import { slabType } from "./slabType.js";
 import { getNextAnchorIn } from "./getNextAnchorIn.js";
-import { boundaryOf } from "./boundary.js";
 import { areaAhead } from "./geometry.js";
 import {
     contains,
@@ -189,9 +188,9 @@ export async function selectAnchor(room) {
     }
 
     if (type === "image" || type === "empty") {
-        currentAnchor = boundaryOf(slab, "top");
+        currentAnchor = { element: slab, edge: "top" };
     } else if (room > 0) {
-        currentAnchor = boundaryOf(slab, "top");
+        currentAnchor = { element: slab, edge: "top" };
     } else {
         currentAnchor = getNextAnchorIn(slab, workZone);
     }
@@ -210,12 +209,18 @@ export function anchorRoom() {
 
 export function slabRoom() {
     const { workZone } = environment();
-    return roomAhead(boundaryOf(retainedSlab(), "top"), workZone);
+    return roomAhead(
+        { element: retainedSlab(), edge: "top" },
+        workZone
+    );
 }
 
 export function deckRoom() {
     const { workZone } = environment();
-    return roomAhead(boundaryOf(retainedDeck(), "top"), workZone);
+    return roomAhead(
+        { element: retainedDeck(), edge: "top" },
+        workZone
+    );
 }
 
 export function supplyRoom() {
@@ -336,8 +341,11 @@ function closestDeck(referenceRoom, candidates, workZone) {
 
 function deckGeometry(deck, workZone) {
     return {
-        room: roomAhead(boundaryOf(deck, "top"), workZone),
-        bottomRoom: roomAhead(boundaryOf(deck, "bottom"), workZone)
+        room: roomAhead({ element: deck, edge: "top" }, workZone),
+        bottomRoom: roomAhead(
+            { element: deck, edge: "bottom" },
+            workZone
+        )
     };
 }
 
@@ -396,8 +404,11 @@ function closestSlab(referenceRoom, candidates, workZone) {
 
 function slabGeometry(slab, workZone) {
     return {
-        room: roomAhead(boundaryOf(slab, "top"), workZone),
-        bottomRoom: roomAhead(boundaryOf(slab, "bottom"), workZone)
+        room: roomAhead({ element: slab, edge: "top" }, workZone),
+        bottomRoom: roomAhead(
+            { element: slab, edge: "bottom" },
+            workZone
+        )
     };
 }
 

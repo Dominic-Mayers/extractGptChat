@@ -7,7 +7,6 @@
 
 import { waitLayoutStable } from "./waitLayoutStable.js";
 import { getDecks } from "./getNextDeckIn.js";
-import { boundaryOf } from "./boundary.js";
 import {
     moveWorkZoneToSupplyEnd,
     observeSupplier,
@@ -39,7 +38,7 @@ export async function moveViewportToDocumentBottom() {
     const decks = getDecks(supplyArea);
 
     const boundary = decks.length > 0
-        ? roomAhead(boundaryOf(decks[0], "bottom"), workZone)
+        ? roomAhead({ element: decks[0], edge: "bottom" }, workZone)
         : workZone.height;
 
     return {

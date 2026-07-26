@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.52
+// @version      2.53
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -132,11 +132,6 @@
     target.scrollTo({ top, behavior: "instant" });
   }
 
-  // src/app/boundary-dev.js
-  function boundaryOf(element, edge) {
-    return { element, edge };
-  }
-
   // src/app/getNextAnchorIn-dev.js
   var TEXT_ANCHOR_SELECTOR = [
     "p",
@@ -156,7 +151,7 @@
   function getNextAnchorIn(slab, workZone) {
     const type = slabType(slab);
     if (type === "image" || type === "empty") {
-      return boundaryOf(slab, "top");
+      return { element: slab, edge: "top" };
     }
     if (type === "message" || type === "canvas") {
       return getNextTextAnchorIn(slab, workZone);
@@ -192,7 +187,7 @@
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
       const rect = candidate.getBoundingClientRect();
-      const anchor = boundaryOf(candidate, "top");
+      const anchor = { element: candidate, edge: "top" };
       const topRoom = roomAhead(anchor, workZone);
       const bottomRoom = rect.bottom - viewportTop;
       if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
@@ -213,7 +208,7 @@
     const anchors = [];
     for (const element of elements) {
       for (const edge of ["top", "bottom"]) {
-        const anchor = boundaryOf(element, edge);
+        const anchor = { element, edge };
         const room = roomAhead(anchor, workZone);
         if (room >= 0 && room < targetRoom - MAX_DRIFT) {
           anchors.push(anchor);
@@ -1495,9 +1490,9 @@ ${fence}
       throw new Error("Cannot move an unknown slab type.");
     }
     if (type === "image" || type === "empty") {
-      currentAnchor = boundaryOf(slab, "top");
+      currentAnchor = { element: slab, edge: "top" };
     } else if (room > 0) {
-      currentAnchor = boundaryOf(slab, "top");
+      currentAnchor = { element: slab, edge: "top" };
     } else {
       currentAnchor = getNextAnchorIn(slab, workZone);
     }
@@ -1512,11 +1507,17 @@ ${fence}
   }
   function slabRoom() {
     const { workZone } = environment();
-    return roomAhead(boundaryOf(retainedSlab(), "top"), workZone);
+    return roomAhead(
+      { element: retainedSlab(), edge: "top" },
+      workZone
+    );
   }
   function deckRoom() {
     const { workZone } = environment();
-    return roomAhead(boundaryOf(retainedDeck(), "top"), workZone);
+    return roomAhead(
+      { element: retainedDeck(), edge: "top" },
+      workZone
+    );
   }
   function supplyRoom() {
     const { supplyArea, workZone } = environment();
@@ -1672,8 +1673,11 @@ ${fence}
   }
   function deckGeometry(deck, workZone) {
     return {
-      room: roomAhead(boundaryOf(deck, "top"), workZone),
-      bottomRoom: roomAhead(boundaryOf(deck, "bottom"), workZone)
+      room: roomAhead({ element: deck, edge: "top" }, workZone),
+      bottomRoom: roomAhead(
+        { element: deck, edge: "bottom" },
+        workZone
+      )
     };
   }
   function isDeckActive(deck, activeArea) {
@@ -1715,8 +1719,11 @@ ${fence}
   }
   function slabGeometry(slab, workZone) {
     return {
-      room: roomAhead(boundaryOf(slab, "top"), workZone),
-      bottomRoom: roomAhead(boundaryOf(slab, "bottom"), workZone)
+      room: roomAhead({ element: slab, edge: "top" }, workZone),
+      bottomRoom: roomAhead(
+        { element: slab, edge: "bottom" },
+        workZone
+      )
     };
   }
   function getSlabsIn(deck) {
@@ -2190,7 +2197,7 @@ ${fence}
     moveWorkZoneToSupplyEnd(supplyArea, workZone);
     await waitLayoutStable();
     const decks = getDecks(supplyArea);
-    const boundary = decks.length > 0 ? roomAhead(boundaryOf(decks[0], "bottom"), workZone) : workZone.height;
+    const boundary = decks.length > 0 ? roomAhead({ element: decks[0], edge: "bottom" }, workZone) : workZone.height;
     return {
       room: boundary,
       deckRoom: boundary
@@ -2635,7 +2642,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.52" : "unbuilt";
+  var VERSION = true ? "2.53" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

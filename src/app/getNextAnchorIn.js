@@ -1,7 +1,6 @@
 import { MIN_INTERSECT, MAX_DRIFT } from './constants.js';
 import { slabType } from "./slabType.js";
 import { roomAhead, workZoneTop } from "./scrollContainer.js";
-import { boundaryOf } from "./boundary.js";
 
 const TEXT_ANCHOR_SELECTOR = [
     "p",
@@ -26,7 +25,7 @@ export function getNextAnchorIn(
     const type = slabType(slab);
 
     if (type === "image" || type === "empty") {
-        return boundaryOf(slab, "top");
+        return { element: slab, edge: "top" };
     }
     if (type === "message" || type === "canvas") {
         return getNextTextAnchorIn(slab, workZone);
@@ -68,7 +67,7 @@ function getNextTextAnchorIn(slab, workZone) {
     const coveringAnchors = [];
     for (const candidate of [...descendants, slab]) {
         const rect = candidate.getBoundingClientRect();
-        const anchor = boundaryOf(candidate, "top");
+        const anchor = { element: candidate, edge: "top" };
         const topRoom = roomAhead(anchor, workZone);
         const bottomRoom = rect.bottom - viewportTop;
         if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
@@ -92,7 +91,7 @@ function normalBoundaryAnchors(
     const anchors = [];
     for (const element of elements) {
         for (const edge of ["top", "bottom"]) {
-            const anchor = boundaryOf(element, edge);
+            const anchor = { element, edge };
             const room = roomAhead(anchor, workZone);
             if (room >= 0 && room < targetRoom - MAX_DRIFT) {
                 anchors.push(anchor);
