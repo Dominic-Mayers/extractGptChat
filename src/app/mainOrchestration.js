@@ -12,7 +12,8 @@ import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js"
 import {
     compileCurrentDeck,
     resetSupplyWorker,
-    selectNextSlabRoom
+    selectNextSlabRoom,
+    waitCurrentSlabReady
 } from "./supplyWorker.js";
 import {
     exportMarkdown,
@@ -71,6 +72,10 @@ export async function traverseConversation() {
         // ... or we find the next deck and find the next slab there.
         //
         if (nextSlabRoom == null) {
+            if (deckRoom != null) {
+                await compileCurrentDeck();
+            }
+
             const nextDeckRoom = await getNextDeckRoomIn(
                 deckRoom ?? initialDeckRoom
             );
@@ -89,9 +94,12 @@ export async function traverseConversation() {
             if (nextSlabRoom == null) {
                 throw new Error("No slab found in active deck.");
             }
-
-            await compileCurrentDeck();
         }
+
+        ({
+            slabRoom: nextSlabRoom,
+            deckRoom
+        } = await waitCurrentSlabReady());
 
         slabRoom = nextSlabRoom;
 

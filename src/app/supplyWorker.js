@@ -21,6 +21,7 @@ import {
 import {
     compileDeck,
     compiledDeckFor,
+    waitSlabReady,
     storeCompiledDeck
 } from "./extraction.js";
 
@@ -42,6 +43,20 @@ export async function compileCurrentDeck() {
     const deck = retainedDeck();
     const unit = await compileDeck(deck, getSlabsIn(deck));
     storeCompiledDeck(unit);
+}
+
+export async function waitCurrentSlabReady() {
+    const { workZone } = environment();
+    const deck = retainedDeck();
+    const slab = retainedSlab();
+    const type = slabType(slab);
+
+    const readiness = await waitSlabReady(type, slab);
+
+    return {
+        slabRoom: slabGeometry(slab, workZone).room,
+        deckRoom: deckGeometry(deck, workZone).room
+    };
 }
 
 export async function checkUpdateNeededBeforeDeactivation(jump) {

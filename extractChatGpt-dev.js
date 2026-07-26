@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.58
+// @version      2.59
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -805,7 +805,8 @@
       "deck-room",
       "deck-decision",
       "deck-search",
-      "deck-active"
+      "deck-active",
+      "slab-ready"
     ]);
     const isSlowSlab = cycle.stages.some((stage) => stage.stage === "slow-slab");
     const hasError = cycle.stages.some((stage) => stage.stage === "error");
@@ -941,7 +942,7 @@
       };
     }
     const deadline = Date.now() + timeout;
-    while (!slabReady(type, slab)) {
+    while (!isSlabReady(type, slab)) {
       if (!slab.isConnected) {
         throw new Error("Slab detached while waiting for extraction readiness.");
       }
@@ -961,8 +962,6 @@
     };
   }
   async function compileDeck(deck, slabs) {
-    const startedAt = performance.now();
-    const slabTimings = [];
     const unit = {
       turnId: deck.getAttribute("data-turn-id-container"),
       height: null,
@@ -972,41 +971,16 @@
     };
     for (const slab of [...slabs].reverse()) {
       const type = slabType(slab);
-      const slabStartedAt = performance.now();
-      const readiness = await waitSlabReady(type, slab);
-      const serializationStartedAt = performance.now();
+      if (!isSlabReady(type, slab)) {
+        const id = slab.getAttribute?.("data-message-id") ?? slab.id ?? "synthetic";
+        throw new Error(
+          `Cannot compile unready ${type} slab ${id}.`
+        );
+      }
       const prompt = promptFrom(type, slab, unit);
-      const finishedAt = performance.now();
       if (prompt) unit.prompts.push(prompt);
-      slabTimings.push({
-        type,
-        id: slab.getAttribute?.("data-message-id") ?? slab.id ?? "synthetic",
-        readinessMs: readiness.readinessMs,
-        decodeMs: readiness.decodeMs,
-        serializationMs: finishedAt - serializationStartedAt,
-        elapsedMs: finishedAt - slabStartedAt
-      });
     }
     unit.height = deck.getBoundingClientRect().height;
-    const elapsedMs = performance.now() - startedAt;
-    if (elapsedMs >= 1e3) {
-      const relevantSlabs = slabTimings.filter(
-        (slab) => slab.elapsedMs >= 250
-      );
-      if (relevantSlabs.length === 0 && slabTimings.length > 0) {
-        relevantSlabs.push(slabTimings.reduce(
-          (slowest, slab) => slab.elapsedMs > slowest.elapsedMs ? slab : slowest
-        ));
-      }
-      console.log(
-        "[slow deck compilation]\n" + JSON.stringify({
-          turnId: unit.turnId,
-          elapsedMs,
-          slabCount: slabTimings.length,
-          relevantSlabs
-        }, null, 2)
-      );
-    }
     return unit;
   }
   function compiledDeckFor(turnId) {
@@ -1088,7 +1062,7 @@ ${prompt.text}
       `${slug}-${timestamp}.md`
     );
   }
-  function slabReady(type, slab) {
+  function isSlabReady(type, slab) {
     if (type === "canvas") {
       const root = canvasRoot(slab);
       return Boolean(root && dryMarkdownFor(root).trim());
@@ -1359,6 +1333,41 @@ ${fence}
     const deck = retainedDeck();
     const unit = await compileDeck(deck, getSlabsIn(deck));
     storeCompiledDeck(unit);
+  }
+  async function waitCurrentSlabReady() {
+    const { workZone } = environment();
+    const deck = retainedDeck();
+    const slab = retainedSlab();
+    const type = slabType(slab);
+    const beforeDiagnostics = {
+      slab: snapshotElementDiagnostics(slab),
+      deck: snapshotElementDiagnostics(deck)
+    };
+    const startedAtDiagnostics = performance.now();
+    beginPendingAwaitDiagnostics("slab-readiness", {
+      type,
+      ...beforeDiagnostics
+    });
+    const readiness = await waitSlabReady(type, slab);
+    finishPendingAwaitDiagnostics({
+      type,
+      readiness,
+      before: beforeDiagnostics,
+      slab: snapshotElementDiagnostics(slab),
+      deck: snapshotElementDiagnostics(deck)
+    });
+    recordCycleStageDiagnostics("slab-ready", {
+      type,
+      waitedMs: performance.now() - startedAtDiagnostics,
+      readiness,
+      before: beforeDiagnostics,
+      slab: snapshotElementDiagnostics(slab),
+      deck: snapshotElementDiagnostics(deck)
+    });
+    return {
+      slabRoom: slabGeometry(slab, workZone).room,
+      deckRoom: deckGeometry(deck, workZone).room
+    };
   }
   async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
@@ -2317,6 +2326,9 @@ ${fence}
         needsDeck: nextSlabRoom == null
       });
       if (nextSlabRoom == null) {
+        if (deckRoom2 != null) {
+          await compileCurrentDeck();
+        }
         const nextDeckRoom = await getNextDeckRoomIn(
           deckRoom2 ?? initialDeckRoom
         );
@@ -2335,8 +2347,11 @@ ${fence}
         if (nextSlabRoom == null) {
           throw new Error("No slab found in active deck.");
         }
-        await compileCurrentDeck();
       }
+      ({
+        slabRoom: nextSlabRoom,
+        deckRoom: deckRoom2
+      } = await waitCurrentSlabReady());
       slabCountDiagnostics++;
       slabRoom2 = nextSlabRoom;
       recordCycleStageDiagnostics("selected", {
@@ -2688,7 +2703,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.58" : "unbuilt";
+  var VERSION = true ? "2.59" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

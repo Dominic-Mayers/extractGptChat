@@ -4,7 +4,7 @@ const {
     buildProductionSources
 } = require('./build-production-sources');
 
-const version = '5.32';
+const version = '5.33';
 const output = 'extractChatGpt.js';
 
 const userscriptHeader = `// ==UserScript==

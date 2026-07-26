@@ -705,7 +705,8 @@ function relevantStagesDiagnostics(cycle) {
         "deck-room",
         "deck-decision",
         "deck-search",
-        "deck-active"
+        "deck-active",
+        "slab-ready"
     ]);
     const isSlowSlab = cycle.stages.some(stage => stage.stage === "slow-slab");
     const hasError = cycle.stages.some(stage => stage.stage === "error");

@@ -32,6 +32,7 @@ import {
 import {
     compileDeck,
     compiledDeckFor,
+    waitSlabReady,
     storeCompiledDeck
 } from "./extraction-dev.js";
 
@@ -53,6 +54,44 @@ export async function compileCurrentDeck() {
     const deck = retainedDeck();
     const unit = await compileDeck(deck, getSlabsIn(deck));
     storeCompiledDeck(unit);
+}
+
+export async function waitCurrentSlabReady() {
+    const { workZone } = environment();
+    const deck = retainedDeck();
+    const slab = retainedSlab();
+    const type = slabType(slab);
+    const beforeDiagnostics = {
+        slab: snapshotElementDiagnostics(slab),
+        deck: snapshotElementDiagnostics(deck)
+    };
+    const startedAtDiagnostics = performance.now();
+
+    beginPendingAwaitDiagnostics("slab-readiness", {
+        type,
+        ...beforeDiagnostics
+    });
+    const readiness = await waitSlabReady(type, slab);
+    finishPendingAwaitDiagnostics({
+        type,
+        readiness,
+        before: beforeDiagnostics,
+        slab: snapshotElementDiagnostics(slab),
+        deck: snapshotElementDiagnostics(deck)
+    });
+    recordCycleStageDiagnostics("slab-ready", {
+        type,
+        waitedMs: performance.now() - startedAtDiagnostics,
+        readiness,
+        before: beforeDiagnostics,
+        slab: snapshotElementDiagnostics(slab),
+        deck: snapshotElementDiagnostics(deck)
+    });
+
+    return {
+        slabRoom: slabGeometry(slab, workZone).room,
+        deckRoom: deckGeometry(deck, workZone).room
+    };
 }
 
 export async function checkUpdateNeededBeforeDeactivation(jump) {
