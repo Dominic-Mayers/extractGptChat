@@ -99,7 +99,7 @@ Assistant response...
 
 If the export misses content or stops too early:
 
-1. Clear the browser cache for `chatgpt.com`, then hard reload the ChatGPT page.
+1. Clear the browser cache, then hard reload the ChatGPT page.
 2. Minimize CPU contention by closing or pausing other CPU-intensive tabs and applications.
 3. Run the extractor again.
 4. Open **Compatibility check** from the Tampermonkey menu to identify which selectors or markup conversions have changed.
