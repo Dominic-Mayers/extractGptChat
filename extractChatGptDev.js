@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.48
+// @version      2.49
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -266,7 +266,10 @@
       sumJumpElapsedMs: 0,
       sumJumpWallElapsedMs: 0,
       sumJumpSizeElapsedMs: 0,
-      sumJumpSizeWallElapsedMs: 0
+      sumJumpSizeWallElapsedMs: 0,
+      maximumRequestedJump: 0,
+      fullCalibratedJumpCount: 0,
+      overViewportJumpCount: 0
     };
     deckSectionAtActivationDiagnostics = /* @__PURE__ */ new Map();
     enumeratedDecksDiagnostics = /* @__PURE__ */ new Set();
@@ -476,6 +479,16 @@
     executionTimeStatisticsDiagnostics.sumJumpWallElapsedMs += jumpDiagnostics.wallElapsedMs;
     executionTimeStatisticsDiagnostics.sumJumpSizeElapsedMs += jumpSize * jumpDiagnostics.elapsedMs;
     executionTimeStatisticsDiagnostics.sumJumpSizeWallElapsedMs += jumpSize * jumpDiagnostics.wallElapsedMs;
+    executionTimeStatisticsDiagnostics.maximumRequestedJump = Math.max(
+      executionTimeStatisticsDiagnostics.maximumRequestedJump,
+      jumpSize
+    );
+    if (jumpSize === jumpDiagnostics.calibratedJump) {
+      executionTimeStatisticsDiagnostics.fullCalibratedJumpCount++;
+    }
+    if (jumpSize > jumpDiagnostics.viewportHeight) {
+      executionTimeStatisticsDiagnostics.overViewportJumpCount++;
+    }
   }
   function logSlowJumpDiagnosticsIfNeeded() {
     const jumpDiagnostics = currentJumpDiagnostics();
@@ -2099,7 +2112,9 @@ ${fence}
       }
       const jump = clampJump(calibratedJump, room, viewportHeight2);
       beginOrContinueJumpDiagnostics({
-        requestedJump: jump
+        requestedJump: jump,
+        calibratedJump,
+        viewportHeight: viewportHeight2
       });
       await checkUpdateNeededBeforeDeactivation(jump);
       moveWorkZoneBy(jump);
@@ -2620,7 +2635,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.48" : "unbuilt";
+  var VERSION = true ? "2.49" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

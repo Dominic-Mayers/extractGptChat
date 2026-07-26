@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.22
+// @version      5.23
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -266,7 +266,10 @@
       sumJumpElapsedMs: 0,
       sumJumpWallElapsedMs: 0,
       sumJumpSizeElapsedMs: 0,
-      sumJumpSizeWallElapsedMs: 0
+      sumJumpSizeWallElapsedMs: 0,
+      maximumRequestedJump: 0,
+      fullCalibratedJumpCount: 0,
+      overViewportJumpCount: 0
     };
     deckSectionAtActivationDiagnostics = /* @__PURE__ */ new Map();
     enumeratedDecksDiagnostics = /* @__PURE__ */ new Set();
@@ -476,6 +479,16 @@
     executionTimeStatisticsDiagnostics.sumJumpWallElapsedMs += jumpDiagnostics.wallElapsedMs;
     executionTimeStatisticsDiagnostics.sumJumpSizeElapsedMs += jumpSize * jumpDiagnostics.elapsedMs;
     executionTimeStatisticsDiagnostics.sumJumpSizeWallElapsedMs += jumpSize * jumpDiagnostics.wallElapsedMs;
+    executionTimeStatisticsDiagnostics.maximumRequestedJump = Math.max(
+      executionTimeStatisticsDiagnostics.maximumRequestedJump,
+      jumpSize
+    );
+    if (jumpSize === jumpDiagnostics.calibratedJump) {
+      executionTimeStatisticsDiagnostics.fullCalibratedJumpCount++;
+    }
+    if (jumpSize > jumpDiagnostics.viewportHeight) {
+      executionTimeStatisticsDiagnostics.overViewportJumpCount++;
+    }
   }
   function logSlowJumpDiagnosticsIfNeeded() {
     const jumpDiagnostics = currentJumpDiagnostics();
@@ -2099,7 +2112,9 @@ ${fence}
       }
       const jump = clampJump(calibratedJump, room, viewportHeight2);
       beginOrContinueJumpDiagnostics({
-        requestedJump: jump
+        requestedJump: jump,
+        calibratedJump,
+        viewportHeight: viewportHeight2
       });
       await checkUpdateNeededBeforeDeactivation(jump);
       moveWorkZoneBy(jump);
@@ -2620,7 +2635,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.22" : "unbuilt";
+  var VERSION = true ? "5.23" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

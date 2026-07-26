@@ -4,7 +4,7 @@ const { buildNoDiagnostics } = require('./build-no-diagnostics');
 // Single source of truth: bumped on every modification to the dev build, so the
 // menu command label (see bootstrap.js) makes it obvious whether Tampermonkey
 // is actually running the build you just made, instead of a stale cached copy.
-const version = '2.48';
+const version = '2.49';
 
 const userscriptHeader = `// ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)

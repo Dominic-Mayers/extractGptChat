@@ -34,7 +34,10 @@ export function resetCycleDiagnostics() {
         sumJumpElapsedMs: 0,
         sumJumpWallElapsedMs: 0,
         sumJumpSizeElapsedMs: 0,
-        sumJumpSizeWallElapsedMs: 0
+        sumJumpSizeWallElapsedMs: 0,
+        maximumRequestedJump: 0,
+        fullCalibratedJumpCount: 0,
+        overViewportJumpCount: 0
     };
     deckSectionAtActivationDiagnostics = new Map();
     enumeratedDecksDiagnostics = new Set();
@@ -274,6 +277,16 @@ function recordExecutionTimeStatisticsDiagnostics(jumpDiagnostics) {
         jumpSize * jumpDiagnostics.elapsedMs;
     executionTimeStatisticsDiagnostics.sumJumpSizeWallElapsedMs +=
         jumpSize * jumpDiagnostics.wallElapsedMs;
+    executionTimeStatisticsDiagnostics.maximumRequestedJump = Math.max(
+        executionTimeStatisticsDiagnostics.maximumRequestedJump,
+        jumpSize
+    );
+    if (jumpSize === jumpDiagnostics.calibratedJump) {
+        executionTimeStatisticsDiagnostics.fullCalibratedJumpCount++;
+    }
+    if (jumpSize > jumpDiagnostics.viewportHeight) {
+        executionTimeStatisticsDiagnostics.overViewportJumpCount++;
+    }
 }
 
 export function logSlowJumpDiagnosticsIfNeeded() {

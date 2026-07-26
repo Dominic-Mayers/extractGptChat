@@ -77,7 +77,9 @@ export async function moveAnchorToBottom(
 
         const jump = clampJump(calibratedJump, room, viewportHeight);
         beginOrContinueJumpDiagnostics({
-            requestedJump: jump
+            requestedJump: jump,
+            calibratedJump,
+            viewportHeight
         });
         await checkUpdateNeededBeforeDeactivation(jump);
         moveWorkZoneBy(jump);
