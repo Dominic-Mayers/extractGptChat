@@ -1,4 +1,4 @@
-import { compatibilityExtraction } from './extraction-no-diag.js';
+import { compatibilityExtraction } from './extraction-dev.js';
 
 const MARKUP_PROMPT = `Create one response containing all of the following:
 1. A level-2 heading named "Compatibility Results".

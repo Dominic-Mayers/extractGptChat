@@ -20,17 +20,6 @@ import {
     workZoneTop
 } from "./scrollContainer.js";
 import {
-    beginPendingAwaitDiagnostics,
-    finishPendingAwaitDiagnostics,
-    beginOrContinueJumpDiagnostics,
-    updateJumpDiagnostics,
-    recordCycleStageDiagnostics,
-    recordDeckSectionActivationDiagnostics,
-    recordDeckSectionEnumerationDiagnostics,
-    recordDeckUpdateDiagnostics,
-    snapshotElementDiagnostics
-} from "./cycleDiagnostics.js";
-import {
     compileDeck,
     compiledDeckFor,
     storeCompiledDeck
@@ -78,32 +67,10 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
             continue;
         }
 
-        const turnIdDiagnostics =
-            deck.getAttribute("data-turn-id-container");
-        const previousDiagnostics = compiledDeckFor(turnIdDiagnostics);
-        const slabTypesBeforeDiagnostics =
-            getSlabsIn(deck).map(slab => slabType(slab));
         const updated = isUpdated(deck);
 
         if (updated) await replaceByUpdate(deck);
 
-        recordDeckUpdateDiagnostics({
-            turnId: turnIdDiagnostics,
-            jump,
-            deactivationBoundary,
-            top: rect.top,
-            topAfterJump,
-            compiledHeight: previousDiagnostics.height,
-            currentHeight: rect.height,
-            slabTypesBefore: slabTypesBeforeDiagnostics,
-            decision: updated ? "replaced" : "unchanged",
-            replacementHeight: updated
-                ? compiledDeckFor(turnIdDiagnostics).height
-                : null,
-            slabTypesAfter: updated
-                ? getSlabsIn(deck).map(slab => slabType(slab))
-                : null
-        });
     }
 }
 
@@ -144,41 +111,13 @@ export async function selectNextDeckRoom(area) {
 
     const deck = closestDeck(area.bottom, candidates, workZone);
 
-    recordCycleStageDiagnostics("deck-search", {
-        deckRoom: area.bottom,
-        area,
-        deckCount: decks.length,
-        first: snapshotElementDiagnostics(decks[0]),
-        last: snapshotElementDiagnostics(decks[decks.length - 1]),
-        candidates: candidates.map(snapshotElementDiagnostics),
-        selected: snapshotElementDiagnostics(deck),
-        activation: deck?.getAttribute("data-is-intersecting") ?? null
-    });
-
     if (deck == null) return null;
 
     currentDeck = deck;
     currentSlab = null;
     currentAnchor = null;
 
-    const startedAtDiagnostics = performance.now();
-
-    beginPendingAwaitDiagnostics("deck-activation", {
-        deck: snapshotElementDiagnostics(deck),
-        activation: deck.getAttribute("data-is-intersecting")
-    });
     await waitDeckActive(deck, activeArea);
-    finishPendingAwaitDiagnostics({
-        deck: snapshotElementDiagnostics(deck),
-        activation: deck.getAttribute("data-is-intersecting")
-    });
-
-    recordCycleStageDiagnostics("deck-active", {
-        waitedMs: performance.now() - startedAtDiagnostics,
-        deck: snapshotElementDiagnostics(deck),
-        activation: deck.getAttribute("data-is-intersecting")
-    });
-    captureDeckSectionActivationDiagnostics(deck);
 
     return deckGeometry(deck, workZone).room;
 }
@@ -187,7 +126,7 @@ export function selectNextSlabRoom(slabRoom, deckRoom) {
     const { workZone } = environment();
     const deck = retainedDeck();
     const area = areaAhead(slabRoom, MAX_SLAB_GAP);
-    captureDeckSectionEnumerationDiagnostics(deck);
+
     const slabs = getSlabsIn(deck);
 
     const candidates = slabs.filter(candidate => {
@@ -198,51 +137,12 @@ export function selectNextSlabRoom(slabRoom, deckRoom) {
 
     const slab = closestSlab(area.bottom, candidates, workZone);
 
-    recordCycleStageDiagnostics("slab-search", {
-        room: area.bottom,
-        deckRoom,
-        area,
-        slabCount: slabs.length,
-        candidates: candidates.map(snapshotElementDiagnostics),
-        selected: snapshotElementDiagnostics(slab)
-    });
-
     if (slab == null) return null;
 
     currentSlab = slab;
     currentAnchor = null;
 
     return slabGeometry(slab, workZone).room;
-}
-
-function captureDeckSectionActivationDiagnostics(deck) {
-    const snapshot = deckSectionSnapshotDiagnostics(deck);
-    recordDeckSectionActivationDiagnostics(snapshot);
-}
-
-function captureDeckSectionEnumerationDiagnostics(deck) {
-    recordDeckSectionEnumerationDiagnostics(
-        deckSectionSnapshotDiagnostics(deck)
-    );
-}
-
-function deckSectionSnapshotDiagnostics(deck) {
-    const sections = Array.from(deck.children)
-        .filter(child => child.matches("section"));
-    const section = sections[0] ?? null;
-    const rect = section?.getBoundingClientRect();
-
-    return {
-        turnId: deck.getAttribute("data-turn-id-container"),
-        sectionCount: sections.length,
-        sectionHeight: rect?.height ?? null,
-        sectionChildCount: section?.childElementCount ?? null,
-        messageCount: section?.querySelectorAll("[data-message-id]").length ?? 0,
-        imageCount:
-            section?.querySelectorAll(".group\\/imagegen-image").length ?? 0,
-        canvasCount:
-            section?.querySelectorAll('[id^="textdoc-message-"]').length ?? 0
-    };
 }
 
 function retainedDeck() {
@@ -346,11 +246,7 @@ export function thresholdDeckSnapshot() {
         decks.set(deck, {
             turnId: deck.getAttribute("data-turn-id-container"),
             state: deck.getAttribute("data-is-intersecting"),
-            geometryChangeDiagnostics:
-                deckGeometryChangeDiagnostics(
-                    deck,
-                    viewportTop
-                ),
+
             top: rect.top - viewportTop,
             bottom: rect.bottom - viewportTop,
             height: rect.height
@@ -415,87 +311,11 @@ function deckLocation(deck, viewportHeight) {
     return "viewport";
 }
 
-function deckGeometryChangeDiagnostics(
-    deck,
-    viewportTop
-) {
-    const computedStyle = getComputedStyle(deck);
-    const investigatedDeck =
-        deck.getAttribute("data-turn-id-container") ===
-        "a7c93c21-9530-40b2-8369-5a98541ea360";
-    return {
-        className: deck.getAttribute("class"),
-        inlineLastKnownHeight:
-            deck.style.getPropertyValue("--last-known-height"),
-        resolvedLastKnownHeight:
-            computedStyle.getPropertyValue("--last-known-height"),
-        computedHeight: computedStyle.height,
-        marginCollapse: investigatedDeck
-            ? {
-                deck: layoutElementDiagnostics(deck, viewportTop),
-                parent: layoutElementDiagnostics(
-                    deck.parentElement,
-                    viewportTop
-                ),
-                previousSibling: layoutElementDiagnostics(
-                    deck.previousElementSibling,
-                    viewportTop
-                ),
-                children: Array.from(deck.children).map(child =>
-                    layoutElementDiagnostics(child, viewportTop)
-                )
-            }
-            : null
-    };
-}
-
-function layoutElementDiagnostics(element, viewportTop) {
-    if (!element) return null;
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return {
-        tagName: element.tagName,
-        className: element.getAttribute("class"),
-        turnId: element.getAttribute("data-turn-id-container"),
-        top: rect.top - viewportTop,
-        bottom: rect.bottom - viewportTop,
-        height: rect.height,
-        marginTop: style.marginTop,
-        marginBottom: style.marginBottom,
-        paddingTop: style.paddingTop,
-        paddingBottom: style.paddingBottom,
-        borderTopWidth: style.borderTopWidth,
-        borderBottomWidth: style.borderBottomWidth,
-        display: style.display,
-        overflow: style.overflow,
-        position: style.position
-    };
-}
-
 export function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
-    const anchorDiagnostics = retainedAnchor();
-    const roomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
-    const supplyRoomBeforeDiagnostics =
-        workZonePosition(supplyArea, workZone);
-
-    beginOrContinueJumpDiagnostics({
-        kind: "anchor-move",
-        anchor: snapshotElementDiagnostics(anchorDiagnostics),
-        roomBefore: roomBeforeDiagnostics,
-        jump,
-        scrollYBefore: supplyRoomBeforeDiagnostics
-    });
 
     moveWorkZone(jump, supplyArea, workZone);
 
-    const supplyRoomAfterDiagnostics =
-        workZonePosition(supplyArea, workZone);
-
-    updateJumpDiagnostics({
-        scrollYAfter: supplyRoomAfterDiagnostics,
-        immediateAnchor: snapshotElementDiagnostics(anchorDiagnostics)
-    });
 }
 
 function closestDeck(referenceRoom, candidates, workZone) {

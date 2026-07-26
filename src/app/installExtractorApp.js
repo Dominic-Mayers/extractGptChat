@@ -1,11 +1,5 @@
 import { traverseConversation } from './mainOrchestration.js';
 import { showCompatibilityCheck } from './compatibility.js';
-import {
-    logActiveTraversalDiagnostics,
-    logCycleContextDiagnostics,
-    selectCurrentJumpDiagnostics
-} from './cycleDiagnostics.js';
-
 export function installExtractorApp({
     version,
     runLabel,
@@ -21,7 +15,7 @@ let activeRuns = 0;
 const runTraversal = async () => {
     if (activeRuns > 0) {
         console.log(`[${logPrefix}] ignored: a traversal is already in progress.`);
-        logActiveTraversalDiagnostics();
+
         return;
     }
 
@@ -31,8 +25,7 @@ const runTraversal = async () => {
         await traverseConversation();
         console.log(`[${logPrefix}] finished.`);
     } catch (error) {
-        selectCurrentJumpDiagnostics("error");
-        logCycleContextDiagnostics();
+
         console.error(`[${logPrefix}] failed.`, error);
         throw error;
     } finally {

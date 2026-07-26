@@ -6,23 +6,32 @@
 // This file implements only the geometric part of the
 // traversal.  Content extraction is intentionally omitted.
 
-import { getNextDeckRoomIn } from "./getNextDeckIn-no-diag.js";
-import { moveSlabTopToBottom } from "./moveSlabTopToBottom-no-diag.js";
-import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-no-diag.js";
+import { getNextDeckRoomIn } from "./getNextDeckIn-dev.js";
+import { moveSlabTopToBottom } from "./moveSlabTopToBottom-dev.js";
+import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-dev.js";
 import {
     compileCurrentDeck,
     resetSupplyWorker,
     selectNextSlabRoom
-} from "./supplyWorker-no-diag.js";
+} from "./supplyWorker-dev.js";
 import {
     exportMarkdown,
     resetExtraction
-} from "./extraction-no-diag.js";
+} from "./extraction-dev.js";
 import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
-} from "./constants-no-diag.js";
+} from "./constants-dev.js";
+import {
+    resetCycleDiagnostics,
+    beginCycleDiagnostics,
+    recordCycleStageDiagnostics,
+    flushCycleDiagnostics
+} from "./cycleDiagnostics-dev.js";
+
 export async function traverseConversation() {
+
+    resetCycleDiagnostics();
 
     resetSupplyWorker();
     resetExtraction();
@@ -34,11 +43,25 @@ export async function traverseConversation() {
     let deckRoom = null;
     const initialSlabRoom = initial.room;
     const initialDeckRoom = initial.deckRoom;
+    let deckCountDiagnostics = 0;
+    let slabCountDiagnostics = 0;
+    let cycleCountDiagnostics = 0;
 
     //
     // Main traversal.
     //
     while (true) {
+
+        cycleCountDiagnostics++;
+        beginCycleDiagnostics({
+            cycle: cycleCountDiagnostics,
+            deckCount: deckCountDiagnostics,
+            slabCount: slabCountDiagnostics,
+            room: slabRoom,
+            deckRoom,
+            initialSlabRoom,
+            initialDeckRoom
+        });
 
         //
         // The value room can be negative and a jump always increases it.
@@ -52,7 +75,15 @@ export async function traverseConversation() {
             } = await moveSlabTopToBottom(
                 slabRoom
             ));
+        } else {
+            recordCycleStageDiagnostics("move-skip", {
+                room: slabRoom
+            });
         }
+
+        recordCycleStageDiagnostics("deck-room", {
+            deckRoom
+        });
 
         //
         // Either the we find the next slab in the current deck...  
@@ -67,6 +98,14 @@ export async function traverseConversation() {
             )
             : null;
 
+        recordCycleStageDiagnostics("deck-decision", {
+            room: slabRoom,
+            deckRoom,
+            available: slabRoom - deckRoom,
+            minimum: MINIMUM_SLAB_HEIGHT,
+            needsDeck: nextSlabRoom == null
+        });
+
         //
         // ... or we find the next deck and find the next slab there.
         //
@@ -76,10 +115,13 @@ export async function traverseConversation() {
             );
 
             if (nextDeckRoom == null) {
-
+                recordCycleStageDiagnostics("stop", {
+                    reason: "no-next-deck"
+                });
                 break;
             }
 
+            deckCountDiagnostics++;
             deckRoom = nextDeckRoom;
             nextSlabRoom = selectNextSlabRoom(
                 slabRoom ?? initialSlabRoom,
@@ -93,9 +135,18 @@ export async function traverseConversation() {
             await compileCurrentDeck();
         }
 
+        slabCountDiagnostics++;
+
         slabRoom = nextSlabRoom;
+
+        recordCycleStageDiagnostics("selected", {
+            slabCount: slabCountDiagnostics,
+            deckCount: deckCountDiagnostics,
+            room: slabRoom,
+            deckRoom
+        });
 
     }
     await exportMarkdown();
-
+    flushCycleDiagnostics();
 }

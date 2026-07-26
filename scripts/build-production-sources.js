@@ -2,28 +2,45 @@ const fs = require('fs');
 const path = require('path');
 
 const sourceDirectory = path.resolve('src/app');
+const bootstrapSource = path.resolve('src/bootstrap-dev.js');
+const bootstrapOutput = path.resolve('src/bootstrap.js');
 
-function buildNoDiagnostics() {
+function buildProductionSources() {
     for (const filename of fs.readdirSync(sourceDirectory)) {
-        if (!filename.endsWith('.js') || filename.endsWith('-no-diag.js')) continue;
+        if (!filename.endsWith('-dev.js')) continue;
 
         const sourcePath = path.join(sourceDirectory, filename);
         const outputPath = path.join(
             sourceDirectory,
-            filename.replace(/\.js$/, '-no-diag.js')
+            filename.replace(/-dev\.js$/, '.js')
         );
         const source = fs.readFileSync(sourcePath, 'utf8');
-        const output = filename === 'cycleDiagnostics.js'
+        const output = filename === 'cycleDiagnostics-dev.js'
             ? ''
             : removeDiagnostics(source);
 
         fs.writeFileSync(outputPath, output);
     }
+
+    fs.writeFileSync(
+        bootstrapOutput,
+        productionBootstrap(
+            removeDiagnostics(fs.readFileSync(bootstrapSource, 'utf8'))
+        )
+    );
+}
+
+function productionBootstrap(source) {
+    return source
+        .replace(/__DEV_USERSCRIPT_VERSION__/g, '__PROD_USERSCRIPT_VERSION__')
+        .replace('Run dev extractor', 'Run extractor')
+        .replace('Dev compatibility check', 'Compatibility check')
+        .replace('dev traversal', 'extractor');
 }
 
 function removeDiagnostics(source) {
     let output = source.replace(
-        /^import\s*\{[^}]*^\}\s*from\s*["']\.\/cycleDiagnostics\.js["'];\s*/gm,
+        /^import\s*\{[^}]*^\}\s*from\s*["']\.\/cycleDiagnostics-dev\.js["'];\s*/gm,
         ''
     );
 
@@ -31,8 +48,8 @@ function removeDiagnostics(source) {
     output = removeFunctionsDiagnostics(output);
     output = removeStatementsDiagnostics(output);
     output = output.replace(
-        /from\s+(["'])(\.\/[^"']+?)(?<!-no-diag)\.js\1/g,
-        'from $1$2-no-diag.js$1'
+        /from\s+(["'])(\.\/[^"']+?)-dev\.js\1/g,
+        'from $1$2.js$1'
     );
     return output
         .replace(/\s*else\s*\{\s*\}/g, '')
@@ -148,6 +165,6 @@ function findBalancedEnd(source, start, opening, closing) {
     throw new Error(`Could not find balanced diagnostic block end at ${start}.`);
 }
 
-if (require.main === module) buildNoDiagnostics();
+if (require.main === module) buildProductionSources();
 
-module.exports = { buildNoDiagnostics };
+module.exports = { buildProductionSources };

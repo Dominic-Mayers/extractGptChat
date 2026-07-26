@@ -1,8 +1,8 @@
 # Context for conversation
 
-## src/app vs src/dev
+## Development and production sources
 
-The new code is in src/dev. The code in src/app is used to learn about chatGpt structure and behavior and borrow some related code.
+The `*-dev.js` files are the canonical development sources. Plain `*.js` files are generated production sources.
 
 ## Rules
 

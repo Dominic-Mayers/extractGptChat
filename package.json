@@ -4,8 +4,8 @@
   "scripts": {
     "build": "node scripts/build-userscript.js",
     "build:dev": "node scripts/build-dev-userscript.js",
-    "build:no-diag": "node scripts/build-no-diagnostics.js",
-    "check": "node --check extractChatGpt.js"
+    "build:prod-sources": "node scripts/build-production-sources.js",
+    "check": "node --check extractChatGpt.js && node --check extractChatGpt-dev.js"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

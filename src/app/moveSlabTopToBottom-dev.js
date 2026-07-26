@@ -2,13 +2,13 @@ import {
 
     isAnchorAtBottom,
     moveAnchorToBottom
-} from "./moveAnchorToBottom-no-diag.js";
+} from "./moveAnchorToBottom-dev.js";
 import {
     deckRoom,
     selectAnchor,
     slabRoom,
     viewportHeight
-} from "./supplyWorker-no-diag.js";
+} from "./supplyWorker-dev.js";
 
 export async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();

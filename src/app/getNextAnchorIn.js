@@ -61,7 +61,7 @@ function getNextTextAnchorIn(slab, workZone) {
         workZone
     );
     if (slabAnchors.length > 0) {
-        recordSlabFallbackDiagnostics(slabAnchors);
+
         return slabAnchors[0];
     }
 
@@ -72,10 +72,7 @@ function getNextTextAnchorIn(slab, workZone) {
         const topRoom = roomAhead(anchor, workZone);
         const bottomRoom = rect.bottom - viewportTop;
         if (topRoom < 0 && bottomRoom >= targetRoom - MAX_DRIFT) {
-            recordNegativeAnchorDiagnostics(
-                anchor,
-                "covers-viewport-work-zone"
-            );
+
             coveringAnchors.push(anchor);
         }
     }
@@ -109,16 +106,4 @@ function normalBoundaryAnchors(
         if (aRoom !== bRoom) return aRoom - bRoom;
         return a.edge === "bottom" ? -1 : 1;
     });
-}
-
-function recordNegativeAnchorDiagnostics(anchor, acceptanceReason) {
-    anchor.acceptedNegative = true;
-    anchor.acceptanceReason = acceptanceReason;
-    anchor.fallbackKind = "negative-covering-anchor";
-}
-
-function recordSlabFallbackDiagnostics(anchors) {
-    for (const anchor of anchors) {
-        anchor.fallbackKind = "slab-boundary";
-    }
 }

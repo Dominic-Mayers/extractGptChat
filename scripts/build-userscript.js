@@ -1,6 +1,9 @@
 const esbuild = require('esbuild');
+const {
+    buildProductionSources
+} = require('./build-production-sources');
 
-const version = '5.25';
+const version = '5.26';
 
 const userscriptHeader = `// ==UserScript==
 // @name         ChatGPT Chat Extractor
@@ -12,6 +15,8 @@ const userscriptHeader = `// ==UserScript==
 // @noframes
 // @grant        GM_registerMenuCommand
 // ==/UserScript==`;
+
+buildProductionSources();
 
 esbuild.buildSync({
     entryPoints: ['src/bootstrap.js'],
