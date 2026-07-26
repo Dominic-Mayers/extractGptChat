@@ -19,15 +19,24 @@ function buildProductionSources() {
             ? ''
             : removeDiagnostics(source);
 
-        fs.writeFileSync(outputPath, output);
+        writeGeneratedFile(outputPath, output);
     }
 
-    fs.writeFileSync(
+    writeGeneratedFile(
         bootstrapOutput,
         productionBootstrap(
             removeDiagnostics(fs.readFileSync(bootstrapSource, 'utf8'))
         )
     );
+}
+
+function writeGeneratedFile(filename, content) {
+    if (fs.existsSync(filename)) fs.chmodSync(filename, 0o644);
+    try {
+        fs.writeFileSync(filename, content);
+    } finally {
+        if (fs.existsSync(filename)) fs.chmodSync(filename, 0o444);
+    }
 }
 
 function productionBootstrap(source) {

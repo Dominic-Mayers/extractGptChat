@@ -1,9 +1,11 @@
 const esbuild = require('esbuild');
+const fs = require('fs');
 
 // Single source of truth: bumped on every modification to the dev build, so the
 // menu command label (see bootstrap.js) makes it obvious whether Tampermonkey
 // is actually running the build you just made, instead of a stale cached copy.
-const version = '2.53';
+const version = '2.54';
+const output = 'extractChatGpt-dev.js';
 
 const userscriptHeader = `// ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
@@ -16,12 +18,17 @@ const userscriptHeader = `// ==UserScript==
 // @grant        GM_registerMenuCommand
 // ==/UserScript==`;
 
-esbuild.buildSync({
-    entryPoints: ['src/bootstrap-dev.js'],
-    bundle: true,
-    format: 'iife',
-    target: ['es2020'],
-    banner: { js: userscriptHeader },
-    define: { __DEV_USERSCRIPT_VERSION__: JSON.stringify(version) },
-    outfile: 'extractChatGpt-dev.js',
-});
+if (fs.existsSync(output)) fs.chmodSync(output, 0o644);
+try {
+    esbuild.buildSync({
+        entryPoints: ['src/bootstrap-dev.js'],
+        bundle: true,
+        format: 'iife',
+        target: ['es2020'],
+        banner: { js: userscriptHeader },
+        define: { __DEV_USERSCRIPT_VERSION__: JSON.stringify(version) },
+        outfile: output,
+    });
+} finally {
+    if (fs.existsSync(output)) fs.chmodSync(output, 0o444);
+}
