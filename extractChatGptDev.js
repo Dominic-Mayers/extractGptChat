@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.49
+// @version      2.50
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -1330,7 +1330,7 @@ ${fence}
     for (const deck of decks) {
       const rect = deck.getBoundingClientRect();
       const topAfterJump = rect.top + jump;
-      if (topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
+      if (rect.top >= deactivationBoundary - TOLERATED_ROUNDING || topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
         continue;
       }
       const turnIdDiagnostics = deck.getAttribute("data-turn-id-container");
@@ -2635,7 +2635,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap.js
-  var VERSION = true ? "2.49" : "unbuilt";
+  var VERSION = true ? "2.50" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

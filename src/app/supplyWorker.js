@@ -70,6 +70,8 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
         const rect = deck.getBoundingClientRect();
         const topAfterJump = rect.top + jump;
         if (
+            rect.top >=
+            deactivationBoundary - TOLERATED_ROUNDING ||
             topAfterJump <
             deactivationBoundary - TOLERATED_ROUNDING
         ) {
