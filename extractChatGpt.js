@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.31
+// @version      5.32
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @license      MIT
@@ -250,7 +250,13 @@
     timeout = 3e4,
     poll = 100
   } = {}) {
-    if (type === "empty") return;
+    const startedAt = performance.now();
+    if (type === "empty") {
+      return {
+        readinessMs: performance.now() - startedAt,
+        decodeMs: 0
+      };
+    }
     const deadline = Date.now() + timeout;
     while (!slabReady(type, slab)) {
       if (!slab.isConnected) {
@@ -261,12 +267,19 @@
       }
       await sleep(poll);
     }
+    const readyAt = performance.now();
     if (type === "image") {
       const image = primaryImage(slab);
       if (typeof image.decode === "function") await image.decode();
     }
+    return {
+      readinessMs: readyAt - startedAt,
+      decodeMs: performance.now() - readyAt
+    };
   }
   async function compileDeck(deck, slabs) {
+    const startedAt = performance.now();
+    const slabTimings = [];
     const unit = {
       turnId: deck.getAttribute("data-turn-id-container"),
       height: null,
@@ -276,11 +289,41 @@
     };
     for (const slab of [...slabs].reverse()) {
       const type = slabType(slab);
-      await waitSlabReady(type, slab);
+      const slabStartedAt = performance.now();
+      const readiness = await waitSlabReady(type, slab);
+      const serializationStartedAt = performance.now();
       const prompt = promptFrom(type, slab, unit);
+      const finishedAt = performance.now();
       if (prompt) unit.prompts.push(prompt);
+      slabTimings.push({
+        type,
+        id: slab.getAttribute?.("data-message-id") ?? slab.id ?? "synthetic",
+        readinessMs: readiness.readinessMs,
+        decodeMs: readiness.decodeMs,
+        serializationMs: finishedAt - serializationStartedAt,
+        elapsedMs: finishedAt - slabStartedAt
+      });
     }
     unit.height = deck.getBoundingClientRect().height;
+    const elapsedMs = performance.now() - startedAt;
+    if (elapsedMs >= 1e3) {
+      const relevantSlabs = slabTimings.filter(
+        (slab) => slab.elapsedMs >= 250
+      );
+      if (relevantSlabs.length === 0 && slabTimings.length > 0) {
+        relevantSlabs.push(slabTimings.reduce(
+          (slowest, slab) => slab.elapsedMs > slowest.elapsedMs ? slab : slowest
+        ));
+      }
+      console.log(
+        "[slow deck compilation]\n" + JSON.stringify({
+          turnId: unit.turnId,
+          elapsedMs,
+          slabCount: slabTimings.length,
+          relevantSlabs
+        }, null, 2)
+      );
+    }
     return unit;
   }
   function compiledDeckFor(turnId) {
@@ -1607,7 +1650,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.31" : "unbuilt";
+  var VERSION = true ? "5.32" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

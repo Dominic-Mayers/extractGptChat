@@ -3,6 +3,7 @@ import { showCompatibilityCheck } from './compatibility-dev.js';
 import {
     logActiveTraversalDiagnostics,
     logCycleContextDiagnostics,
+    recordCycleStageDiagnostics,
     selectCurrentJumpDiagnostics
 } from './cycleDiagnostics-dev.js';
 
@@ -31,6 +32,7 @@ const runTraversal = async () => {
         await traverseConversation();
         console.log(`[${logPrefix}] finished.`);
     } catch (error) {
+        recordCycleStageDiagnostics("error", { error });
         selectCurrentJumpDiagnostics("error");
         logCycleContextDiagnostics();
         console.error(`[${logPrefix}] failed.`, error);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.57
+// @version      2.58
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -808,8 +808,9 @@
       "deck-active"
     ]);
     const isSlowSlab = cycle.stages.some((stage) => stage.stage === "slow-slab");
+    const hasError = cycle.stages.some((stage) => stage.stage === "error");
     return cycle.stages.map((stage, index) => ({ stage, index })).filter(
-      ({ stage }) => relevantStages.has(stage.stage) || isSlowSlab && slowSlabTimingStages.has(stage.stage) || stage.stage === "deck-active" && Math.max(stage.waitedMs ?? 0, 0) >= SLOW_AWAIT_MS
+      ({ stage }) => relevantStages.has(stage.stage) || isSlowSlab && slowSlabTimingStages.has(stage.stage) || hasError && (slowSlabTimingStages.has(stage.stage) || stage.stage === "slab-search") || stage.stage === "deck-active" && Math.max(stage.waitedMs ?? 0, 0) >= SLOW_AWAIT_MS
     );
   }
   function selectedJumpIndexesDiagnostics(cycle) {
@@ -932,7 +933,13 @@
     timeout = 3e4,
     poll = 100
   } = {}) {
-    if (type === "empty") return;
+    const startedAt = performance.now();
+    if (type === "empty") {
+      return {
+        readinessMs: performance.now() - startedAt,
+        decodeMs: 0
+      };
+    }
     const deadline = Date.now() + timeout;
     while (!slabReady(type, slab)) {
       if (!slab.isConnected) {
@@ -943,12 +950,19 @@
       }
       await sleep(poll);
     }
+    const readyAt = performance.now();
     if (type === "image") {
       const image = primaryImage(slab);
       if (typeof image.decode === "function") await image.decode();
     }
+    return {
+      readinessMs: readyAt - startedAt,
+      decodeMs: performance.now() - readyAt
+    };
   }
   async function compileDeck(deck, slabs) {
+    const startedAt = performance.now();
+    const slabTimings = [];
     const unit = {
       turnId: deck.getAttribute("data-turn-id-container"),
       height: null,
@@ -958,11 +972,41 @@
     };
     for (const slab of [...slabs].reverse()) {
       const type = slabType(slab);
-      await waitSlabReady(type, slab);
+      const slabStartedAt = performance.now();
+      const readiness = await waitSlabReady(type, slab);
+      const serializationStartedAt = performance.now();
       const prompt = promptFrom(type, slab, unit);
+      const finishedAt = performance.now();
       if (prompt) unit.prompts.push(prompt);
+      slabTimings.push({
+        type,
+        id: slab.getAttribute?.("data-message-id") ?? slab.id ?? "synthetic",
+        readinessMs: readiness.readinessMs,
+        decodeMs: readiness.decodeMs,
+        serializationMs: finishedAt - serializationStartedAt,
+        elapsedMs: finishedAt - slabStartedAt
+      });
     }
     unit.height = deck.getBoundingClientRect().height;
+    const elapsedMs = performance.now() - startedAt;
+    if (elapsedMs >= 1e3) {
+      const relevantSlabs = slabTimings.filter(
+        (slab) => slab.elapsedMs >= 250
+      );
+      if (relevantSlabs.length === 0 && slabTimings.length > 0) {
+        relevantSlabs.push(slabTimings.reduce(
+          (slowest, slab) => slab.elapsedMs > slowest.elapsedMs ? slab : slowest
+        ));
+      }
+      console.log(
+        "[slow deck compilation]\n" + JSON.stringify({
+          turnId: unit.turnId,
+          elapsedMs,
+          slabCount: slabTimings.length,
+          relevantSlabs
+        }, null, 2)
+      );
+    }
     return unit;
   }
   function compiledDeckFor(turnId) {
@@ -2618,6 +2662,7 @@ Do not omit or combine any item.`;
         await traverseConversation();
         console.log(`[${logPrefix}] finished.`);
       } catch (error) {
+        recordCycleStageDiagnostics("error", { error });
         selectCurrentJumpDiagnostics("error");
         logCycleContextDiagnostics();
         console.error(`[${logPrefix}] failed.`, error);
@@ -2643,7 +2688,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.57" : "unbuilt";
+  var VERSION = true ? "2.58" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

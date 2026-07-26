@@ -708,11 +708,16 @@ function relevantStagesDiagnostics(cycle) {
         "deck-active"
     ]);
     const isSlowSlab = cycle.stages.some(stage => stage.stage === "slow-slab");
+    const hasError = cycle.stages.some(stage => stage.stage === "error");
     return cycle.stages
         .map((stage, index) => ({ stage, index }))
         .filter(({ stage }) =>
             relevantStages.has(stage.stage) ||
             (isSlowSlab && slowSlabTimingStages.has(stage.stage)) ||
+            (hasError && (
+                slowSlabTimingStages.has(stage.stage) ||
+                stage.stage === "slab-search"
+            )) ||
             (stage.stage === "deck-active" &&
                 Math.max(stage.waitedMs ?? 0, 0) >= SLOW_AWAIT_MS)
         );
