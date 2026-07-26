@@ -4,7 +4,7 @@ const {
     buildProductionSources
 } = require('./build-production-sources');
 
-const version = '5.28';
+const version = '5.29';
 const output = 'extractChatGpt.js';
 
 const userscriptHeader = `// ==UserScript==
@@ -13,6 +13,7 @@ const userscriptHeader = `// ==UserScript==
 // @version      ${version}
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
+// @license      MIT
 // @match        https://chatgpt.com/*
 // @noframes
 // @grant        GM_registerMenuCommand

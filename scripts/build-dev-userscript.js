@@ -4,7 +4,7 @@ const fs = require('fs');
 // Single source of truth: bumped on every modification to the dev build, so the
 // menu command label (see bootstrap.js) makes it obvious whether Tampermonkey
 // is actually running the build you just made, instead of a stale cached copy.
-const version = '2.54';
+const version = '2.55';
 const output = 'extractChatGpt-dev.js';
 
 const userscriptHeader = `// ==UserScript==
@@ -13,6 +13,7 @@ const userscriptHeader = `// ==UserScript==
 // @version      ${version}
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
+// @license      MIT
 // @match        https://chatgpt.com/*
 // @noframes
 // @grant        GM_registerMenuCommand
