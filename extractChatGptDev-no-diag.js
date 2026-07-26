@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev, no diagnostics)
 // @namespace    http://tampermonkey.net/
-// @version      2.50-no-diag
+// @version      2.51-no-diag
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @match        https://chatgpt.com/*
@@ -15,7 +15,7 @@
   var TOLERATED_ROUNDING = 1;
   var MAX_SLAB_GAP = 160;
   var MAX_DECK_GAP = 20;
-  var CALIBRATED_JUMP = 960;
+  var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var ACTIVATION_DISTANCE = 1e3;
@@ -1599,7 +1599,7 @@ Do not omit or combine any item.`;
   }
 
   // src/dev/bootstrap-no-diag.js
-  var VERSION = true ? "2.50-no-diag" : "unbuilt";
+  var VERSION = true ? "2.51-no-diag" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",
