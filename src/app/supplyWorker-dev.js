@@ -519,7 +519,8 @@ function layoutElementDiagnostics(element, viewportTop) {
 export function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
-    const roomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
+    const anchorRoomBeforeDiagnostics =
+        roomAhead(anchorDiagnostics, workZone);
     const supplyRoomBeforeDiagnostics =
         workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
@@ -544,7 +545,7 @@ export function moveWorkZoneBy(jump) {
     beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchorDiagnostics),
-        roomBefore: roomBeforeDiagnostics,
+        anchorRoomBefore: anchorRoomBeforeDiagnostics,
         jump,
         scrollYBefore: supplyRoomBeforeDiagnostics,
         erasedJumpProbe: probeDiagnostics
@@ -622,7 +623,15 @@ function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
     }
 
     return {
-        room: roomAhead(anchor, workZone),
+        slabRoom: roomAhead(
+            { element: retainedSlab(), edge: "top" },
+            workZone
+        ),
+        anchorRoom: roomAhead(anchor, workZone),
+        deckRoom: roomAhead(
+            { element: retainedDeck(), edge: "top" },
+            workZone
+        ),
         scrollY: workZonePosition(supplyArea, workZone),
         activationDistanceAbove,
         activationDistanceBelow,

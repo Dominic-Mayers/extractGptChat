@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.61
+// @version      2.62
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -1757,7 +1757,7 @@ ${fence}
   function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
-    const roomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
+    const anchorRoomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
     const supplyRoomBeforeDiagnostics = workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
       jumpTarget: anchorDiagnostics.element === retainedSlab() && anchorDiagnostics.edge === "top" ? "slabTop" : "ordinaryAnchor",
@@ -1777,7 +1777,7 @@ ${fence}
     beginOrContinueJumpDiagnostics({
       kind: "anchor-move",
       anchor: snapshotElementDiagnostics(anchorDiagnostics),
-      roomBefore: roomBeforeDiagnostics,
+      anchorRoomBefore: anchorRoomBeforeDiagnostics,
       jump,
       scrollYBefore: supplyRoomBeforeDiagnostics,
       erasedJumpProbe: probeDiagnostics
@@ -1833,7 +1833,15 @@ ${fence}
       }
     }
     return {
-      room: roomAhead(anchor, workZone),
+      slabRoom: roomAhead(
+        { element: retainedSlab(), edge: "top" },
+        workZone
+      ),
+      anchorRoom: roomAhead(anchor, workZone),
+      deckRoom: roomAhead(
+        { element: retainedDeck(), edge: "top" },
+        workZone
+      ),
       scrollY: workZonePosition(supplyArea, workZone),
       activationDistanceAbove,
       activationDistanceBelow,
@@ -2343,8 +2351,8 @@ ${fence}
     const currentSupplyRoom = supplyRoom();
     if (currentSupplyRoom <= 0) {
       finishJumpDiagnostics({
-        roomBefore: initialRoom,
-        obtainedRoom: initialRoom,
+        anchorRoomBefore: initialRoom,
+        obtainedAnchorRoom: initialRoom,
         scrollYAfter: currentSupplyRoom,
         status: "movement-impossible"
       });
@@ -2356,8 +2364,8 @@ ${fence}
     let anchorAtBottom = isAnchorAtBottom(viewportHeight2, room);
     if (anchorAtBottom) {
       finishJumpDiagnostics({
-        roomBefore: room,
-        obtainedRoom: room,
+        anchorRoomBefore: room,
+        obtainedAnchorRoom: room,
         status: "already-at-bottom"
       });
       logSlowJumpDiagnosticsIfNeeded();
@@ -2366,13 +2374,13 @@ ${fence}
     while (!anchorAtBottom) {
       beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
-        roomBefore: room
+        anchorRoomBefore: room
       });
       const supplyRoomBefore = supplyRoom();
       if (supplyRoomBefore <= 0) {
         finishJumpDiagnostics({
-          roomBefore: room,
-          obtainedRoom: room,
+          anchorRoomBefore: room,
+          obtainedAnchorRoom: room,
           scrollYAfter: supplyRoomBefore,
           status: "movement-impossible"
         });
@@ -2391,7 +2399,7 @@ ${fence}
       if (supplyRoomAfter === supplyRoomBefore) {
         finishJumpDiagnostics({
           scrollYAfter: supplyRoomAfter,
-          obtainedRoom: anchorRoom(),
+          obtainedAnchorRoom: anchorRoom(),
           status: "no-movement"
         });
         discardCurrentJumpProbeDiagnostics();
@@ -2401,7 +2409,7 @@ ${fence}
       await waitLayoutStable({ trackAnchor: true });
       const obtainedRoom = anchorRoom();
       finishJumpDiagnostics({
-        obtainedRoom
+        obtainedAnchorRoom: obtainedRoom
       });
       logStabilizedJumpDiagnosticsIfNeeded();
       const jumpWasErased = obtainedRoom === room;
@@ -2912,7 +2920,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.61" : "unbuilt";
+  var VERSION = true ? "2.62" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

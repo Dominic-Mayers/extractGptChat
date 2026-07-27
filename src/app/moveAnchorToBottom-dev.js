@@ -34,8 +34,8 @@ export async function moveAnchorToBottom(
 
     if (currentSupplyRoom <= 0) {
         finishJumpDiagnostics({
-            roomBefore: initialRoom,
-            obtainedRoom: initialRoom,
+            anchorRoomBefore: initialRoom,
+            obtainedAnchorRoom: initialRoom,
             scrollYAfter: currentSupplyRoom,
             status: "movement-impossible"
         });
@@ -49,8 +49,8 @@ export async function moveAnchorToBottom(
     let anchorAtBottom = isAnchorAtBottom(viewportHeight, room);
     if (anchorAtBottom) {
         finishJumpDiagnostics({
-            roomBefore: room,
-            obtainedRoom: room,
+            anchorRoomBefore: room,
+            obtainedAnchorRoom: room,
             status: "already-at-bottom"
         });
         logSlowJumpDiagnosticsIfNeeded();
@@ -60,15 +60,15 @@ export async function moveAnchorToBottom(
     while (!anchorAtBottom) {
         beginOrContinueJumpDiagnostics({
             kind: "anchor-move",
-            roomBefore: room
+            anchorRoomBefore: room
         });
 
         const supplyRoomBefore = supplyRoom();
 
         if (supplyRoomBefore <= 0) {
             finishJumpDiagnostics({
-                roomBefore: room,
-                obtainedRoom: room,
+                anchorRoomBefore: room,
+                obtainedAnchorRoom: room,
                 scrollYAfter: supplyRoomBefore,
                 status: "movement-impossible"
             });
@@ -89,7 +89,7 @@ export async function moveAnchorToBottom(
         if (supplyRoomAfter === supplyRoomBefore) {
             finishJumpDiagnostics({
                 scrollYAfter: supplyRoomAfter,
-                obtainedRoom: anchorRoom(),
+                obtainedAnchorRoom: anchorRoom(),
                 status: "no-movement"
             });
             discardCurrentJumpProbeDiagnostics();
@@ -101,7 +101,7 @@ export async function moveAnchorToBottom(
 
         const obtainedRoom = anchorRoom();
         finishJumpDiagnostics({
-            obtainedRoom
+            obtainedAnchorRoom: obtainedRoom
         });
         logStabilizedJumpDiagnosticsIfNeeded();
 
