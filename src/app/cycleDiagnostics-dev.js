@@ -13,6 +13,7 @@ let deckSectionAtActivationDiagnostics = null;
 let enumeratedDecksDiagnostics = null;
 let deckSectionReadinessDiagnostics = null;
 let deckUpdatesDiagnostics = null;
+let erasedJumpDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -57,6 +58,7 @@ export function resetCycleDiagnostics() {
         replacements: [],
         recentUnchanged: []
     };
+    erasedJumpDiagnostics = null;
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -236,6 +238,72 @@ export function updateJumpDiagnostics(data) {
     const jumpDiagnostics = currentJumpDiagnostics();
     if (!jumpDiagnostics) return;
     Object.assign(jumpDiagnostics, data);
+}
+
+export function updateSpecificJumpDiagnostics(jumpDiagnostics, data) {
+    if (!jumpDiagnostics) return;
+    Object.assign(jumpDiagnostics, data);
+}
+
+export function discardCurrentJumpProbeDiagnostics() {
+    const jumpDiagnostics = currentJumpDiagnostics();
+    if (!jumpDiagnostics) return;
+    delete jumpDiagnostics.erasedJumpProbe;
+}
+
+export function recordErasedJumpResultDiagnostics(
+    jumpWasErased,
+    retriedErasedJump
+) {
+    const retryDiagnostics = currentJumpDiagnostics();
+
+    if (jumpWasErased && retriedErasedJump) {
+        selectJumpDiagnostics("erased-jump-retry-failed");
+        updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
+            recovery: {
+                retryAttempted: true,
+                outcome: "erased-again"
+            }
+        });
+        updateSpecificJumpDiagnostics(retryDiagnostics, {
+            recovery: {
+                retryAttempted: false,
+                outcome: "not-recovered"
+            }
+        });
+        return;
+    }
+
+    if (jumpWasErased) {
+        selectJumpDiagnostics("erased-jump");
+        erasedJumpDiagnostics = retryDiagnostics;
+        updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
+            recovery: {
+                retryAttempted: true,
+                outcome: "pending"
+            }
+        });
+        return;
+    }
+
+    if (retriedErasedJump) {
+        selectJumpDiagnostics("erased-jump-retry-succeeded");
+        updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
+            recovery: {
+                retryAttempted: true,
+                outcome: "succeeded"
+            }
+        });
+        updateSpecificJumpDiagnostics(retryDiagnostics, {
+            recovery: {
+                retryAttempted: false,
+                outcome: "recovered-previous-erasure"
+            }
+        });
+        return;
+    }
+
+    discardCurrentJumpProbeDiagnostics();
 }
 
 export function finishJumpDiagnostics(data = {}) {
@@ -544,8 +612,9 @@ export function logActiveTraversalDiagnostics() {
 }
 
 export function selectCurrentJumpDiagnostics(reason = "selected") {
-    if (reason == null) return;
+    if (reason == null) return null;
     selectJumpDiagnostics(reason);
+    return currentJumpDiagnostics();
 }
 
 export function flushCycleDiagnostics() {

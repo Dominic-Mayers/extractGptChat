@@ -14,10 +14,11 @@ import { waitLayoutStable } from "./waitLayoutStable-dev.js";
 import {
     beginJumpDiagnostics,
     beginOrContinueJumpDiagnostics,
+    discardCurrentJumpProbeDiagnostics,
     finishJumpDiagnostics,
     logSlowJumpDiagnosticsIfNeeded,
     logStabilizedJumpDiagnosticsIfNeeded,
-    selectCurrentJumpDiagnostics
+    recordErasedJumpResultDiagnostics
 } from "./cycleDiagnostics-dev.js";
 
 export async function moveAnchorToBottom(
@@ -91,6 +92,7 @@ export async function moveAnchorToBottom(
                 obtainedRoom: anchorRoom(),
                 status: "no-movement"
             });
+            discardCurrentJumpProbeDiagnostics();
             logSlowJumpDiagnosticsIfNeeded();
             break;
         }
@@ -105,21 +107,17 @@ export async function moveAnchorToBottom(
 
         const jumpWasErased = obtainedRoom === room;
 
+        recordErasedJumpResultDiagnostics(
+            jumpWasErased,
+            retriedErasedJump
+        );
+
         if (jumpWasErased && retriedErasedJump) {
-            selectCurrentJumpDiagnostics("erased-jump-retry-failed");
             throw new Error(
                 `Anchor made no progress after retrying an erased jump ` +
                 `at room=${room}.`
             );
         }
-
-        selectCurrentJumpDiagnostics(
-            jumpWasErased
-                ? "erased-jump"
-                : retriedErasedJump
-                    ? "erased-jump-retry-succeeded"
-                    : null
-        );
 
         retriedErasedJump = jumpWasErased;
         room = obtainedRoom;

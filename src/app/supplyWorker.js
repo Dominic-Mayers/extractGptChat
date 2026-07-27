@@ -1,7 +1,7 @@
 import {
 
     ADJACENCY_OVERLAP_TOLERANCE,
-    ACTIVATION_DISTANCE,
+    MIN_ACTIVATION_DISTANCE,
     MAX_SLAB_GAP,
     TOLERATED_ROUNDING
 } from "./constants.js";
@@ -62,7 +62,7 @@ export async function waitCurrentSlabReady() {
 export async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary =
-        workZoneTop(workZone) + workZone.height + ACTIVATION_DISTANCE;
+        workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
     const decks = elementsIn(
         activeArea,
         '[data-turn-id-container][data-is-intersecting]' +

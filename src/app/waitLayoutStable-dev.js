@@ -1,6 +1,6 @@
 import {
 
-    ACTIVATION_DISTANCE,
+    MIN_ACTIVATION_DISTANCE,
     TOLERATED_ROUNDING,
     MAX_FRAMES_FOR_STABILIZATION
 } from "./constants-dev.js";
@@ -31,7 +31,7 @@ export async function waitLayoutStable(
     } = {}
 ) {
     const stableFrames = trackAnchor &&
-        roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE
+        roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE
         ? 1
         : 2;
 

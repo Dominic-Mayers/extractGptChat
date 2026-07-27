@@ -19,7 +19,7 @@
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
-  var ACTIVATION_DISTANCE = 1e3;
+  var MIN_ACTIVATION_DISTANCE = 1e3;
   var MAX_FRAMES_FOR_STABILIZATION = 3e3;
 
   // src/app/geometry.js
@@ -664,7 +664,7 @@ ${fence}
   }
   async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
-    const deactivationBoundary = workZoneTop(workZone) + workZone.height + ACTIVATION_DISTANCE;
+    const deactivationBoundary = workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
     const decks = elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting]:not([data-is-intersecting="false"])'
@@ -1018,7 +1018,7 @@ ${fence}
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
-    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
+    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
     let unchanged = 0;

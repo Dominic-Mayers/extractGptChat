@@ -60,7 +60,6 @@ export async function moveAnchorToBottom(
         const jumpWasErased = obtainedRoom === room;
 
         if (jumpWasErased && retriedErasedJump) {
-
             throw new Error(
                 `Anchor made no progress after retrying an erased jump ` +
                 `at room=${room}.`

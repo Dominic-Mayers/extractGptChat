@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.60
+// @version      2.61
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -19,7 +19,7 @@
   var CALIBRATED_JUMP = 480;
   var MAX_DRIFT = 2;
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
-  var ACTIVATION_DISTANCE = 1e3;
+  var MIN_ACTIVATION_DISTANCE = 1e3;
   var MAX_FRAMES_FOR_STABILIZATION = 3e3;
 
   // src/app/geometry-dev.js
@@ -244,6 +244,7 @@
   var enumeratedDecksDiagnostics = null;
   var deckSectionReadinessDiagnostics = null;
   var deckUpdatesDiagnostics = null;
+  var erasedJumpDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -285,6 +286,7 @@
       replacements: [],
       recentUnchanged: []
     };
+    erasedJumpDiagnostics = null;
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -448,6 +450,62 @@
     const jumpDiagnostics = currentJumpDiagnostics();
     if (!jumpDiagnostics) return;
     Object.assign(jumpDiagnostics, data);
+  }
+  function updateSpecificJumpDiagnostics(jumpDiagnostics, data) {
+    if (!jumpDiagnostics) return;
+    Object.assign(jumpDiagnostics, data);
+  }
+  function discardCurrentJumpProbeDiagnostics() {
+    const jumpDiagnostics = currentJumpDiagnostics();
+    if (!jumpDiagnostics) return;
+    delete jumpDiagnostics.erasedJumpProbe;
+  }
+  function recordErasedJumpResultDiagnostics(jumpWasErased, retriedErasedJump) {
+    const retryDiagnostics = currentJumpDiagnostics();
+    if (jumpWasErased && retriedErasedJump) {
+      selectJumpDiagnostics("erased-jump-retry-failed");
+      updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
+        recovery: {
+          retryAttempted: true,
+          outcome: "erased-again"
+        }
+      });
+      updateSpecificJumpDiagnostics(retryDiagnostics, {
+        recovery: {
+          retryAttempted: false,
+          outcome: "not-recovered"
+        }
+      });
+      return;
+    }
+    if (jumpWasErased) {
+      selectJumpDiagnostics("erased-jump");
+      erasedJumpDiagnostics = retryDiagnostics;
+      updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
+        recovery: {
+          retryAttempted: true,
+          outcome: "pending"
+        }
+      });
+      return;
+    }
+    if (retriedErasedJump) {
+      selectJumpDiagnostics("erased-jump-retry-succeeded");
+      updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
+        recovery: {
+          retryAttempted: true,
+          outcome: "succeeded"
+        }
+      });
+      updateSpecificJumpDiagnostics(retryDiagnostics, {
+        recovery: {
+          retryAttempted: false,
+          outcome: "recovered-previous-erasure"
+        }
+      });
+      return;
+    }
+    discardCurrentJumpProbeDiagnostics();
   }
   function finishJumpDiagnostics(data = {}) {
     const jumpDiagnostics = currentJumpDiagnostics();
@@ -676,8 +734,9 @@
     emitPendingCycleDiagnostics(currentCycle, activeDiagnostics);
   }
   function selectCurrentJumpDiagnostics(reason = "selected") {
-    if (reason == null) return;
+    if (reason == null) return null;
     selectJumpDiagnostics(reason);
+    return currentJumpDiagnostics();
   }
   function flushCycleDiagnostics() {
     if (!currentCycle) return;
@@ -1372,7 +1431,7 @@ ${fence}
   }
   async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
-    const deactivationBoundary = workZoneTop(workZone) + workZone.height + ACTIVATION_DISTANCE;
+    const deactivationBoundary = workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
     const decks = elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting]:not([data-is-intersecting="false"])'
@@ -1700,12 +1759,28 @@ ${fence}
     const anchorDiagnostics = retainedAnchor();
     const roomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
     const supplyRoomBeforeDiagnostics = workZonePosition(supplyArea, workZone);
+    const probeDiagnostics = {
+      jumpTarget: anchorDiagnostics.element === retainedSlab() && anchorDiagnostics.edge === "top" ? "slabTop" : "ordinaryAnchor",
+      beforeJump: jumpProbeGeometryDiagnostics(
+        anchorDiagnostics,
+        supplyArea,
+        workZone
+      ),
+      nextRaf: null,
+      activationChanges: [],
+      renderingChanges: []
+    };
+    const observerDiagnostics = observeJumpChangesDiagnostics(
+      probeDiagnostics,
+      supplyArea
+    );
     beginOrContinueJumpDiagnostics({
       kind: "anchor-move",
       anchor: snapshotElementDiagnostics(anchorDiagnostics),
       roomBefore: roomBeforeDiagnostics,
       jump,
-      scrollYBefore: supplyRoomBeforeDiagnostics
+      scrollYBefore: supplyRoomBeforeDiagnostics,
+      erasedJumpProbe: probeDiagnostics
     });
     moveWorkZone(jump, supplyArea, workZone);
     const supplyRoomAfterDiagnostics = workZonePosition(supplyArea, workZone);
@@ -1713,6 +1788,138 @@ ${fence}
       scrollYAfter: supplyRoomAfterDiagnostics,
       immediateAnchor: snapshotElementDiagnostics(anchorDiagnostics)
     });
+    captureNextRafJumpProbeDiagnostics(
+      probeDiagnostics,
+      observerDiagnostics,
+      anchorDiagnostics,
+      supplyArea,
+      workZone
+    );
+  }
+  function captureNextRafJumpProbeDiagnostics(probe, observer, anchor, supplyArea, workZone) {
+    requestAnimationFrame(() => {
+      probe.nextRaf = jumpProbeGeometryDiagnostics(
+        anchor,
+        supplyArea,
+        workZone
+      );
+      observer.disconnect();
+    });
+  }
+  function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
+    const viewportTop = workZoneTop(workZone);
+    const viewportBottom = viewportTop + workZone.height;
+    let activationDistanceAbove = null;
+    let activationDistanceBelow = null;
+    let inactiveDeckAbove = null;
+    let inactiveDeckBelow = null;
+    for (const deck of getDecks(supplyArea)) {
+      const activation = deck.getAttribute("data-is-intersecting");
+      if (activation != null && activation !== "false") continue;
+      const rect = deck.getBoundingClientRect();
+      if (rect.bottom <= viewportTop) {
+        const distance = viewportTop - rect.bottom;
+        if (activationDistanceAbove == null || distance < activationDistanceAbove) {
+          activationDistanceAbove = distance;
+          inactiveDeckAbove = deck;
+        }
+      }
+      if (rect.top >= viewportBottom) {
+        const distance = rect.top - viewportBottom;
+        if (activationDistanceBelow == null || distance < activationDistanceBelow) {
+          activationDistanceBelow = distance;
+          inactiveDeckBelow = deck;
+        }
+      }
+    }
+    return {
+      room: roomAhead(anchor, workZone),
+      scrollY: workZonePosition(supplyArea, workZone),
+      activationDistanceAbove,
+      activationDistanceBelow,
+      inactiveDeckAbove: snapshotElementDiagnostics(inactiveDeckAbove),
+      inactiveDeckBelow: snapshotElementDiagnostics(inactiveDeckBelow)
+    };
+  }
+  function observeJumpChangesDiagnostics(probe, supplyArea) {
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes" && record.attributeName === "data-is-intersecting") {
+          probe.activationChanges.push({
+            clock: performance.now(),
+            deck: snapshotElementDiagnostics(record.target),
+            before: record.oldValue,
+            after: record.target.getAttribute(
+              "data-is-intersecting"
+            )
+          });
+          continue;
+        }
+        if (record.type !== "childList") continue;
+        for (const element of record.addedNodes) {
+          if (element.nodeType !== Node.ELEMENT_NODE) continue;
+          if (element.tagName === "SECTION") {
+            probe.activationChanges.push({
+              clock: performance.now(),
+              deck: snapshotElementDiagnostics(
+                record.target.closest?.(
+                  "[data-turn-id-container]"
+                )
+              ),
+              sectionChange: "added",
+              section: mutationElementDiagnostics(element)
+            });
+            continue;
+          }
+          probe.renderingChanges.push({
+            clock: performance.now(),
+            change: "added",
+            element: mutationElementDiagnostics(element)
+          });
+        }
+        for (const element of record.removedNodes) {
+          if (element.nodeType !== Node.ELEMENT_NODE) continue;
+          if (element.tagName === "SECTION") {
+            probe.activationChanges.push({
+              clock: performance.now(),
+              deck: snapshotElementDiagnostics(
+                record.target.closest?.(
+                  "[data-turn-id-container]"
+                )
+              ),
+              sectionChange: "removed",
+              section: mutationElementDiagnostics(element)
+            });
+            continue;
+          }
+          probe.renderingChanges.push({
+            clock: performance.now(),
+            change: "removed",
+            element: mutationElementDiagnostics(element)
+          });
+        }
+      }
+    });
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: ["data-is-intersecting"]
+    });
+    return observer;
+  }
+  function mutationElementDiagnostics(element) {
+    const deck = element.matches?.("[data-turn-id-container]") ? element : element.closest?.("[data-turn-id-container]");
+    return {
+      tagName: element.tagName?.toLowerCase() ?? null,
+      id: element.id || null,
+      className: element.getAttribute?.("class") ?? null,
+      role: element.getAttribute?.("data-message-author-role") ?? null,
+      messageId: element.getAttribute?.("data-message-id") ?? null,
+      turnId: deck?.getAttribute("data-turn-id-container") ?? null,
+      snapshot: snapshotElementDiagnostics(element)
+    };
   }
   function closestDeck(referenceRoom, candidates, workZone) {
     let selected = null;
@@ -1864,7 +2071,7 @@ ${fence}
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
-    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > ACTIVATION_DISTANCE ? 1 : 2;
+    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
     let unchanged = 0;
@@ -2187,6 +2394,7 @@ ${fence}
           obtainedRoom: anchorRoom(),
           status: "no-movement"
         });
+        discardCurrentJumpProbeDiagnostics();
         logSlowJumpDiagnosticsIfNeeded();
         break;
       }
@@ -2197,15 +2405,15 @@ ${fence}
       });
       logStabilizedJumpDiagnosticsIfNeeded();
       const jumpWasErased = obtainedRoom === room;
+      recordErasedJumpResultDiagnostics(
+        jumpWasErased,
+        retriedErasedJump
+      );
       if (jumpWasErased && retriedErasedJump) {
-        selectCurrentJumpDiagnostics("erased-jump-retry-failed");
         throw new Error(
           `Anchor made no progress after retrying an erased jump at room=${room}.`
         );
       }
-      selectCurrentJumpDiagnostics(
-        jumpWasErased ? "erased-jump" : retriedErasedJump ? "erased-jump-retry-succeeded" : null
-      );
       retriedErasedJump = jumpWasErased;
       room = obtainedRoom;
       anchorAtBottom = isAnchorAtBottom(viewportHeight2, room);
@@ -2704,7 +2912,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.60" : "unbuilt";
+  var VERSION = true ? "2.61" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

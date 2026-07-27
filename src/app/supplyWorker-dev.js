@@ -1,7 +1,7 @@
 import {
 
     ADJACENCY_OVERLAP_TOLERANCE,
-    ACTIVATION_DISTANCE,
+    MIN_ACTIVATION_DISTANCE,
     MAX_SLAB_GAP,
     TOLERATED_ROUNDING
 } from "./constants-dev.js";
@@ -97,7 +97,7 @@ export async function waitCurrentSlabReady() {
 export async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary =
-        workZoneTop(workZone) + workZone.height + ACTIVATION_DISTANCE;
+        workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
     const decks = elementsIn(
         activeArea,
         '[data-turn-id-container][data-is-intersecting]' +
@@ -522,13 +522,32 @@ export function moveWorkZoneBy(jump) {
     const roomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
     const supplyRoomBeforeDiagnostics =
         workZonePosition(supplyArea, workZone);
+    const probeDiagnostics = {
+        jumpTarget: anchorDiagnostics.element === retainedSlab() &&
+            anchorDiagnostics.edge === "top"
+            ? "slabTop"
+            : "ordinaryAnchor",
+        beforeJump: jumpProbeGeometryDiagnostics(
+            anchorDiagnostics,
+            supplyArea,
+            workZone
+        ),
+        nextRaf: null,
+        activationChanges: [],
+        renderingChanges: []
+    };
+    const observerDiagnostics = observeJumpChangesDiagnostics(
+        probeDiagnostics,
+        supplyArea
+    );
 
     beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchorDiagnostics),
         roomBefore: roomBeforeDiagnostics,
         jump,
-        scrollYBefore: supplyRoomBeforeDiagnostics
+        scrollYBefore: supplyRoomBeforeDiagnostics,
+        erasedJumpProbe: probeDiagnostics
     });
 
     moveWorkZone(jump, supplyArea, workZone);
@@ -540,6 +559,165 @@ export function moveWorkZoneBy(jump) {
         scrollYAfter: supplyRoomAfterDiagnostics,
         immediateAnchor: snapshotElementDiagnostics(anchorDiagnostics)
     });
+
+    captureNextRafJumpProbeDiagnostics(
+        probeDiagnostics,
+        observerDiagnostics,
+        anchorDiagnostics,
+        supplyArea,
+        workZone
+    );
+}
+
+function captureNextRafJumpProbeDiagnostics(
+    probe,
+    observer,
+    anchor,
+    supplyArea,
+    workZone
+) {
+    requestAnimationFrame(() => {
+        probe.nextRaf = jumpProbeGeometryDiagnostics(
+            anchor,
+            supplyArea,
+            workZone
+        );
+        observer.disconnect();
+    });
+}
+
+function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
+    const viewportTop = workZoneTop(workZone);
+    const viewportBottom = viewportTop + workZone.height;
+    let activationDistanceAbove = null;
+    let activationDistanceBelow = null;
+    let inactiveDeckAbove = null;
+    let inactiveDeckBelow = null;
+
+    for (const deck of getDecks(supplyArea)) {
+        const activation = deck.getAttribute("data-is-intersecting");
+        if (activation != null && activation !== "false") continue;
+
+        const rect = deck.getBoundingClientRect();
+        if (rect.bottom <= viewportTop) {
+            const distance = viewportTop - rect.bottom;
+            if (
+                activationDistanceAbove == null ||
+                distance < activationDistanceAbove
+            ) {
+                activationDistanceAbove = distance;
+                inactiveDeckAbove = deck;
+            }
+        }
+        if (rect.top >= viewportBottom) {
+            const distance = rect.top - viewportBottom;
+            if (
+                activationDistanceBelow == null ||
+                distance < activationDistanceBelow
+            ) {
+                activationDistanceBelow = distance;
+                inactiveDeckBelow = deck;
+            }
+        }
+    }
+
+    return {
+        room: roomAhead(anchor, workZone),
+        scrollY: workZonePosition(supplyArea, workZone),
+        activationDistanceAbove,
+        activationDistanceBelow,
+        inactiveDeckAbove: snapshotElementDiagnostics(inactiveDeckAbove),
+        inactiveDeckBelow: snapshotElementDiagnostics(inactiveDeckBelow)
+    };
+}
+
+function observeJumpChangesDiagnostics(probe, supplyArea) {
+    const observer = new MutationObserver(records => {
+        for (const record of records) {
+            if (
+                record.type === "attributes" &&
+                record.attributeName === "data-is-intersecting"
+            ) {
+                probe.activationChanges.push({
+                    clock: performance.now(),
+                    deck: snapshotElementDiagnostics(record.target),
+                    before: record.oldValue,
+                    after: record.target.getAttribute(
+                        "data-is-intersecting"
+                    )
+                });
+                continue;
+            }
+
+            if (record.type !== "childList") continue;
+            for (const element of record.addedNodes) {
+                if (element.nodeType !== Node.ELEMENT_NODE) continue;
+                if (element.tagName === "SECTION") {
+                    probe.activationChanges.push({
+                        clock: performance.now(),
+                        deck: snapshotElementDiagnostics(
+                            record.target.closest?.(
+                                "[data-turn-id-container]"
+                            )
+                        ),
+                        sectionChange: "added",
+                        section: mutationElementDiagnostics(element)
+                    });
+                    continue;
+                }
+                probe.renderingChanges.push({
+                    clock: performance.now(),
+                    change: "added",
+                    element: mutationElementDiagnostics(element)
+                });
+            }
+            for (const element of record.removedNodes) {
+                if (element.nodeType !== Node.ELEMENT_NODE) continue;
+                if (element.tagName === "SECTION") {
+                    probe.activationChanges.push({
+                        clock: performance.now(),
+                        deck: snapshotElementDiagnostics(
+                            record.target.closest?.(
+                                "[data-turn-id-container]"
+                            )
+                        ),
+                        sectionChange: "removed",
+                        section: mutationElementDiagnostics(element)
+                    });
+                    continue;
+                }
+                probe.renderingChanges.push({
+                    clock: performance.now(),
+                    change: "removed",
+                    element: mutationElementDiagnostics(element)
+                });
+            }
+        }
+    });
+
+    observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeOldValue: true,
+        attributeFilter: ["data-is-intersecting"]
+    });
+    return observer;
+}
+
+function mutationElementDiagnostics(element) {
+    const deck = element.matches?.("[data-turn-id-container]")
+        ? element
+        : element.closest?.("[data-turn-id-container]");
+    return {
+        tagName: element.tagName?.toLowerCase() ?? null,
+        id: element.id || null,
+        className: element.getAttribute?.("class") ?? null,
+        role: element.getAttribute?.("data-message-author-role") ?? null,
+        messageId: element.getAttribute?.("data-message-id") ?? null,
+        turnId: deck?.getAttribute("data-turn-id-container") ?? null,
+        snapshot: snapshotElementDiagnostics(element)
+    };
 }
 
 function closestDeck(referenceRoom, candidates, workZone) {
