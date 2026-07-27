@@ -41,8 +41,10 @@ let currentDeck;
 let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
+let currentJumpObserverDiagnostics = null;
 
 export function resetSupplyWorker() {
+    resetJumpObserverDiagnostics();
     supplier = observeSupplier();
     currentDeck = null;
     currentSlab = null;
@@ -517,6 +519,7 @@ function layoutElementDiagnostics(element, viewportTop) {
 }
 
 export function moveWorkZoneBy(jump) {
+    resetJumpObserverDiagnostics();
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
     const anchorRoomBeforeDiagnostics =
@@ -537,7 +540,7 @@ export function moveWorkZoneBy(jump) {
         activationChanges: [],
         renderingChanges: []
     };
-    const observerDiagnostics = observeJumpChangesDiagnostics(
+    beginJumpObserverDiagnostics(
         probeDiagnostics,
         supplyArea
     );
@@ -563,16 +566,26 @@ export function moveWorkZoneBy(jump) {
 
     captureNextRafJumpProbeDiagnostics(
         probeDiagnostics,
-        observerDiagnostics,
         anchorDiagnostics,
         supplyArea,
         workZone
     );
 }
 
+function resetJumpObserverDiagnostics() {
+    currentJumpObserverDiagnostics?.disconnect();
+    currentJumpObserverDiagnostics = null;
+}
+
+function beginJumpObserverDiagnostics(probe, supplyArea) {
+    currentJumpObserverDiagnostics = observeJumpChangesDiagnostics(
+        probe,
+        supplyArea
+    );
+}
+
 function captureNextRafJumpProbeDiagnostics(
     probe,
-    observer,
     anchor,
     supplyArea,
     workZone
@@ -583,7 +596,6 @@ function captureNextRafJumpProbeDiagnostics(
             supplyArea,
             workZone
         );
-        observer.disconnect();
     });
 }
 
@@ -649,6 +661,9 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
             ) {
                 probe.activationChanges.push({
                     clock: performance.now(),
+                    phase: probe.nextRaf == null
+                        ? "before-next-rAF"
+                        : "after-next-rAF",
                     deck: snapshotElementDiagnostics(record.target),
                     before: record.oldValue,
                     after: record.target.getAttribute(
@@ -664,6 +679,9 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
                 if (element.tagName === "SECTION") {
                     probe.activationChanges.push({
                         clock: performance.now(),
+                        phase: probe.nextRaf == null
+                            ? "before-next-rAF"
+                            : "after-next-rAF",
                         deck: snapshotElementDiagnostics(
                             record.target.closest?.(
                                 "[data-turn-id-container]"
@@ -676,6 +694,9 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
                 }
                 probe.renderingChanges.push({
                     clock: performance.now(),
+                    phase: probe.nextRaf == null
+                        ? "before-next-rAF"
+                        : "after-next-rAF",
                     change: "added",
                     element: mutationElementDiagnostics(element)
                 });
@@ -685,6 +706,9 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
                 if (element.tagName === "SECTION") {
                     probe.activationChanges.push({
                         clock: performance.now(),
+                        phase: probe.nextRaf == null
+                            ? "before-next-rAF"
+                            : "after-next-rAF",
                         deck: snapshotElementDiagnostics(
                             record.target.closest?.(
                                 "[data-turn-id-container]"
@@ -697,6 +721,9 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
                 }
                 probe.renderingChanges.push({
                     clock: performance.now(),
+                    phase: probe.nextRaf == null
+                        ? "before-next-rAF"
+                        : "after-next-rAF",
                     change: "removed",
                     element: mutationElementDiagnostics(element)
                 });

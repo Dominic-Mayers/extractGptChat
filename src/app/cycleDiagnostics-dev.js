@@ -14,6 +14,8 @@ let enumeratedDecksDiagnostics = null;
 let deckSectionReadinessDiagnostics = null;
 let deckUpdatesDiagnostics = null;
 let erasedJumpDiagnostics = null;
+let previousJumpSummaryDiagnostics = null;
+let jumpPopulationDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -59,6 +61,21 @@ export function resetCycleDiagnostics() {
         recentUnchanged: []
     };
     erasedJumpDiagnostics = null;
+    previousJumpSummaryDiagnostics = null;
+    jumpPopulationDiagnostics = {
+        classifiedJumpCount: 0,
+        erasedJumpCount: 0,
+        survivedJumpCount: 0,
+        activationJumpCount: 0,
+        deactivationJumpCount: 0,
+        renderingJumpCount: 0,
+        byJumpTarget: {},
+        byOutcome: {},
+        transitionPatterns: {},
+        geometry: {},
+        geometryByJumpTarget: {},
+        geometryByOutcome: {}
+    };
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -259,6 +276,7 @@ export function recordErasedJumpResultDiagnostics(
 
     if (jumpWasErased && retriedErasedJump) {
         selectJumpDiagnostics("erased-jump-retry-failed");
+        retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;
         updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
             recovery: {
                 retryAttempted: true,
@@ -271,18 +289,32 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "not-recovered"
             }
         });
+        recordJumpPopulationDiagnostics(
+            retryDiagnostics,
+            "retry-erased"
+        );
+        previousJumpSummaryDiagnostics =
+            jumpSummaryDiagnostics(retryDiagnostics);
         return;
     }
 
     if (jumpWasErased) {
         selectJumpDiagnostics("erased-jump");
         erasedJumpDiagnostics = retryDiagnostics;
+        erasedJumpDiagnostics.previousJump =
+            previousJumpSummaryDiagnostics;
         updateSpecificJumpDiagnostics(erasedJumpDiagnostics, {
             recovery: {
                 retryAttempted: true,
                 outcome: "pending"
             }
         });
+        recordJumpPopulationDiagnostics(
+            erasedJumpDiagnostics,
+            "erased"
+        );
+        previousJumpSummaryDiagnostics =
+            jumpSummaryDiagnostics(erasedJumpDiagnostics);
         return;
     }
 
@@ -300,10 +332,183 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "recovered-previous-erasure"
             }
         });
+        recordJumpPopulationDiagnostics(
+            retryDiagnostics,
+            "retry-succeeded"
+        );
+        previousJumpSummaryDiagnostics =
+            jumpSummaryDiagnostics(retryDiagnostics);
         return;
     }
 
+    recordJumpPopulationDiagnostics(retryDiagnostics, "survived");
+    previousJumpSummaryDiagnostics =
+        jumpSummaryDiagnostics(retryDiagnostics);
     discardCurrentJumpProbeDiagnostics();
+}
+
+function jumpSummaryDiagnostics(jump) {
+    const stabilization = jump.stabilizations[
+        jump.stabilizations.length - 1
+    ] ?? null;
+    return {
+        jumpTarget: jump.erasedJumpProbe?.jumpTarget ?? null,
+        requestedJump: jump.requestedJump,
+        beforeJump: jump.erasedJumpProbe?.beforeJump ?? null,
+        nextRaf: jump.erasedJumpProbe?.nextRaf ?? null,
+        activationChanges:
+            jump.erasedJumpProbe?.activationChanges ?? [],
+        renderingChanges:
+            jump.erasedJumpProbe?.renderingChanges ?? [],
+        obtainedAnchorRoom: jump.obtainedAnchorRoom ?? null,
+        stabilization: stabilization == null
+            ? null
+            : {
+                status: stabilization.status,
+                stableFrames: stabilization.stableFrames,
+                frames: stabilization.frames,
+                elapsedMs: stabilization.elapsedMs,
+                wallElapsedMs: stabilization.wallElapsedMs,
+                rafs: stabilization.rafs.map(raf => ({
+                    frame: raf.frame,
+                    status: raf.status,
+                    geometryChangeMagnitude:
+                        raf.geometryChangeMagnitude,
+                    scrollHeightChange: raf.scrollHeightChange,
+                    scrollYChange: raf.scrollYChange
+                }))
+            }
+    };
+}
+
+function recordJumpPopulationDiagnostics(jump, outcome) {
+    const probe = jump.erasedJumpProbe;
+    if (jumpPopulationDiagnostics == null || probe == null) return;
+
+    const attributeChanges = probe.activationChanges.filter(
+        change => "before" in change
+    );
+    const activationCount = attributeChanges.filter(
+        change =>
+            (change.before == null || change.before === "false") &&
+            change.after != null &&
+            change.after !== "false"
+    ).length;
+    const deactivationCount = attributeChanges.filter(
+        change =>
+            change.before != null &&
+            change.before !== "false" &&
+            (change.after == null || change.after === "false")
+    ).length;
+
+    jumpPopulationDiagnostics.classifiedJumpCount++;
+    if (outcome === "erased" || outcome === "retry-erased") {
+        jumpPopulationDiagnostics.erasedJumpCount++;
+    } else {
+        jumpPopulationDiagnostics.survivedJumpCount++;
+    }
+    if (activationCount > 0) {
+        jumpPopulationDiagnostics.activationJumpCount++;
+    }
+    if (deactivationCount > 0) {
+        jumpPopulationDiagnostics.deactivationJumpCount++;
+    }
+    if (probe.renderingChanges.length > 0) {
+        jumpPopulationDiagnostics.renderingJumpCount++;
+    }
+
+    incrementJumpPopulationCategoryDiagnostics(
+        jumpPopulationDiagnostics.byJumpTarget,
+        probe.jumpTarget
+    );
+    incrementJumpPopulationCategoryDiagnostics(
+        jumpPopulationDiagnostics.byOutcome,
+        outcome
+    );
+    const transitionPattern =
+        `activation:${activationCount},` +
+        `deactivation:${deactivationCount},` +
+        `rendering:${probe.renderingChanges.length > 0}`;
+    const patternOutcomes =
+        jumpPopulationDiagnostics.transitionPatterns[
+            transitionPattern
+        ] ?? {};
+    incrementJumpPopulationCategoryDiagnostics(
+        patternOutcomes,
+        outcome
+    );
+    jumpPopulationDiagnostics.transitionPatterns[
+        transitionPattern
+    ] = patternOutcomes;
+
+    const before = probe.beforeJump;
+    const geometryValues = {
+        slabRoom: before.slabRoom,
+        anchorRoom: before.anchorRoom,
+        deckRoom: before.deckRoom,
+        activationDistanceAbove:
+            before.activationDistanceAbove,
+        activationDistanceBelow:
+            before.activationDistanceBelow
+    };
+    if (
+        Number.isFinite(before.slabRoom) &&
+        Number.isFinite(before.activationDistanceAbove)
+    ) {
+        geometryValues.slabActivationGapAbove =
+            before.slabRoom + before.activationDistanceAbove;
+    }
+    const targetGeometry =
+        jumpPopulationDiagnostics.geometryByJumpTarget[
+            probe.jumpTarget
+        ] ?? {};
+    const outcomeGeometry =
+        jumpPopulationDiagnostics.geometryByOutcome[outcome] ?? {};
+    for (const [name, value] of Object.entries(geometryValues)) {
+        recordJumpPopulationGeometryDiagnostics(
+            jumpPopulationDiagnostics.geometry,
+            name,
+            value
+        );
+        recordJumpPopulationGeometryDiagnostics(
+            targetGeometry,
+            name,
+            value
+        );
+        recordJumpPopulationGeometryDiagnostics(
+            outcomeGeometry,
+            name,
+            value
+        );
+    }
+    jumpPopulationDiagnostics.geometryByJumpTarget[
+        probe.jumpTarget
+    ] = targetGeometry;
+    jumpPopulationDiagnostics.geometryByOutcome[outcome] =
+        outcomeGeometry;
+}
+
+function incrementJumpPopulationCategoryDiagnostics(categories, key) {
+    categories[key] = (categories[key] ?? 0) + 1;
+}
+
+function recordJumpPopulationGeometryDiagnostics(
+    geometry,
+    name,
+    value
+) {
+    if (!Number.isFinite(value)) return;
+    const metric = geometry[name] ?? {
+        count: 0,
+        sum: 0,
+        minimum: value,
+        maximum: value
+    };
+    metric.count++;
+    metric.sum += value;
+    metric.minimum = Math.min(metric.minimum, value);
+    metric.maximum = Math.max(metric.maximum, value);
+    geometry[name] = metric;
 }
 
 export function finishJumpDiagnostics(data = {}) {
@@ -624,7 +829,27 @@ export function flushCycleDiagnostics() {
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
     emitDeckUpdatesDiagnostics();
+    emitJumpPopulationDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+}
+
+function emitJumpPopulationDiagnostics() {
+    if (jumpPopulationDiagnostics == null) return;
+    const output = structuredClone(jumpPopulationDiagnostics);
+    const geometries = [
+        output.geometry,
+        ...Object.values(output.geometryByJumpTarget),
+        ...Object.values(output.geometryByOutcome)
+    ];
+    for (const geometry of geometries) {
+        for (const metric of Object.values(geometry)) {
+            metric.average = metric.sum / metric.count;
+        }
+    }
+    console.log(
+        "[jump population]\n" +
+        JSON.stringify(output, null, 2)
+    );
 }
 
 function emitDeckSectionReadinessDiagnostics() {
