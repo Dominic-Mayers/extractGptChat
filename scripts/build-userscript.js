@@ -4,7 +4,7 @@ const {
     buildProductionSources
 } = require('./build-production-sources');
 
-const version = '5.36';
+const version = '5.37';
 const output = 'extractChatGpt.js';
 
 const userscriptHeader = `// ==UserScript==
@@ -15,6 +15,7 @@ const userscriptHeader = `// ==UserScript==
 // @author       Dominic Mayers
 // @license      MIT
 // @match        https://chatgpt.com/*
+// @match        https://chat.openai.com/*
 // @noframes
 // @grant        GM_registerMenuCommand
 // ==/UserScript==`;
