@@ -1,6 +1,7 @@
 # ChatGPT Chat Extractor
 
-A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by starting at the bottom and traversing upward through ChatGPT's lazy-loaded content.
+A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by starting
+at the bottom and traversing upward through ChatGPT's lazy-loaded content.
 
 ## Features
 
