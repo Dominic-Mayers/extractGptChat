@@ -381,6 +381,11 @@ export function roomUntilFirstNotReadyDeck() {
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
 }
 
+export function roomUntilFirstActiveDeckBelow() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstActiveDeckBelow(activeArea, workZone);
+}
+
 export function thresholdDeckSnapshot() {
     const { activeArea, workZone } = environment();
     const viewportTop = workZoneTop(workZone);
@@ -941,6 +946,26 @@ function measureRoomUntilFirstNotReadyDeck(activeArea, workZone) {
     }
 
     return roomUntilFirstNotReadyDeck;
+}
+
+function measureRoomUntilFirstActiveDeckBelow(activeArea, workZone) {
+    const viewportBoundary =
+        workZoneTop(workZone) + workZone.height;
+    let roomUntilFirstActiveDeckBelow = Infinity;
+
+    for (const deck of elementsIn(activeArea,
+        '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+        const rect = deck.getBoundingClientRect();
+        if (rect.top < viewportBoundary) continue;
+        const roomUntilDeck = rect.top - viewportBoundary;
+        roomUntilFirstActiveDeckBelow = Math.min(
+            roomUntilFirstActiveDeckBelow,
+            roomUntilDeck
+        );
+    }
+
+    return roomUntilFirstActiveDeckBelow;
 }
 
 function environment() {

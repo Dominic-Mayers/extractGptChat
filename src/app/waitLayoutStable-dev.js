@@ -7,6 +7,7 @@ import {
 import {
     anchorRoom,
     deckActivationTransitions,
+    roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
     supplyHeight,
@@ -31,8 +32,13 @@ export async function waitLayoutStable(
         trackAnchor = false
     } = {}
 ) {
+    const activationDistanceAbove =
+        roomUntilFirstNotReadyDeck();
+    const deactivationDistanceBelow =
+        roomUntilFirstActiveDeckBelow();
     const stableFrames = trackAnchor &&
-        roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE
+        activationDistanceAbove > MIN_ACTIVATION_DISTANCE &&
+        deactivationDistanceBelow > MIN_ACTIVATION_DISTANCE
         ? 1
         : 2;
 
@@ -40,7 +46,11 @@ export async function waitLayoutStable(
     let previousRafGeometry = previous;
     let unchanged = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
-    beginStabilizationDiagnostics({ stableFrames });
+    beginStabilizationDiagnostics({
+        stableFrames,
+        activationDistanceAbove,
+        deactivationDistanceBelow
+    });
 
     for (let frame = 0; frame < maxFrames; frame++) {
         beginRafDiagnostics({ frame: frame + 1 });

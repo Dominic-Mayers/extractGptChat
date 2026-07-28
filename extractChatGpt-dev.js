@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.75
+// @version      2.76
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -2030,6 +2030,10 @@ ${fence}
     const { activeArea, workZone } = environment();
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
   }
+  function roomUntilFirstActiveDeckBelow() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstActiveDeckBelow(activeArea, workZone);
+  }
   function thresholdDeckSnapshot() {
     const { activeArea, workZone } = environment();
     const viewportTop = workZoneTop(workZone);
@@ -2487,6 +2491,23 @@ ${fence}
     }
     return roomUntilFirstNotReadyDeck2;
   }
+  function measureRoomUntilFirstActiveDeckBelow(activeArea, workZone) {
+    const viewportBoundary = workZoneTop(workZone) + workZone.height;
+    let roomUntilFirstActiveDeckBelow2 = Infinity;
+    for (const deck of elementsIn(
+      activeArea,
+      '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+      const rect = deck.getBoundingClientRect();
+      if (rect.top < viewportBoundary) continue;
+      const roomUntilDeck = rect.top - viewportBoundary;
+      roomUntilFirstActiveDeckBelow2 = Math.min(
+        roomUntilFirstActiveDeckBelow2,
+        roomUntilDeck
+      );
+    }
+    return roomUntilFirstActiveDeckBelow2;
+  }
   function environment() {
     if (!supplier) resetSupplyWorker();
     return supplier;
@@ -2515,12 +2536,18 @@ ${fence}
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
-    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE ? 1 : 2;
+    const activationDistanceAbove = roomUntilFirstNotReadyDeck();
+    const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
+    const stableFrames = trackAnchor && activationDistanceAbove > MIN_ACTIVATION_DISTANCE && deactivationDistanceBelow > MIN_ACTIVATION_DISTANCE ? 1 : 2;
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
     let unchanged = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
-    beginStabilizationDiagnostics({ stableFrames });
+    beginStabilizationDiagnostics({
+      stableFrames,
+      activationDistanceAbove,
+      deactivationDistanceBelow
+    });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
       await nextAnimationFrame();
@@ -3351,7 +3378,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.75" : "unbuilt";
+  var VERSION = true ? "2.76" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",
