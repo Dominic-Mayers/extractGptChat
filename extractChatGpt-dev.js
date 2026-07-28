@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.63
+// @version      2.64
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -247,6 +247,8 @@
   var erasedJumpDiagnostics = null;
   var previousJumpSummaryDiagnostics = null;
   var jumpPopulationDiagnostics = null;
+  var erasedJumpIndexDiagnostics = null;
+  var currentErasedJumpIndexEntryDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -304,6 +306,8 @@
       geometryByJumpTarget: {},
       geometryByOutcome: {}
     };
+    erasedJumpIndexDiagnostics = [];
+    currentErasedJumpIndexEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -494,6 +498,15 @@
           outcome: "not-recovered"
         }
       });
+      if (currentErasedJumpIndexEntryDiagnostics != null) {
+        currentErasedJumpIndexEntryDiagnostics.recovery = "erased-again";
+      }
+      erasedJumpIndexDiagnostics.push(
+        erasedJumpIndexEntryDiagnostics(
+          retryDiagnostics,
+          "retry-erased"
+        )
+      );
       recordJumpPopulationDiagnostics(
         retryDiagnostics,
         "retry-erased"
@@ -511,6 +524,13 @@
           outcome: "pending"
         }
       });
+      currentErasedJumpIndexEntryDiagnostics = erasedJumpIndexEntryDiagnostics(
+        erasedJumpDiagnostics,
+        "erased"
+      );
+      erasedJumpIndexDiagnostics.push(
+        currentErasedJumpIndexEntryDiagnostics
+      );
       recordJumpPopulationDiagnostics(
         erasedJumpDiagnostics,
         "erased"
@@ -532,6 +552,10 @@
           outcome: "recovered-previous-erasure"
         }
       });
+      if (currentErasedJumpIndexEntryDiagnostics != null) {
+        currentErasedJumpIndexEntryDiagnostics.recovery = "succeeded";
+      }
+      currentErasedJumpIndexEntryDiagnostics = null;
       recordJumpPopulationDiagnostics(
         retryDiagnostics,
         "retry-succeeded"
@@ -542,6 +566,67 @@
     recordJumpPopulationDiagnostics(retryDiagnostics, "survived");
     previousJumpSummaryDiagnostics = jumpSummaryDiagnostics(retryDiagnostics);
     discardCurrentJumpProbeDiagnostics();
+  }
+  function erasedJumpIndexEntryDiagnostics(jump, outcome) {
+    const probe = jump.erasedJumpProbe;
+    return {
+      index: erasedJumpIndexDiagnostics.length + 1,
+      slabCount: currentCycle?.slabCount ?? null,
+      deckCount: currentCycle?.deckCount ?? null,
+      jumpNumber: currentCycle?.jumps.indexOf(jump) + 1,
+      outcome,
+      recovery: outcome === "erased" ? "pending" : "not-recovered",
+      jumpTarget: probe?.jumpTarget ?? null,
+      requestedJump: jump.requestedJump,
+      beforeJump: probe?.beforeJump ?? null,
+      nextRaf: probe?.nextRaf ?? null,
+      activationChanges: compactActivationChangesDiagnostics(
+        probe?.activationChanges ?? []
+      ),
+      renderingChanges: compactRenderingChangesDiagnostics(
+        probe?.renderingChanges ?? []
+      ),
+      previousJump: compactPreviousJumpDiagnostics(
+        jump.previousJump
+      )
+    };
+  }
+  function compactPreviousJumpDiagnostics(previous) {
+    if (previous == null) return null;
+    return {
+      jumpTarget: previous.jumpTarget,
+      requestedJump: previous.requestedJump,
+      beforeJump: previous.beforeJump,
+      nextRaf: previous.nextRaf,
+      activationChanges: compactActivationChangesDiagnostics(
+        previous.activationChanges
+      ),
+      renderingChanges: compactRenderingChangesDiagnostics(
+        previous.renderingChanges
+      ),
+      obtainedAnchorRoom: previous.obtainedAnchorRoom,
+      stabilization: previous.stabilization
+    };
+  }
+  function compactActivationChangesDiagnostics(changes) {
+    return changes.map((change) => ({
+      phase: change.phase ?? null,
+      deckId: change.deck?.id ?? null,
+      before: change.before ?? null,
+      after: change.after ?? null,
+      sectionChange: change.sectionChange ?? null
+    }));
+  }
+  function compactRenderingChangesDiagnostics(changes) {
+    return changes.map((change) => ({
+      phase: change.phase ?? null,
+      change: change.change,
+      tagName: change.element?.tagName ?? null,
+      id: change.element?.id ?? null,
+      className: change.element?.className ?? null,
+      messageId: change.element?.messageId ?? null,
+      turnId: change.element?.turnId ?? null
+    }));
   }
   function jumpSummaryDiagnostics(jump) {
     const stabilization = jump.stabilizations[jump.stabilizations.length - 1] ?? null;
@@ -899,8 +984,14 @@
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
     emitDeckUpdatesDiagnostics();
+    emitErasedJumpIndexDiagnostics();
     emitJumpPopulationDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+  }
+  function emitErasedJumpIndexDiagnostics() {
+    console.log(
+      "[erased jump index]\n" + JSON.stringify(erasedJumpIndexDiagnostics, null, 2)
+    );
   }
   function emitJumpPopulationDiagnostics() {
     if (jumpPopulationDiagnostics == null) return;
@@ -3108,7 +3199,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.63" : "unbuilt";
+  var VERSION = true ? "2.64" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

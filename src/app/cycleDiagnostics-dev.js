@@ -16,6 +16,8 @@ let deckUpdatesDiagnostics = null;
 let erasedJumpDiagnostics = null;
 let previousJumpSummaryDiagnostics = null;
 let jumpPopulationDiagnostics = null;
+let erasedJumpIndexDiagnostics = null;
+let currentErasedJumpIndexEntryDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -76,6 +78,8 @@ export function resetCycleDiagnostics() {
         geometryByJumpTarget: {},
         geometryByOutcome: {}
     };
+    erasedJumpIndexDiagnostics = [];
+    currentErasedJumpIndexEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -289,6 +293,16 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "not-recovered"
             }
         });
+        if (currentErasedJumpIndexEntryDiagnostics != null) {
+            currentErasedJumpIndexEntryDiagnostics.recovery =
+                "erased-again";
+        }
+        erasedJumpIndexDiagnostics.push(
+            erasedJumpIndexEntryDiagnostics(
+                retryDiagnostics,
+                "retry-erased"
+            )
+        );
         recordJumpPopulationDiagnostics(
             retryDiagnostics,
             "retry-erased"
@@ -309,6 +323,14 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "pending"
             }
         });
+        currentErasedJumpIndexEntryDiagnostics =
+            erasedJumpIndexEntryDiagnostics(
+                erasedJumpDiagnostics,
+                "erased"
+            );
+        erasedJumpIndexDiagnostics.push(
+            currentErasedJumpIndexEntryDiagnostics
+        );
         recordJumpPopulationDiagnostics(
             erasedJumpDiagnostics,
             "erased"
@@ -332,6 +354,11 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "recovered-previous-erasure"
             }
         });
+        if (currentErasedJumpIndexEntryDiagnostics != null) {
+            currentErasedJumpIndexEntryDiagnostics.recovery =
+                "succeeded";
+        }
+        currentErasedJumpIndexEntryDiagnostics = null;
         recordJumpPopulationDiagnostics(
             retryDiagnostics,
             "retry-succeeded"
@@ -345,6 +372,71 @@ export function recordErasedJumpResultDiagnostics(
     previousJumpSummaryDiagnostics =
         jumpSummaryDiagnostics(retryDiagnostics);
     discardCurrentJumpProbeDiagnostics();
+}
+
+function erasedJumpIndexEntryDiagnostics(jump, outcome) {
+    const probe = jump.erasedJumpProbe;
+    return {
+        index: erasedJumpIndexDiagnostics.length + 1,
+        slabCount: currentCycle?.slabCount ?? null,
+        deckCount: currentCycle?.deckCount ?? null,
+        jumpNumber: currentCycle?.jumps.indexOf(jump) + 1,
+        outcome,
+        recovery: outcome === "erased" ? "pending" : "not-recovered",
+        jumpTarget: probe?.jumpTarget ?? null,
+        requestedJump: jump.requestedJump,
+        beforeJump: probe?.beforeJump ?? null,
+        nextRaf: probe?.nextRaf ?? null,
+        activationChanges: compactActivationChangesDiagnostics(
+            probe?.activationChanges ?? []
+        ),
+        renderingChanges: compactRenderingChangesDiagnostics(
+            probe?.renderingChanges ?? []
+        ),
+        previousJump: compactPreviousJumpDiagnostics(
+            jump.previousJump
+        )
+    };
+}
+
+function compactPreviousJumpDiagnostics(previous) {
+    if (previous == null) return null;
+    return {
+        jumpTarget: previous.jumpTarget,
+        requestedJump: previous.requestedJump,
+        beforeJump: previous.beforeJump,
+        nextRaf: previous.nextRaf,
+        activationChanges: compactActivationChangesDiagnostics(
+            previous.activationChanges
+        ),
+        renderingChanges: compactRenderingChangesDiagnostics(
+            previous.renderingChanges
+        ),
+        obtainedAnchorRoom: previous.obtainedAnchorRoom,
+        stabilization: previous.stabilization
+    };
+}
+
+function compactActivationChangesDiagnostics(changes) {
+    return changes.map(change => ({
+        phase: change.phase ?? null,
+        deckId: change.deck?.id ?? null,
+        before: change.before ?? null,
+        after: change.after ?? null,
+        sectionChange: change.sectionChange ?? null
+    }));
+}
+
+function compactRenderingChangesDiagnostics(changes) {
+    return changes.map(change => ({
+        phase: change.phase ?? null,
+        change: change.change,
+        tagName: change.element?.tagName ?? null,
+        id: change.element?.id ?? null,
+        className: change.element?.className ?? null,
+        messageId: change.element?.messageId ?? null,
+        turnId: change.element?.turnId ?? null
+    }));
 }
 
 function jumpSummaryDiagnostics(jump) {
@@ -829,8 +921,16 @@ export function flushCycleDiagnostics() {
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
     emitDeckUpdatesDiagnostics();
+    emitErasedJumpIndexDiagnostics();
     emitJumpPopulationDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+}
+
+function emitErasedJumpIndexDiagnostics() {
+    console.log(
+        "[erased jump index]\n" +
+        JSON.stringify(erasedJumpIndexDiagnostics, null, 2)
+    );
 }
 
 function emitJumpPopulationDiagnostics() {
