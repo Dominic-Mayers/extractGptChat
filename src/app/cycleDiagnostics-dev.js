@@ -457,6 +457,7 @@ function compactJumpGeometryDiagnostics(geometry) {
         slabRoom: geometry.slabRoom,
         anchorRoom: geometry.anchorRoom,
         deckRoom: geometry.deckRoom,
+        scrollHeight: geometry.scrollHeight,
         scrollY: geometry.scrollY,
         activationDistanceAbove:
             geometry.activationDistanceAbove,
@@ -646,6 +647,7 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
         "slabRoom",
         "anchorRoom",
         "deckRoom",
+        "scrollHeight",
         "scrollY"
     ]) {
         if (Number.isFinite(beforeFrame?.[name])) {

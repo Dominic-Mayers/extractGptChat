@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.72
+// @version      2.73
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -652,6 +652,7 @@
       slabRoom: geometry.slabRoom,
       anchorRoom: geometry.anchorRoom,
       deckRoom: geometry.deckRoom,
+      scrollHeight: geometry.scrollHeight,
       scrollY: geometry.scrollY,
       activationDistanceAbove: geometry.activationDistanceAbove,
       activationDistanceBelow: geometry.activationDistanceBelow,
@@ -793,6 +794,7 @@
       "slabRoom",
       "anchorRoom",
       "deckRoom",
+      "scrollHeight",
       "scrollY"
     ]) {
       if (Number.isFinite(beforeFrame?.[name])) {
@@ -2267,6 +2269,7 @@ ${fence}
         { element: retainedDeck(), edge: "top" },
         workZone
       ),
+      scrollHeight: supplyHeight(supplyArea),
       scrollY: workZonePosition(supplyArea, workZone),
       activationDistanceAbove,
       activationDistanceBelow,
@@ -3348,7 +3351,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.72" : "unbuilt";
+  var VERSION = true ? "2.73" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

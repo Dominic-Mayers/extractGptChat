@@ -682,6 +682,7 @@ function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
             { element: retainedDeck(), edge: "top" },
             workZone
         ),
+        scrollHeight: readSupplyHeight(supplyArea),
         scrollY: workZonePosition(supplyArea, workZone),
         activationDistanceAbove,
         activationDistanceBelow,
