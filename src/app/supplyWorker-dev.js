@@ -558,9 +558,9 @@ export async function moveWorkZoneBy(jump) {
         erasedJumpProbe: probeDiagnostics
     });
 
-    moveWorkZone(jump, supplyArea, workZone);
-
     await nextAnimationFrame();
+
+    moveWorkZone(jump, supplyArea, workZone);
 
     const supplyRoomAfterDiagnostics =
         workZonePosition(supplyArea, workZone);
