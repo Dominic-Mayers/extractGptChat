@@ -28,6 +28,13 @@ const runTraversal = async () => {
 
     activeRuns++;
     console.log(`[${logPrefix}] started.`);
+    const marginExperiment = document.createElement("style");
+    marginExperiment.textContent =
+        "div.my-4.flex.h-5.justify-center{" +
+        "margin-block:0!important" +
+        "}";
+    document.head.append(marginExperiment);
+    console.log(`[${logPrefix}] loading-indicator margins disabled.`);
     try {
         await traverseConversation();
         console.log(`[${logPrefix}] finished.`);
@@ -38,6 +45,7 @@ const runTraversal = async () => {
         console.error(`[${logPrefix}] failed.`, error);
         throw error;
     } finally {
+        marginExperiment.remove();
         activeRuns--;
     }
 };
