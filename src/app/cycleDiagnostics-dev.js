@@ -17,6 +17,7 @@ let erasedJumpDiagnostics = null;
 let previousJumpSummaryDiagnostics = null;
 let jumpPopulationDiagnostics = null;
 let stabilizationRuleDiagnostics = null;
+let deckLifecycleDiagnostics = null;
 let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
 
@@ -88,6 +89,21 @@ export function resetCycleDiagnostics() {
         deactivationOnlyCount: 0,
         bothBoundariesCount: 0,
         untrackedStabilizationCount: 0
+    };
+    deckLifecycleDiagnostics = {
+        deactivationCount: 0,
+        removalBeforeFalseCount: 0,
+        removalBeforeFalseSameDeliveryCount: 0,
+        removalBeforeFalseEarlierDeliveryCount: 0,
+        falseWithoutPriorRemovalCount: 0,
+        deckChangesAfterFalseCount: 0,
+        activationCount: 0,
+        additionBeforeTrueCount: 0,
+        additionBeforeTrueSameDeliveryCount: 0,
+        additionBeforeTrueEarlierDeliveryCount: 0,
+        trueWithoutPriorAdditionCount: 0,
+        deckChangesAfterTrueCount: 0,
+        anomalies: []
     };
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
@@ -509,6 +525,8 @@ function compactJumpGeometryDiagnostics(geometry) {
 
 function compactActivationChangesDiagnostics(changes) {
     return changes.map(change => ({
+        delivery: change.delivery ?? null,
+        order: change.order ?? null,
         phase: change.phase ?? null,
         deckId: change.deck?.id ?? null,
         before: change.before ?? null,
@@ -521,6 +539,8 @@ function compactRenderingChangesDiagnostics(changes) {
     return {
         count: changes.length,
         changes: changes.slice(0, 20).map(change => ({
+            delivery: change.delivery ?? null,
+            order: change.order ?? null,
             phase: change.phase ?? null,
             change: change.change,
             tagName: change.element?.tagName ?? null,
@@ -571,6 +591,7 @@ function jumpSummaryDiagnostics(jump) {
 function recordJumpPopulationDiagnostics(jump, outcome) {
     const probe = jump.erasedJumpProbe;
     if (jumpPopulationDiagnostics == null || probe == null) return;
+    recordDeckLifecycleDiagnostics(probe, outcome);
 
     const attributeChanges = probe.activationChanges.filter(
         change => "before" in change
@@ -731,6 +752,103 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
     ] = targetGeometry;
     jumpPopulationDiagnostics.geometryByOutcome[outcome] =
         outcomeGeometry;
+}
+
+function recordDeckLifecycleDiagnostics(probe, outcome) {
+    if (deckLifecycleDiagnostics == null) return;
+    const events = [
+        ...probe.activationChanges,
+        ...probe.renderingChanges
+    ].sort((first, second) => first.order - second.order);
+
+    for (const event of probe.activationChanges) {
+        if (!("before" in event)) continue;
+        const deactivated =
+            event.before != null &&
+            event.before !== "false" &&
+            (event.after == null || event.after === "false");
+        const activated =
+            (event.before == null || event.before === "false") &&
+            event.after != null &&
+            event.after !== "false";
+        if (!deactivated && !activated) continue;
+
+        const sectionChange = deactivated ? "removed" : "added";
+        const priorSection = probe.activationChanges
+            .filter(candidate =>
+                candidate.deck?.id === event.deck?.id &&
+                candidate.sectionChange === sectionChange &&
+                candidate.order < event.order
+            )
+            .at(-1);
+        const laterDeckChanges = events.filter(candidate =>
+            candidate.order > event.order &&
+            (
+                candidate.deck?.id === event.deck?.id ||
+                candidate.element?.turnId === event.deck?.id
+            )
+        );
+
+        if (deactivated) {
+            deckLifecycleDiagnostics.deactivationCount++;
+            if (priorSection == null) {
+                deckLifecycleDiagnostics.falseWithoutPriorRemovalCount++;
+            } else {
+                deckLifecycleDiagnostics.removalBeforeFalseCount++;
+                if (priorSection.delivery === event.delivery) {
+                    deckLifecycleDiagnostics
+                        .removalBeforeFalseSameDeliveryCount++;
+                } else {
+                    deckLifecycleDiagnostics
+                        .removalBeforeFalseEarlierDeliveryCount++;
+                }
+            }
+            if (laterDeckChanges.length > 0) {
+                deckLifecycleDiagnostics.deckChangesAfterFalseCount++;
+            }
+        } else {
+            deckLifecycleDiagnostics.activationCount++;
+            if (priorSection == null) {
+                deckLifecycleDiagnostics.trueWithoutPriorAdditionCount++;
+            } else {
+                deckLifecycleDiagnostics.additionBeforeTrueCount++;
+                if (priorSection.delivery === event.delivery) {
+                    deckLifecycleDiagnostics
+                        .additionBeforeTrueSameDeliveryCount++;
+                } else {
+                    deckLifecycleDiagnostics
+                        .additionBeforeTrueEarlierDeliveryCount++;
+                }
+            }
+            if (laterDeckChanges.length > 0) {
+                deckLifecycleDiagnostics.deckChangesAfterTrueCount++;
+            }
+        }
+
+        if (
+            priorSection == null ||
+            laterDeckChanges.length > 0
+        ) {
+            deckLifecycleDiagnostics.anomalies.push({
+                outcome,
+                transition: deactivated ? "deactivation" : "activation",
+                deckId: event.deck?.id ?? null,
+                transitionDelivery: event.delivery,
+                transitionOrder: event.order,
+                priorSectionDelivery: priorSection?.delivery ?? null,
+                priorSectionOrder: priorSection?.order ?? null,
+                laterChanges: laterDeckChanges.map(change => ({
+                    delivery: change.delivery,
+                    order: change.order,
+                    phase: change.phase,
+                    sectionChange: change.sectionChange ?? null,
+                    before: change.before ?? null,
+                    after: change.after ?? null,
+                    renderingChange: change.change ?? null
+                }))
+            });
+        }
+    }
 }
 
 function incrementJumpPopulationCategoryDiagnostics(categories, key) {
@@ -1077,6 +1195,7 @@ export function flushCycleDiagnostics() {
     emitErasedJumpStructureDiagnostics();
     emitJumpPopulationDiagnostics();
     emitStabilizationRuleDiagnostics();
+    emitDeckLifecycleDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
 }
 
@@ -1164,6 +1283,17 @@ function emitStabilizationRuleDiagnostics() {
                 ? 0
                 : stabilizationRuleDiagnostics.bothBoundariesCount /
                     tracked * 100
+        }, null, 2)
+    );
+}
+
+function emitDeckLifecycleDiagnostics() {
+    if (deckLifecycleDiagnostics == null) return;
+    console.log(
+        "[deck lifecycle]\n" +
+        JSON.stringify({
+            ...deckLifecycleDiagnostics,
+            anomalies: deckLifecycleDiagnostics.anomalies.slice(0, 50)
         }, null, 2)
     );
 }

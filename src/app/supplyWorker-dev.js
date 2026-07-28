@@ -548,6 +548,8 @@ export async function moveWorkZoneBy(jump) {
         preCommand: null,
         afterCommand: null,
         nextRaf: null,
+        mutationDeliveryNumber: 0,
+        mutationOrder: 0,
         activationChanges: [],
         renderingChanges: []
     };
@@ -712,12 +714,16 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
 }
 
 function recordJumpChangesDiagnostics(probe, records, phase) {
+    if (records.length === 0) return;
+    const delivery = ++probe.mutationDeliveryNumber;
     for (const record of records) {
         if (
             record.type === "attributes" &&
             record.attributeName === "data-is-intersecting"
         ) {
             probe.activationChanges.push({
+                delivery,
+                order: ++probe.mutationOrder,
                 clock: performance.now(),
                 phase,
                 deck: snapshotElementDiagnostics(record.target),
@@ -734,6 +740,8 @@ function recordJumpChangesDiagnostics(probe, records, phase) {
             if (element.nodeType !== Node.ELEMENT_NODE) continue;
             if (element.tagName === "SECTION") {
                 probe.activationChanges.push({
+                    delivery,
+                    order: ++probe.mutationOrder,
                     clock: performance.now(),
                     phase,
                     deck: snapshotElementDiagnostics(
@@ -747,6 +755,8 @@ function recordJumpChangesDiagnostics(probe, records, phase) {
                 continue;
             }
             probe.renderingChanges.push({
+                delivery,
+                order: ++probe.mutationOrder,
                 clock: performance.now(),
                 phase,
                 change: "added",
@@ -757,6 +767,8 @@ function recordJumpChangesDiagnostics(probe, records, phase) {
             if (element.nodeType !== Node.ELEMENT_NODE) continue;
             if (element.tagName === "SECTION") {
                 probe.activationChanges.push({
+                    delivery,
+                    order: ++probe.mutationOrder,
                     clock: performance.now(),
                     phase,
                     deck: snapshotElementDiagnostics(
@@ -770,6 +782,8 @@ function recordJumpChangesDiagnostics(probe, records, phase) {
                 continue;
             }
             probe.renderingChanges.push({
+                delivery,
+                order: ++probe.mutationOrder,
                 clock: performance.now(),
                 phase,
                 change: "removed",
