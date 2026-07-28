@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.76
+// @version      2.77
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -253,6 +253,7 @@
   var erasedJumpDiagnostics = null;
   var previousJumpSummaryDiagnostics = null;
   var jumpPopulationDiagnostics = null;
+  var stabilizationRuleDiagnostics = null;
   var erasedJumpStructureDiagnostics = null;
   var currentErasedJumpEntryDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
@@ -313,6 +314,15 @@
       geometryByJumpTarget: {},
       geometryByOutcome: {}
     };
+    stabilizationRuleDiagnostics = {
+      trackedStabilizationCount: 0,
+      oneRafCount: 0,
+      twoRafCount: 0,
+      activationOnlyCount: 0,
+      deactivationOnlyCount: 0,
+      bothBoundariesCount: 0,
+      untrackedStabilizationCount: 0
+    };
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
@@ -361,6 +371,30 @@
       startedWallAtDiagnostics: Date.now(),
       startedAtDiagnostics: performance.now()
     });
+  }
+  function recordStabilizationRuleDiagnostics({
+    trackAnchor,
+    activationNear,
+    deactivationNear
+  }) {
+    if (stabilizationRuleDiagnostics == null) return;
+    if (!trackAnchor) {
+      stabilizationRuleDiagnostics.untrackedStabilizationCount++;
+      return;
+    }
+    stabilizationRuleDiagnostics.trackedStabilizationCount++;
+    if (!activationNear && !deactivationNear) {
+      stabilizationRuleDiagnostics.oneRafCount++;
+      return;
+    }
+    stabilizationRuleDiagnostics.twoRafCount++;
+    if (activationNear && deactivationNear) {
+      stabilizationRuleDiagnostics.bothBoundariesCount++;
+    } else if (activationNear) {
+      stabilizationRuleDiagnostics.activationOnlyCount++;
+    } else {
+      stabilizationRuleDiagnostics.deactivationOnlyCount++;
+    }
   }
   function finishStabilizationDiagnostics(data = {}) {
     const stabilizationDiagnostics = currentStabilizationDiagnostics();
@@ -1086,6 +1120,7 @@
     emitDeckUpdatesDiagnostics();
     emitErasedJumpStructureDiagnostics();
     emitJumpPopulationDiagnostics();
+    emitStabilizationRuleDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
   }
   function emitErasedJumpStructureDiagnostics() {
@@ -1127,6 +1162,24 @@
     }
     console.log(
       "[jump population]\n" + JSON.stringify(output, null, 2)
+    );
+  }
+  function emitStabilizationRuleDiagnostics() {
+    if (stabilizationRuleDiagnostics == null) return;
+    const tracked = stabilizationRuleDiagnostics.trackedStabilizationCount;
+    const asymmetricTwoRafCount = stabilizationRuleDiagnostics.activationOnlyCount + stabilizationRuleDiagnostics.bothBoundariesCount;
+    console.log(
+      "[stabilization rule]\n" + JSON.stringify({
+        ...stabilizationRuleDiagnostics,
+        asymmetricTwoRafCount,
+        asymmetricTwoRafPercentage: tracked === 0 ? 0 : asymmetricTwoRafCount / tracked * 100,
+        additionalSymmetricTwoRafCount: stabilizationRuleDiagnostics.deactivationOnlyCount,
+        additionalSymmetricTwoRafPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.deactivationOnlyCount / tracked * 100,
+        twoRafPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.twoRafCount / tracked * 100,
+        activationOnlyPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.activationOnlyCount / tracked * 100,
+        deactivationOnlyPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.deactivationOnlyCount / tracked * 100,
+        bothBoundariesPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.bothBoundariesCount / tracked * 100
+      }, null, 2)
     );
   }
   function emitDeckSectionReadinessDiagnostics() {
@@ -2538,7 +2591,14 @@ ${fence}
   } = {}) {
     const activationDistanceAbove = roomUntilFirstNotReadyDeck();
     const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
-    const stableFrames = trackAnchor && activationDistanceAbove > MIN_ACTIVATION_DISTANCE && deactivationDistanceBelow > MIN_ACTIVATION_DISTANCE ? 1 : 2;
+    const activationNear = activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
+    const deactivationNear = deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
+    const stableFrames = trackAnchor && !activationNear && !deactivationNear ? 1 : 2;
+    recordStabilizationRuleDiagnostics({
+      trackAnchor,
+      activationNear,
+      deactivationNear
+    });
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
     let unchanged = 0;
@@ -2546,7 +2606,9 @@ ${fence}
     beginStabilizationDiagnostics({
       stableFrames,
       activationDistanceAbove,
-      deactivationDistanceBelow
+      deactivationDistanceBelow,
+      activationNear,
+      deactivationNear
     });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
@@ -3378,7 +3440,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.76" : "unbuilt";
+  var VERSION = true ? "2.77" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

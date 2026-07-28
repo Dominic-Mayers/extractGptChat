@@ -16,6 +16,7 @@ let deckUpdatesDiagnostics = null;
 let erasedJumpDiagnostics = null;
 let previousJumpSummaryDiagnostics = null;
 let jumpPopulationDiagnostics = null;
+let stabilizationRuleDiagnostics = null;
 let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
 
@@ -79,6 +80,15 @@ export function resetCycleDiagnostics() {
         geometryByJumpTarget: {},
         geometryByOutcome: {}
     };
+    stabilizationRuleDiagnostics = {
+        trackedStabilizationCount: 0,
+        oneRafCount: 0,
+        twoRafCount: 0,
+        activationOnlyCount: 0,
+        deactivationOnlyCount: 0,
+        bothBoundariesCount: 0,
+        untrackedStabilizationCount: 0
+    };
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = new WeakMap();
@@ -131,6 +141,33 @@ export function beginStabilizationDiagnostics(data = {}) {
         startedWallAtDiagnostics: Date.now(),
         startedAtDiagnostics: performance.now()
     });
+}
+
+export function recordStabilizationRuleDiagnostics({
+    trackAnchor,
+    activationNear,
+    deactivationNear
+}) {
+    if (stabilizationRuleDiagnostics == null) return;
+    if (!trackAnchor) {
+        stabilizationRuleDiagnostics.untrackedStabilizationCount++;
+        return;
+    }
+
+    stabilizationRuleDiagnostics.trackedStabilizationCount++;
+    if (!activationNear && !deactivationNear) {
+        stabilizationRuleDiagnostics.oneRafCount++;
+        return;
+    }
+
+    stabilizationRuleDiagnostics.twoRafCount++;
+    if (activationNear && deactivationNear) {
+        stabilizationRuleDiagnostics.bothBoundariesCount++;
+    } else if (activationNear) {
+        stabilizationRuleDiagnostics.activationOnlyCount++;
+    } else {
+        stabilizationRuleDiagnostics.deactivationOnlyCount++;
+    }
 }
 
 export function finishStabilizationDiagnostics(data = {}) {
@@ -1039,6 +1076,7 @@ export function flushCycleDiagnostics() {
     emitDeckUpdatesDiagnostics();
     emitErasedJumpStructureDiagnostics();
     emitJumpPopulationDiagnostics();
+    emitStabilizationRuleDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
 }
 
@@ -1086,6 +1124,47 @@ function emitJumpPopulationDiagnostics() {
     console.log(
         "[jump population]\n" +
         JSON.stringify(output, null, 2)
+    );
+}
+
+function emitStabilizationRuleDiagnostics() {
+    if (stabilizationRuleDiagnostics == null) return;
+    const tracked =
+        stabilizationRuleDiagnostics.trackedStabilizationCount;
+    const asymmetricTwoRafCount =
+        stabilizationRuleDiagnostics.activationOnlyCount +
+        stabilizationRuleDiagnostics.bothBoundariesCount;
+    console.log(
+        "[stabilization rule]\n" +
+        JSON.stringify({
+            ...stabilizationRuleDiagnostics,
+            asymmetricTwoRafCount,
+            asymmetricTwoRafPercentage: tracked === 0
+                ? 0
+                : asymmetricTwoRafCount / tracked * 100,
+            additionalSymmetricTwoRafCount:
+                stabilizationRuleDiagnostics.deactivationOnlyCount,
+            additionalSymmetricTwoRafPercentage: tracked === 0
+                ? 0
+                : stabilizationRuleDiagnostics.deactivationOnlyCount /
+                    tracked * 100,
+            twoRafPercentage: tracked === 0
+                ? 0
+                : stabilizationRuleDiagnostics.twoRafCount /
+                    tracked * 100,
+            activationOnlyPercentage: tracked === 0
+                ? 0
+                : stabilizationRuleDiagnostics.activationOnlyCount /
+                    tracked * 100,
+            deactivationOnlyPercentage: tracked === 0
+                ? 0
+                : stabilizationRuleDiagnostics.deactivationOnlyCount /
+                    tracked * 100,
+            bothBoundariesPercentage: tracked === 0
+                ? 0
+                : stabilizationRuleDiagnostics.bothBoundariesCount /
+                    tracked * 100
+        }, null, 2)
     );
 }
 

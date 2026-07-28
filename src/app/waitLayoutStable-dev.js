@@ -22,7 +22,8 @@ import {
     recordRafTelemetryDiagnostics,
     beginYieldDiagnostics,
     finishYieldDiagnostics,
-    finishRafDiagnostics
+    finishRafDiagnostics,
+    recordStabilizationRuleDiagnostics
 } from "./cycleDiagnostics-dev.js";
 import { nextAnimationFrame } from "./scrollContainer-dev.js";
 
@@ -36,11 +37,20 @@ export async function waitLayoutStable(
         roomUntilFirstNotReadyDeck();
     const deactivationDistanceBelow =
         roomUntilFirstActiveDeckBelow();
+    const activationNear =
+        activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
+    const deactivationNear =
+        deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
     const stableFrames = trackAnchor &&
-        activationDistanceAbove > MIN_ACTIVATION_DISTANCE &&
-        deactivationDistanceBelow > MIN_ACTIVATION_DISTANCE
+        !activationNear &&
+        !deactivationNear
         ? 1
         : 2;
+    recordStabilizationRuleDiagnostics({
+        trackAnchor,
+        activationNear,
+        deactivationNear
+    });
 
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
@@ -49,7 +59,9 @@ export async function waitLayoutStable(
     beginStabilizationDiagnostics({
         stableFrames,
         activationDistanceAbove,
-        deactivationDistanceBelow
+        deactivationDistanceBelow,
+        activationNear,
+        deactivationNear
     });
 
     for (let frame = 0; frame < maxFrames; frame++) {
