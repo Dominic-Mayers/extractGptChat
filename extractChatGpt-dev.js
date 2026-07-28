@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.66
+// @version      2.67
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -84,6 +84,11 @@
   function moveWorkZone(distance, supplyArea, workZone) {
     const container = commonContainer(supplyArea, workZone);
     scrollBy(container, -distance);
+  }
+  function nextAnimationFrame() {
+    return new Promise(
+      (resolve) => requestAnimationFrame(resolve)
+    );
   }
   function moveWorkZoneToSupplyEnd(supplyArea, workZone) {
     const container = commonContainer(supplyArea, workZone);
@@ -2081,7 +2086,7 @@ ${fence}
       position: style.position
     };
   }
-  function moveWorkZoneBy(jump) {
+  async function moveWorkZoneBy(jump) {
     resetJumpObserverDiagnostics();
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
@@ -2112,6 +2117,7 @@ ${fence}
       erasedJumpProbe: probeDiagnostics
     });
     moveWorkZone(jump, supplyArea, workZone);
+    await nextAnimationFrame();
     const supplyRoomAfterDiagnostics = workZonePosition(supplyArea, workZone);
     updateJumpDiagnostics({
       scrollYAfter: supplyRoomAfterDiagnostics,
@@ -2596,11 +2602,6 @@ ${fence}
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
-  function nextAnimationFrame() {
-    return new Promise(
-      (resolve) => requestAnimationFrame(resolve)
-    );
-  }
   var thresholdEvaluationDiagnostics = {
     activationCount: 0,
     activationClosestDistance: -Infinity,
@@ -2740,7 +2741,7 @@ ${fence}
         viewportHeight: viewportHeight2
       });
       await checkUpdateNeededBeforeDeactivation(jump);
-      moveWorkZoneBy(jump);
+      await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         finishJumpDiagnostics({
@@ -3266,7 +3267,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.66" : "unbuilt";
+  var VERSION = true ? "2.67" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

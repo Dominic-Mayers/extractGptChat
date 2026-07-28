@@ -23,6 +23,7 @@ import {
     finishYieldDiagnostics,
     finishRafDiagnostics
 } from "./cycleDiagnostics-dev.js";
+import { nextAnimationFrame } from "./scrollContainer-dev.js";
 
 export async function waitLayoutStable(
     {
@@ -257,18 +258,6 @@ async function yieldToScheduler() {
     }
     await new Promise(resolve => setTimeout(resolve, 0));
 }
-
-
-/**
- * Wait for the next animation frame.
- */
-export function nextAnimationFrame() {
-
-    return new Promise(resolve =>
-        requestAnimationFrame(resolve)
-    );
-}
-
 const thresholdEvaluationDiagnostics = {
     activationCount: 0,
     activationClosestDistance: -Infinity,

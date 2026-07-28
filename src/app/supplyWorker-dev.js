@@ -12,6 +12,7 @@ import {
     contains,
     elementsIn,
     moveWorkZone,
+    nextAnimationFrame,
     observeSupplier,
     roomAhead,
     supplyHeight as readSupplyHeight,
@@ -520,7 +521,7 @@ function layoutElementDiagnostics(element, viewportTop) {
     };
 }
 
-export function moveWorkZoneBy(jump) {
+export async function moveWorkZoneBy(jump) {
     resetJumpObserverDiagnostics();
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
@@ -558,6 +559,8 @@ export function moveWorkZoneBy(jump) {
     });
 
     moveWorkZone(jump, supplyArea, workZone);
+
+    await nextAnimationFrame();
 
     const supplyRoomAfterDiagnostics =
         workZonePosition(supplyArea, workZone);

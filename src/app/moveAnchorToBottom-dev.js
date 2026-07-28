@@ -83,7 +83,7 @@ export async function moveAnchorToBottom(
             viewportHeight
         });
         await checkUpdateNeededBeforeDeactivation(jump);
-        moveWorkZoneBy(jump);
+        await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
