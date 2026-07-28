@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.64
+// @version      2.65
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -578,8 +578,10 @@
       recovery: outcome === "erased" ? "pending" : "not-recovered",
       jumpTarget: probe?.jumpTarget ?? null,
       requestedJump: jump.requestedJump,
-      beforeJump: probe?.beforeJump ?? null,
-      nextRaf: probe?.nextRaf ?? null,
+      beforeJump: compactJumpGeometryDiagnostics(
+        probe?.beforeJump
+      ),
+      nextRaf: compactJumpGeometryDiagnostics(probe?.nextRaf),
       activationChanges: compactActivationChangesDiagnostics(
         probe?.activationChanges ?? []
       ),
@@ -596,8 +598,10 @@
     return {
       jumpTarget: previous.jumpTarget,
       requestedJump: previous.requestedJump,
-      beforeJump: previous.beforeJump,
-      nextRaf: previous.nextRaf,
+      beforeJump: compactJumpGeometryDiagnostics(
+        previous.beforeJump
+      ),
+      nextRaf: compactJumpGeometryDiagnostics(previous.nextRaf),
       activationChanges: compactActivationChangesDiagnostics(
         previous.activationChanges
       ),
@@ -606,6 +610,19 @@
       ),
       obtainedAnchorRoom: previous.obtainedAnchorRoom,
       stabilization: previous.stabilization
+    };
+  }
+  function compactJumpGeometryDiagnostics(geometry) {
+    if (geometry == null) return null;
+    return {
+      slabRoom: geometry.slabRoom,
+      anchorRoom: geometry.anchorRoom,
+      deckRoom: geometry.deckRoom,
+      scrollY: geometry.scrollY,
+      activationDistanceAbove: geometry.activationDistanceAbove,
+      activationDistanceBelow: geometry.activationDistanceBelow,
+      inactiveDeckAboveId: geometry.inactiveDeckAbove?.id ?? null,
+      inactiveDeckBelowId: geometry.inactiveDeckBelow?.id ?? null
     };
   }
   function compactActivationChangesDiagnostics(changes) {
@@ -618,15 +635,18 @@
     }));
   }
   function compactRenderingChangesDiagnostics(changes) {
-    return changes.map((change) => ({
-      phase: change.phase ?? null,
-      change: change.change,
-      tagName: change.element?.tagName ?? null,
-      id: change.element?.id ?? null,
-      className: change.element?.className ?? null,
-      messageId: change.element?.messageId ?? null,
-      turnId: change.element?.turnId ?? null
-    }));
+    return {
+      count: changes.length,
+      changes: changes.slice(0, 20).map((change) => ({
+        phase: change.phase ?? null,
+        change: change.change,
+        tagName: change.element?.tagName ?? null,
+        id: change.element?.id ?? null,
+        className: change.element?.className ?? null,
+        messageId: change.element?.messageId ?? null,
+        turnId: change.element?.turnId ?? null
+      }))
+    };
   }
   function jumpSummaryDiagnostics(jump) {
     const stabilization = jump.stabilizations[jump.stabilizations.length - 1] ?? null;
@@ -990,8 +1010,14 @@
   }
   function emitErasedJumpIndexDiagnostics() {
     console.log(
-      "[erased jump index]\n" + JSON.stringify(erasedJumpIndexDiagnostics, null, 2)
+      `[erased jump index] count=${erasedJumpIndexDiagnostics.length}`
     );
+    for (let index = 0; index < erasedJumpIndexDiagnostics.length; index++) {
+      console.log(
+        `[erased jump ${index + 1}/${erasedJumpIndexDiagnostics.length}]
+` + JSON.stringify(erasedJumpIndexDiagnostics[index])
+      );
+    }
   }
   function emitJumpPopulationDiagnostics() {
     if (jumpPopulationDiagnostics == null) return;
@@ -3199,7 +3225,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.64" : "unbuilt";
+  var VERSION = true ? "2.65" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

@@ -385,8 +385,10 @@ function erasedJumpIndexEntryDiagnostics(jump, outcome) {
         recovery: outcome === "erased" ? "pending" : "not-recovered",
         jumpTarget: probe?.jumpTarget ?? null,
         requestedJump: jump.requestedJump,
-        beforeJump: probe?.beforeJump ?? null,
-        nextRaf: probe?.nextRaf ?? null,
+        beforeJump: compactJumpGeometryDiagnostics(
+            probe?.beforeJump
+        ),
+        nextRaf: compactJumpGeometryDiagnostics(probe?.nextRaf),
         activationChanges: compactActivationChangesDiagnostics(
             probe?.activationChanges ?? []
         ),
@@ -404,8 +406,10 @@ function compactPreviousJumpDiagnostics(previous) {
     return {
         jumpTarget: previous.jumpTarget,
         requestedJump: previous.requestedJump,
-        beforeJump: previous.beforeJump,
-        nextRaf: previous.nextRaf,
+        beforeJump: compactJumpGeometryDiagnostics(
+            previous.beforeJump
+        ),
+        nextRaf: compactJumpGeometryDiagnostics(previous.nextRaf),
         activationChanges: compactActivationChangesDiagnostics(
             previous.activationChanges
         ),
@@ -414,6 +418,24 @@ function compactPreviousJumpDiagnostics(previous) {
         ),
         obtainedAnchorRoom: previous.obtainedAnchorRoom,
         stabilization: previous.stabilization
+    };
+}
+
+function compactJumpGeometryDiagnostics(geometry) {
+    if (geometry == null) return null;
+    return {
+        slabRoom: geometry.slabRoom,
+        anchorRoom: geometry.anchorRoom,
+        deckRoom: geometry.deckRoom,
+        scrollY: geometry.scrollY,
+        activationDistanceAbove:
+            geometry.activationDistanceAbove,
+        activationDistanceBelow:
+            geometry.activationDistanceBelow,
+        inactiveDeckAboveId:
+            geometry.inactiveDeckAbove?.id ?? null,
+        inactiveDeckBelowId:
+            geometry.inactiveDeckBelow?.id ?? null
     };
 }
 
@@ -428,15 +450,18 @@ function compactActivationChangesDiagnostics(changes) {
 }
 
 function compactRenderingChangesDiagnostics(changes) {
-    return changes.map(change => ({
-        phase: change.phase ?? null,
-        change: change.change,
-        tagName: change.element?.tagName ?? null,
-        id: change.element?.id ?? null,
-        className: change.element?.className ?? null,
-        messageId: change.element?.messageId ?? null,
-        turnId: change.element?.turnId ?? null
-    }));
+    return {
+        count: changes.length,
+        changes: changes.slice(0, 20).map(change => ({
+            phase: change.phase ?? null,
+            change: change.change,
+            tagName: change.element?.tagName ?? null,
+            id: change.element?.id ?? null,
+            className: change.element?.className ?? null,
+            messageId: change.element?.messageId ?? null,
+            turnId: change.element?.turnId ?? null
+        }))
+    };
 }
 
 function jumpSummaryDiagnostics(jump) {
@@ -928,9 +953,17 @@ export function flushCycleDiagnostics() {
 
 function emitErasedJumpIndexDiagnostics() {
     console.log(
-        "[erased jump index]\n" +
-        JSON.stringify(erasedJumpIndexDiagnostics, null, 2)
+        `[erased jump index] count=${erasedJumpIndexDiagnostics.length}`
     );
+    for (let index = 0;
+        index < erasedJumpIndexDiagnostics.length;
+        index++) {
+        console.log(
+            `[erased jump ${index + 1}/` +
+            `${erasedJumpIndexDiagnostics.length}]\n` +
+            JSON.stringify(erasedJumpIndexDiagnostics[index])
+        );
+    }
 }
 
 function emitJumpPopulationDiagnostics() {
