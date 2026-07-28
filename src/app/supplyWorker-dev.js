@@ -42,9 +42,10 @@ let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
 let currentJumpObserverDiagnostics = null;
+let currentAnchorNumberDiagnostics = 0;
 
 export function resetSupplyWorker() {
-    resetJumpObserverDiagnostics();
+    resetSupplyWorkerDiagnostics();
     supplier = observeSupplier();
     currentDeck = null;
     currentSlab = null;
@@ -339,6 +340,7 @@ export async function selectAnchor(room) {
     if (!currentAnchor) {
         throw new Error("No ready visible anchor found in current slab.");
     }
+    currentAnchorNumberDiagnostics++;
 
     return roomAhead(currentAnchor, workZone);
 }
@@ -548,6 +550,7 @@ export function moveWorkZoneBy(jump) {
     beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchorDiagnostics),
+        anchorNumber: currentAnchorNumberDiagnostics,
         anchorRoomBefore: anchorRoomBeforeDiagnostics,
         jump,
         scrollYBefore: supplyRoomBeforeDiagnostics,
@@ -575,6 +578,11 @@ export function moveWorkZoneBy(jump) {
 function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
+}
+
+function resetSupplyWorkerDiagnostics() {
+    resetJumpObserverDiagnostics();
+    currentAnchorNumberDiagnostics = 0;
 }
 
 function beginJumpObserverDiagnostics(probe, supplyArea) {

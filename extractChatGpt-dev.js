@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.65
+// @version      2.66
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Claude
 // @license      MIT
@@ -247,8 +247,8 @@
   var erasedJumpDiagnostics = null;
   var previousJumpSummaryDiagnostics = null;
   var jumpPopulationDiagnostics = null;
-  var erasedJumpIndexDiagnostics = null;
-  var currentErasedJumpIndexEntryDiagnostics = null;
+  var erasedJumpStructureDiagnostics = null;
+  var currentErasedJumpEntryDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -306,8 +306,8 @@
       geometryByJumpTarget: {},
       geometryByOutcome: {}
     };
-    erasedJumpIndexDiagnostics = [];
-    currentErasedJumpIndexEntryDiagnostics = null;
+    erasedJumpStructureDiagnostics = [];
+    currentErasedJumpEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -498,14 +498,12 @@
           outcome: "not-recovered"
         }
       });
-      if (currentErasedJumpIndexEntryDiagnostics != null) {
-        currentErasedJumpIndexEntryDiagnostics.recovery = "erased-again";
+      if (currentErasedJumpEntryDiagnostics != null) {
+        currentErasedJumpEntryDiagnostics.recovery = "erased-again";
       }
-      erasedJumpIndexDiagnostics.push(
-        erasedJumpIndexEntryDiagnostics(
-          retryDiagnostics,
-          "retry-erased"
-        )
+      storeErasedJumpDiagnostics(
+        retryDiagnostics,
+        "retry-erased"
       );
       recordJumpPopulationDiagnostics(
         retryDiagnostics,
@@ -524,12 +522,9 @@
           outcome: "pending"
         }
       });
-      currentErasedJumpIndexEntryDiagnostics = erasedJumpIndexEntryDiagnostics(
+      currentErasedJumpEntryDiagnostics = storeErasedJumpDiagnostics(
         erasedJumpDiagnostics,
         "erased"
-      );
-      erasedJumpIndexDiagnostics.push(
-        currentErasedJumpIndexEntryDiagnostics
       );
       recordJumpPopulationDiagnostics(
         erasedJumpDiagnostics,
@@ -552,10 +547,10 @@
           outcome: "recovered-previous-erasure"
         }
       });
-      if (currentErasedJumpIndexEntryDiagnostics != null) {
-        currentErasedJumpIndexEntryDiagnostics.recovery = "succeeded";
+      if (currentErasedJumpEntryDiagnostics != null) {
+        currentErasedJumpEntryDiagnostics.recovery = "succeeded";
       }
-      currentErasedJumpIndexEntryDiagnostics = null;
+      currentErasedJumpEntryDiagnostics = null;
       recordJumpPopulationDiagnostics(
         retryDiagnostics,
         "retry-succeeded"
@@ -567,12 +562,38 @@
     previousJumpSummaryDiagnostics = jumpSummaryDiagnostics(retryDiagnostics);
     discardCurrentJumpProbeDiagnostics();
   }
-  function erasedJumpIndexEntryDiagnostics(jump, outcome) {
+  function storeErasedJumpDiagnostics(jump, outcome) {
+    const slabCount = currentCycle?.slabCount ?? null;
+    const anchorNumber = jump.anchorNumber ?? null;
+    let slab = erasedJumpStructureDiagnostics.find(
+      (candidate) => candidate.slabCount === slabCount
+    );
+    if (slab == null) {
+      slab = {
+        slabCount,
+        deckCount: currentCycle?.deckCount ?? null,
+        anchors: []
+      };
+      erasedJumpStructureDiagnostics.push(slab);
+    }
+    let anchor = slab.anchors.find(
+      (candidate) => candidate.anchorNumber === anchorNumber
+    );
+    if (anchor == null) {
+      anchor = {
+        anchorNumber,
+        anchor: jump.anchor,
+        jumps: []
+      };
+      slab.anchors.push(anchor);
+    }
+    const entry = erasedJumpEntryDiagnostics(jump, outcome);
+    anchor.jumps.push(entry);
+    return entry;
+  }
+  function erasedJumpEntryDiagnostics(jump, outcome) {
     const probe = jump.erasedJumpProbe;
     return {
-      index: erasedJumpIndexDiagnostics.length + 1,
-      slabCount: currentCycle?.slabCount ?? null,
-      deckCount: currentCycle?.deckCount ?? null,
       jumpNumber: currentCycle?.jumps.indexOf(jump) + 1,
       outcome,
       recovery: outcome === "erased" ? "pending" : "not-recovered",
@@ -1004,19 +1025,32 @@
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
     emitDeckUpdatesDiagnostics();
-    emitErasedJumpIndexDiagnostics();
+    emitErasedJumpStructureDiagnostics();
     emitJumpPopulationDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
   }
-  function emitErasedJumpIndexDiagnostics() {
-    console.log(
-      `[erased jump index] count=${erasedJumpIndexDiagnostics.length}`
+  function emitErasedJumpStructureDiagnostics() {
+    const jumpCount = erasedJumpStructureDiagnostics.reduce(
+      (count, slab) => count + slab.anchors.reduce(
+        (anchorCount, anchor) => anchorCount + anchor.jumps.length,
+        0
+      ),
+      0
     );
-    for (let index = 0; index < erasedJumpIndexDiagnostics.length; index++) {
-      console.log(
-        `[erased jump ${index + 1}/${erasedJumpIndexDiagnostics.length}]
-` + JSON.stringify(erasedJumpIndexDiagnostics[index])
-      );
+    console.log(
+      `[erased jump diagnostics] slabs=${erasedJumpStructureDiagnostics.length} jumps=${jumpCount}`
+    );
+    for (const slab of erasedJumpStructureDiagnostics) {
+      for (const anchor of slab.anchors) {
+        console.log(
+          `[erased jumps slab=${slab.slabCount} anchor=${anchor.anchorNumber}]
+` + JSON.stringify({
+            slabCount: slab.slabCount,
+            deckCount: slab.deckCount,
+            anchor
+          })
+        );
+      }
     }
   }
   function emitJumpPopulationDiagnostics() {
@@ -1672,8 +1706,9 @@ ${fence}
   var currentAnchor;
   var savedDeckActivationStatus;
   var currentJumpObserverDiagnostics = null;
+  var currentAnchorNumberDiagnostics = 0;
   function resetSupplyWorker() {
-    resetJumpObserverDiagnostics();
+    resetSupplyWorkerDiagnostics();
     supplier = observeSupplier();
     currentDeck = null;
     currentSlab = null;
@@ -1904,6 +1939,7 @@ ${fence}
     if (!currentAnchor) {
       throw new Error("No ready visible anchor found in current slab.");
     }
+    currentAnchorNumberDiagnostics++;
     return roomAhead(currentAnchor, workZone);
   }
   function anchorRoom() {
@@ -2069,6 +2105,7 @@ ${fence}
     beginOrContinueJumpDiagnostics({
       kind: "anchor-move",
       anchor: snapshotElementDiagnostics(anchorDiagnostics),
+      anchorNumber: currentAnchorNumberDiagnostics,
       anchorRoomBefore: anchorRoomBeforeDiagnostics,
       jump,
       scrollYBefore: supplyRoomBeforeDiagnostics,
@@ -2090,6 +2127,10 @@ ${fence}
   function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
+  }
+  function resetSupplyWorkerDiagnostics() {
+    resetJumpObserverDiagnostics();
+    currentAnchorNumberDiagnostics = 0;
   }
   function beginJumpObserverDiagnostics(probe, supplyArea) {
     currentJumpObserverDiagnostics = observeJumpChangesDiagnostics(
@@ -3225,7 +3266,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.65" : "unbuilt";
+  var VERSION = true ? "2.66" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

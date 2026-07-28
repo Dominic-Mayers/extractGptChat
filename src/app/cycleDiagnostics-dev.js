@@ -16,8 +16,8 @@ let deckUpdatesDiagnostics = null;
 let erasedJumpDiagnostics = null;
 let previousJumpSummaryDiagnostics = null;
 let jumpPopulationDiagnostics = null;
-let erasedJumpIndexDiagnostics = null;
-let currentErasedJumpIndexEntryDiagnostics = null;
+let erasedJumpStructureDiagnostics = null;
+let currentErasedJumpEntryDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -78,8 +78,8 @@ export function resetCycleDiagnostics() {
         geometryByJumpTarget: {},
         geometryByOutcome: {}
     };
-    erasedJumpIndexDiagnostics = [];
-    currentErasedJumpIndexEntryDiagnostics = null;
+    erasedJumpStructureDiagnostics = [];
+    currentErasedJumpEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -293,15 +293,13 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "not-recovered"
             }
         });
-        if (currentErasedJumpIndexEntryDiagnostics != null) {
-            currentErasedJumpIndexEntryDiagnostics.recovery =
+        if (currentErasedJumpEntryDiagnostics != null) {
+            currentErasedJumpEntryDiagnostics.recovery =
                 "erased-again";
         }
-        erasedJumpIndexDiagnostics.push(
-            erasedJumpIndexEntryDiagnostics(
-                retryDiagnostics,
-                "retry-erased"
-            )
+        storeErasedJumpDiagnostics(
+            retryDiagnostics,
+            "retry-erased"
         );
         recordJumpPopulationDiagnostics(
             retryDiagnostics,
@@ -323,14 +321,11 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "pending"
             }
         });
-        currentErasedJumpIndexEntryDiagnostics =
-            erasedJumpIndexEntryDiagnostics(
+        currentErasedJumpEntryDiagnostics =
+            storeErasedJumpDiagnostics(
                 erasedJumpDiagnostics,
                 "erased"
             );
-        erasedJumpIndexDiagnostics.push(
-            currentErasedJumpIndexEntryDiagnostics
-        );
         recordJumpPopulationDiagnostics(
             erasedJumpDiagnostics,
             "erased"
@@ -354,11 +349,11 @@ export function recordErasedJumpResultDiagnostics(
                 outcome: "recovered-previous-erasure"
             }
         });
-        if (currentErasedJumpIndexEntryDiagnostics != null) {
-            currentErasedJumpIndexEntryDiagnostics.recovery =
+        if (currentErasedJumpEntryDiagnostics != null) {
+            currentErasedJumpEntryDiagnostics.recovery =
                 "succeeded";
         }
-        currentErasedJumpIndexEntryDiagnostics = null;
+        currentErasedJumpEntryDiagnostics = null;
         recordJumpPopulationDiagnostics(
             retryDiagnostics,
             "retry-succeeded"
@@ -374,12 +369,40 @@ export function recordErasedJumpResultDiagnostics(
     discardCurrentJumpProbeDiagnostics();
 }
 
-function erasedJumpIndexEntryDiagnostics(jump, outcome) {
+function storeErasedJumpDiagnostics(jump, outcome) {
+    const slabCount = currentCycle?.slabCount ?? null;
+    const anchorNumber = jump.anchorNumber ?? null;
+    let slab = erasedJumpStructureDiagnostics.find(
+        candidate => candidate.slabCount === slabCount
+    );
+    if (slab == null) {
+        slab = {
+            slabCount,
+            deckCount: currentCycle?.deckCount ?? null,
+            anchors: []
+        };
+        erasedJumpStructureDiagnostics.push(slab);
+    }
+    let anchor = slab.anchors.find(
+        candidate => candidate.anchorNumber === anchorNumber
+    );
+    if (anchor == null) {
+        anchor = {
+            anchorNumber,
+            anchor: jump.anchor,
+            jumps: []
+        };
+        slab.anchors.push(anchor);
+    }
+
+    const entry = erasedJumpEntryDiagnostics(jump, outcome);
+    anchor.jumps.push(entry);
+    return entry;
+}
+
+function erasedJumpEntryDiagnostics(jump, outcome) {
     const probe = jump.erasedJumpProbe;
     return {
-        index: erasedJumpIndexDiagnostics.length + 1,
-        slabCount: currentCycle?.slabCount ?? null,
-        deckCount: currentCycle?.deckCount ?? null,
         jumpNumber: currentCycle?.jumps.indexOf(jump) + 1,
         outcome,
         recovery: outcome === "erased" ? "pending" : "not-recovered",
@@ -946,23 +969,36 @@ export function flushCycleDiagnostics() {
     emitSlabDiagnostics(currentCycle, "FINAL", true);
     emitDeckSectionReadinessDiagnostics();
     emitDeckUpdatesDiagnostics();
-    emitErasedJumpIndexDiagnostics();
+    emitErasedJumpStructureDiagnostics();
     emitJumpPopulationDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
 }
 
-function emitErasedJumpIndexDiagnostics() {
-    console.log(
-        `[erased jump index] count=${erasedJumpIndexDiagnostics.length}`
+function emitErasedJumpStructureDiagnostics() {
+    const jumpCount = erasedJumpStructureDiagnostics.reduce(
+        (count, slab) => count + slab.anchors.reduce(
+            (anchorCount, anchor) =>
+                anchorCount + anchor.jumps.length,
+            0
+        ),
+        0
     );
-    for (let index = 0;
-        index < erasedJumpIndexDiagnostics.length;
-        index++) {
-        console.log(
-            `[erased jump ${index + 1}/` +
-            `${erasedJumpIndexDiagnostics.length}]\n` +
-            JSON.stringify(erasedJumpIndexDiagnostics[index])
-        );
+    console.log(
+        `[erased jump diagnostics] slabs=` +
+        `${erasedJumpStructureDiagnostics.length} jumps=${jumpCount}`
+    );
+    for (const slab of erasedJumpStructureDiagnostics) {
+        for (const anchor of slab.anchors) {
+            console.log(
+                `[erased jumps slab=${slab.slabCount} ` +
+                `anchor=${anchor.anchorNumber}]\n` +
+                JSON.stringify({
+                    slabCount: slab.slabCount,
+                    deckCount: slab.deckCount,
+                    anchor
+                })
+            );
+        }
     }
 }
 
