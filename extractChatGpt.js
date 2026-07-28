@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.34
+// @version      5.35
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Claude
 // @license      MIT
@@ -84,6 +84,11 @@
   function moveWorkZone(distance, supplyArea, workZone) {
     const container = commonContainer(supplyArea, workZone);
     scrollBy(container, -distance);
+  }
+  function nextAnimationFrame() {
+    return new Promise(
+      (resolve) => requestAnimationFrame(resolve)
+    );
   }
   function moveWorkZoneToSupplyEnd(supplyArea, workZone) {
     const container = commonContainer(supplyArea, workZone);
@@ -864,8 +869,9 @@ ${fence}
     if (deck.top >= viewportHeight2) return "below";
     return "viewport";
   }
-  function moveWorkZoneBy(jump) {
+  async function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
+    await nextAnimationFrame();
     moveWorkZone(jump, supplyArea, workZone);
   }
   function closestDeck(referenceRoom, candidates, workZone) {
@@ -1149,11 +1155,6 @@ ${fence}
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
-  function nextAnimationFrame() {
-    return new Promise(
-      (resolve) => requestAnimationFrame(resolve)
-    );
-  }
 
   // src/app/moveAnchorToBottom.js
   async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
@@ -1174,7 +1175,7 @@ ${fence}
       }
       const jump = clampJump(calibratedJump, room, viewportHeight2);
       await checkUpdateNeededBeforeDeactivation(jump);
-      moveWorkZoneBy(jump);
+      await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         break;
@@ -1641,7 +1642,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.34" : "unbuilt";
+  var VERSION = true ? "5.35" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

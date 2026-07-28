@@ -12,6 +12,7 @@ import {
     contains,
     elementsIn,
     moveWorkZone,
+    nextAnimationFrame,
     observeSupplier,
     roomAhead,
     supplyHeight as readSupplyHeight,
@@ -32,6 +33,7 @@ let currentAnchor;
 let savedDeckActivationStatus;
 
 export function resetSupplyWorker() {
+
     supplier = observeSupplier();
     currentDeck = null;
     currentSlab = null;
@@ -331,8 +333,11 @@ function deckLocation(deck, viewportHeight) {
     return "viewport";
 }
 
-export function moveWorkZoneBy(jump) {
+export async function moveWorkZoneBy(jump) {
+
     const { supplyArea, workZone } = environment();
+
+    await nextAnimationFrame();
 
     moveWorkZone(jump, supplyArea, workZone);
 

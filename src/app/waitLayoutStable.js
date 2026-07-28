@@ -13,6 +13,8 @@ import {
     supplyRoom,
     thresholdDeckSnapshot
 } from "./supplyWorker.js";
+import { nextAnimationFrame } from "./scrollContainer.js";
+
 export async function waitLayoutStable(
     {
         maxFrames = MAX_FRAMES_FOR_STABILIZATION,
@@ -210,14 +212,4 @@ async function yieldToScheduler() {
         return;
     }
     await new Promise(resolve => setTimeout(resolve, 0));
-}
-
-/**
- * Wait for the next animation frame.
- */
-export function nextAnimationFrame() {
-
-    return new Promise(resolve =>
-        requestAnimationFrame(resolve)
-    );
 }
