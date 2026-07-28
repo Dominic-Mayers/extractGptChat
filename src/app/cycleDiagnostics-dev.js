@@ -18,6 +18,8 @@ let previousJumpSummaryDiagnostics = null;
 let jumpPopulationDiagnostics = null;
 let stabilizationRuleDiagnostics = null;
 let deckLifecycleDiagnostics = null;
+let deactivationPredictionDiagnostics = null;
+let deactivationPredictionElapsedValuesDiagnostics = null;
 let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
 
@@ -105,6 +107,17 @@ export function resetCycleDiagnostics() {
         deckChangesAfterTrueCount: 0,
         anomalies: []
     };
+    deactivationPredictionDiagnostics = {
+        predictionCount: 0,
+        matchedDeactivationCount: 0,
+        unpredictedDeactivationCount: 0,
+        elapsedMsCount: 0,
+        elapsedMsSum: 0,
+        elapsedMsMinimum: null,
+        elapsedMsMaximum: null,
+        byPhase: {}
+    };
+    deactivationPredictionElapsedValuesDiagnostics = [];
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = new WeakMap();
@@ -184,6 +197,11 @@ export function recordStabilizationRuleDiagnostics({
     } else {
         stabilizationRuleDiagnostics.deactivationOnlyCount++;
     }
+}
+
+export function recordDeactivationPredictionDiagnostics() {
+    if (deactivationPredictionDiagnostics == null) return;
+    deactivationPredictionDiagnostics.predictionCount++;
 }
 
 export function finishStabilizationDiagnostics(data = {}) {
@@ -528,6 +546,7 @@ function compactActivationChangesDiagnostics(changes) {
         delivery: change.delivery ?? null,
         order: change.order ?? null,
         phase: change.phase ?? null,
+        predictionElapsedMs: change.predictionElapsedMs ?? null,
         deckId: change.deck?.id ?? null,
         before: change.before ?? null,
         after: change.after ?? null,
@@ -791,6 +810,7 @@ function recordDeckLifecycleDiagnostics(probe, outcome) {
 
         if (deactivated) {
             deckLifecycleDiagnostics.deactivationCount++;
+            recordMatchedDeactivationPredictionDiagnostics(event);
             if (priorSection == null) {
                 deckLifecycleDiagnostics.falseWithoutPriorRemovalCount++;
             } else {
@@ -849,6 +869,38 @@ function recordDeckLifecycleDiagnostics(probe, outcome) {
             });
         }
     }
+}
+
+function recordMatchedDeactivationPredictionDiagnostics(event) {
+    if (deactivationPredictionDiagnostics == null) return;
+    if (!Number.isFinite(event.predictionElapsedMs)) {
+        deactivationPredictionDiagnostics.unpredictedDeactivationCount++;
+        return;
+    }
+
+    const elapsedMs = event.predictionElapsedMs;
+    deactivationPredictionDiagnostics.matchedDeactivationCount++;
+    deactivationPredictionDiagnostics.elapsedMsCount++;
+    deactivationPredictionDiagnostics.elapsedMsSum += elapsedMs;
+    deactivationPredictionElapsedValuesDiagnostics.push(elapsedMs);
+    deactivationPredictionDiagnostics.elapsedMsMinimum =
+        deactivationPredictionDiagnostics.elapsedMsMinimum == null
+            ? elapsedMs
+            : Math.min(
+                deactivationPredictionDiagnostics.elapsedMsMinimum,
+                elapsedMs
+            );
+    deactivationPredictionDiagnostics.elapsedMsMaximum =
+        deactivationPredictionDiagnostics.elapsedMsMaximum == null
+            ? elapsedMs
+            : Math.max(
+                deactivationPredictionDiagnostics.elapsedMsMaximum,
+                elapsedMs
+            );
+    incrementJumpPopulationCategoryDiagnostics(
+        deactivationPredictionDiagnostics.byPhase,
+        event.phase
+    );
 }
 
 function incrementJumpPopulationCategoryDiagnostics(categories, key) {
@@ -1196,6 +1248,7 @@ export function flushCycleDiagnostics() {
     emitJumpPopulationDiagnostics();
     emitStabilizationRuleDiagnostics();
     emitDeckLifecycleDiagnostics();
+    emitDeactivationPredictionDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
 }
 
@@ -1294,6 +1347,40 @@ function emitDeckLifecycleDiagnostics() {
         JSON.stringify({
             ...deckLifecycleDiagnostics,
             anomalies: deckLifecycleDiagnostics.anomalies.slice(0, 50)
+        }, null, 2)
+    );
+}
+
+function emitDeactivationPredictionDiagnostics() {
+    if (deactivationPredictionDiagnostics == null) return;
+    const count = deactivationPredictionDiagnostics.elapsedMsCount;
+    const sortedElapsed = [
+        ...deactivationPredictionElapsedValuesDiagnostics
+    ].sort((first, second) => first - second);
+    const percentile = value => count === 0
+        ? null
+        : sortedElapsed[
+            Math.min(
+                count - 1,
+                Math.ceil(value / 100 * count) - 1
+            )
+        ];
+    console.log(
+        "[deactivation prediction]\n" +
+        JSON.stringify({
+            ...deactivationPredictionDiagnostics,
+            pendingPredictionCount:
+                deactivationPredictionDiagnostics.predictionCount -
+                deactivationPredictionDiagnostics
+                    .matchedDeactivationCount,
+            elapsedMsAverage: count === 0
+                ? null
+                : deactivationPredictionDiagnostics.elapsedMsSum /
+                    count,
+            elapsedMsMedian: percentile(50),
+            elapsedMsP90: percentile(90),
+            elapsedMsP95: percentile(95),
+            elapsedMsP99: percentile(99)
         }, null, 2)
     );
 }

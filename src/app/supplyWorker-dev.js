@@ -28,6 +28,7 @@ import {
     recordDeckSectionActivationDiagnostics,
     recordDeckSectionEnumerationDiagnostics,
     recordDeckUpdateDiagnostics,
+    recordDeactivationPredictionDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics-dev.js";
 import {
@@ -44,6 +45,7 @@ let currentAnchor;
 let savedDeckActivationStatus;
 let currentJumpObserverDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
+let pendingDeactivationPredictionsDiagnostics = new Map();
 
 export function resetSupplyWorker() {
     resetSupplyWorkerDiagnostics();
@@ -118,6 +120,13 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
             deactivationBoundary - TOLERATED_ROUNDING
         ) {
             continue;
+        }
+
+        if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
+            pendingDeactivationPredictionsDiagnostics.set(deck, {
+                predictedAt: performance.now()
+            });
+            recordDeactivationPredictionDiagnostics();
         }
 
         const turnIdDiagnostics =
@@ -618,6 +627,7 @@ function drainJumpObserverDiagnostics(probe, phase) {
 function resetSupplyWorkerDiagnostics() {
     resetJumpObserverDiagnostics();
     currentAnchorNumberDiagnostics = 0;
+    pendingDeactivationPredictionsDiagnostics = new Map();
 }
 
 function beginJumpObserverDiagnostics(probe, supplyArea) {
@@ -721,16 +731,35 @@ function recordJumpChangesDiagnostics(probe, records, phase) {
             record.type === "attributes" &&
             record.attributeName === "data-is-intersecting"
         ) {
+            const before = record.oldValue;
+            const after = record.target.getAttribute(
+                "data-is-intersecting"
+            );
+            const deactivated =
+                before != null &&
+                before !== "false" &&
+                (after == null || after === "false");
+            const prediction = deactivated
+                ? pendingDeactivationPredictionsDiagnostics.get(
+                    record.target
+                )
+                : null;
+            if (prediction != null) {
+                pendingDeactivationPredictionsDiagnostics.delete(
+                    record.target
+                );
+            }
             probe.activationChanges.push({
                 delivery,
                 order: ++probe.mutationOrder,
                 clock: performance.now(),
                 phase,
                 deck: snapshotElementDiagnostics(record.target),
-                before: record.oldValue,
-                after: record.target.getAttribute(
-                    "data-is-intersecting"
-                )
+                before,
+                after,
+                predictionElapsedMs: prediction == null
+                    ? null
+                    : performance.now() - prediction.predictedAt
             });
             continue;
         }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.78
+// @version      2.79
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -255,6 +255,8 @@
   var jumpPopulationDiagnostics = null;
   var stabilizationRuleDiagnostics = null;
   var deckLifecycleDiagnostics = null;
+  var deactivationPredictionDiagnostics = null;
+  var deactivationPredictionElapsedValuesDiagnostics = null;
   var erasedJumpStructureDiagnostics = null;
   var currentErasedJumpEntryDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
@@ -339,6 +341,17 @@
       deckChangesAfterTrueCount: 0,
       anomalies: []
     };
+    deactivationPredictionDiagnostics = {
+      predictionCount: 0,
+      matchedDeactivationCount: 0,
+      unpredictedDeactivationCount: 0,
+      elapsedMsCount: 0,
+      elapsedMsSum: 0,
+      elapsedMsMinimum: null,
+      elapsedMsMaximum: null,
+      byPhase: {}
+    };
+    deactivationPredictionElapsedValuesDiagnostics = [];
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
@@ -411,6 +424,10 @@
     } else {
       stabilizationRuleDiagnostics.deactivationOnlyCount++;
     }
+  }
+  function recordDeactivationPredictionDiagnostics() {
+    if (deactivationPredictionDiagnostics == null) return;
+    deactivationPredictionDiagnostics.predictionCount++;
   }
   function finishStabilizationDiagnostics(data = {}) {
     const stabilizationDiagnostics = currentStabilizationDiagnostics();
@@ -715,6 +732,7 @@
       delivery: change.delivery ?? null,
       order: change.order ?? null,
       phase: change.phase ?? null,
+      predictionElapsedMs: change.predictionElapsedMs ?? null,
       deckId: change.deck?.id ?? null,
       before: change.before ?? null,
       after: change.after ?? null,
@@ -904,6 +922,7 @@
       );
       if (deactivated) {
         deckLifecycleDiagnostics.deactivationCount++;
+        recordMatchedDeactivationPredictionDiagnostics(event);
         if (priorSection == null) {
           deckLifecycleDiagnostics.falseWithoutPriorRemovalCount++;
         } else {
@@ -954,6 +973,30 @@
         });
       }
     }
+  }
+  function recordMatchedDeactivationPredictionDiagnostics(event) {
+    if (deactivationPredictionDiagnostics == null) return;
+    if (!Number.isFinite(event.predictionElapsedMs)) {
+      deactivationPredictionDiagnostics.unpredictedDeactivationCount++;
+      return;
+    }
+    const elapsedMs = event.predictionElapsedMs;
+    deactivationPredictionDiagnostics.matchedDeactivationCount++;
+    deactivationPredictionDiagnostics.elapsedMsCount++;
+    deactivationPredictionDiagnostics.elapsedMsSum += elapsedMs;
+    deactivationPredictionElapsedValuesDiagnostics.push(elapsedMs);
+    deactivationPredictionDiagnostics.elapsedMsMinimum = deactivationPredictionDiagnostics.elapsedMsMinimum == null ? elapsedMs : Math.min(
+      deactivationPredictionDiagnostics.elapsedMsMinimum,
+      elapsedMs
+    );
+    deactivationPredictionDiagnostics.elapsedMsMaximum = deactivationPredictionDiagnostics.elapsedMsMaximum == null ? elapsedMs : Math.max(
+      deactivationPredictionDiagnostics.elapsedMsMaximum,
+      elapsedMs
+    );
+    incrementJumpPopulationCategoryDiagnostics(
+      deactivationPredictionDiagnostics.byPhase,
+      event.phase
+    );
   }
   function incrementJumpPopulationCategoryDiagnostics(categories, key) {
     categories[key] = (categories[key] ?? 0) + 1;
@@ -1214,6 +1257,7 @@
     emitJumpPopulationDiagnostics();
     emitStabilizationRuleDiagnostics();
     emitDeckLifecycleDiagnostics();
+    emitDeactivationPredictionDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
   }
   function emitErasedJumpStructureDiagnostics() {
@@ -1281,6 +1325,28 @@
       "[deck lifecycle]\n" + JSON.stringify({
         ...deckLifecycleDiagnostics,
         anomalies: deckLifecycleDiagnostics.anomalies.slice(0, 50)
+      }, null, 2)
+    );
+  }
+  function emitDeactivationPredictionDiagnostics() {
+    if (deactivationPredictionDiagnostics == null) return;
+    const count = deactivationPredictionDiagnostics.elapsedMsCount;
+    const sortedElapsed = [
+      ...deactivationPredictionElapsedValuesDiagnostics
+    ].sort((first, second) => first - second);
+    const percentile = (value) => count === 0 ? null : sortedElapsed[Math.min(
+      count - 1,
+      Math.ceil(value / 100 * count) - 1
+    )];
+    console.log(
+      "[deactivation prediction]\n" + JSON.stringify({
+        ...deactivationPredictionDiagnostics,
+        pendingPredictionCount: deactivationPredictionDiagnostics.predictionCount - deactivationPredictionDiagnostics.matchedDeactivationCount,
+        elapsedMsAverage: count === 0 ? null : deactivationPredictionDiagnostics.elapsedMsSum / count,
+        elapsedMsMedian: percentile(50),
+        elapsedMsP90: percentile(90),
+        elapsedMsP95: percentile(95),
+        elapsedMsP99: percentile(99)
       }, null, 2)
     );
   }
@@ -1921,6 +1987,7 @@ ${fence}
   var savedDeckActivationStatus;
   var currentJumpObserverDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
+  var pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
   function resetSupplyWorker() {
     resetSupplyWorkerDiagnostics();
     supplier = observeSupplier();
@@ -1981,6 +2048,12 @@ ${fence}
       const topAfterJump = rect.top + jump;
       if (rect.top >= deactivationBoundary - TOLERATED_ROUNDING || topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
         continue;
+      }
+      if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
+        pendingDeactivationPredictionsDiagnostics.set(deck, {
+          predictedAt: performance.now()
+        });
+        recordDeactivationPredictionDiagnostics();
       }
       const turnIdDiagnostics = deck.getAttribute("data-turn-id-container");
       const previousDiagnostics = compiledDeckFor(turnIdDiagnostics);
@@ -2376,6 +2449,7 @@ ${fence}
   function resetSupplyWorkerDiagnostics() {
     resetJumpObserverDiagnostics();
     currentAnchorNumberDiagnostics = 0;
+    pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
   }
   function beginJumpObserverDiagnostics(probe, supplyArea) {
     currentJumpObserverDiagnostics = observeJumpChangesDiagnostics(
@@ -2456,16 +2530,28 @@ ${fence}
     const delivery = ++probe.mutationDeliveryNumber;
     for (const record of records) {
       if (record.type === "attributes" && record.attributeName === "data-is-intersecting") {
+        const before = record.oldValue;
+        const after = record.target.getAttribute(
+          "data-is-intersecting"
+        );
+        const deactivated = before != null && before !== "false" && (after == null || after === "false");
+        const prediction = deactivated ? pendingDeactivationPredictionsDiagnostics.get(
+          record.target
+        ) : null;
+        if (prediction != null) {
+          pendingDeactivationPredictionsDiagnostics.delete(
+            record.target
+          );
+        }
         probe.activationChanges.push({
           delivery,
           order: ++probe.mutationOrder,
           clock: performance.now(),
           phase,
           deck: snapshotElementDiagnostics(record.target),
-          before: record.oldValue,
-          after: record.target.getAttribute(
-            "data-is-intersecting"
-          )
+          before,
+          after,
+          predictionElapsedMs: prediction == null ? null : performance.now() - prediction.predictedAt
         });
         continue;
       }
@@ -3556,7 +3642,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.78" : "unbuilt";
+  var VERSION = true ? "2.79" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",
