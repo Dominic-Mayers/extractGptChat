@@ -534,11 +534,14 @@ export async function moveWorkZoneBy(jump) {
             anchorDiagnostics.edge === "top"
             ? "slabTop"
             : "ordinaryAnchor",
-        beforeJump: jumpProbeGeometryDiagnostics(
+        phase: "pre-command-frame",
+        beforeFrame: jumpProbeGeometryDiagnostics(
             anchorDiagnostics,
             supplyArea,
             workZone
         ),
+        preCommand: null,
+        afterCommand: null,
         nextRaf: null,
         activationChanges: [],
         renderingChanges: []
@@ -560,7 +563,24 @@ export async function moveWorkZoneBy(jump) {
 
     await nextAnimationFrame();
 
+    drainJumpObserverDiagnostics(
+        probeDiagnostics,
+        "pre-command-frame"
+    );
+    probeDiagnostics.preCommand = jumpProbeGeometryDiagnostics(
+        anchorDiagnostics,
+        supplyArea,
+        workZone
+    );
+    probeDiagnostics.phase = "command";
     moveWorkZone(jump, supplyArea, workZone);
+    drainJumpObserverDiagnostics(probeDiagnostics, "command");
+    probeDiagnostics.afterCommand = jumpProbeGeometryDiagnostics(
+        anchorDiagnostics,
+        supplyArea,
+        workZone
+    );
+    probeDiagnostics.phase = "post-command";
 
     const supplyRoomAfterDiagnostics =
         workZonePosition(supplyArea, workZone);
@@ -583,6 +603,11 @@ function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics = null;
 }
 
+function drainJumpObserverDiagnostics(probe, phase) {
+    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
+    recordJumpChangesDiagnostics(probe, records, phase);
+}
+
 function resetSupplyWorkerDiagnostics() {
     resetJumpObserverDiagnostics();
     currentAnchorNumberDiagnostics = 0;
@@ -602,11 +627,13 @@ function captureNextRafJumpProbeDiagnostics(
     workZone
 ) {
     requestAnimationFrame(() => {
+        drainJumpObserverDiagnostics(probe, "post-command");
         probe.nextRaf = jumpProbeGeometryDiagnostics(
             anchor,
             supplyArea,
             workZone
         );
+        probe.phase = "after-next-rAF";
     });
 }
 
@@ -665,81 +692,7 @@ function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
 
 function observeJumpChangesDiagnostics(probe, supplyArea) {
     const observer = new MutationObserver(records => {
-        for (const record of records) {
-            if (
-                record.type === "attributes" &&
-                record.attributeName === "data-is-intersecting"
-            ) {
-                probe.activationChanges.push({
-                    clock: performance.now(),
-                    phase: probe.nextRaf == null
-                        ? "before-next-rAF"
-                        : "after-next-rAF",
-                    deck: snapshotElementDiagnostics(record.target),
-                    before: record.oldValue,
-                    after: record.target.getAttribute(
-                        "data-is-intersecting"
-                    )
-                });
-                continue;
-            }
-
-            if (record.type !== "childList") continue;
-            for (const element of record.addedNodes) {
-                if (element.nodeType !== Node.ELEMENT_NODE) continue;
-                if (element.tagName === "SECTION") {
-                    probe.activationChanges.push({
-                        clock: performance.now(),
-                        phase: probe.nextRaf == null
-                            ? "before-next-rAF"
-                            : "after-next-rAF",
-                        deck: snapshotElementDiagnostics(
-                            record.target.closest?.(
-                                "[data-turn-id-container]"
-                            )
-                        ),
-                        sectionChange: "added",
-                        section: mutationElementDiagnostics(element)
-                    });
-                    continue;
-                }
-                probe.renderingChanges.push({
-                    clock: performance.now(),
-                    phase: probe.nextRaf == null
-                        ? "before-next-rAF"
-                        : "after-next-rAF",
-                    change: "added",
-                    element: mutationElementDiagnostics(element)
-                });
-            }
-            for (const element of record.removedNodes) {
-                if (element.nodeType !== Node.ELEMENT_NODE) continue;
-                if (element.tagName === "SECTION") {
-                    probe.activationChanges.push({
-                        clock: performance.now(),
-                        phase: probe.nextRaf == null
-                            ? "before-next-rAF"
-                            : "after-next-rAF",
-                        deck: snapshotElementDiagnostics(
-                            record.target.closest?.(
-                                "[data-turn-id-container]"
-                            )
-                        ),
-                        sectionChange: "removed",
-                        section: mutationElementDiagnostics(element)
-                    });
-                    continue;
-                }
-                probe.renderingChanges.push({
-                    clock: performance.now(),
-                    phase: probe.nextRaf == null
-                        ? "before-next-rAF"
-                        : "after-next-rAF",
-                    change: "removed",
-                    element: mutationElementDiagnostics(element)
-                });
-            }
-        }
+        recordJumpChangesDiagnostics(probe, records, probe.phase);
     });
 
     observer.observe(document.body, {
@@ -750,6 +703,74 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
         attributeFilter: ["data-is-intersecting"]
     });
     return observer;
+}
+
+function recordJumpChangesDiagnostics(probe, records, phase) {
+    for (const record of records) {
+        if (
+            record.type === "attributes" &&
+            record.attributeName === "data-is-intersecting"
+        ) {
+            probe.activationChanges.push({
+                clock: performance.now(),
+                phase,
+                deck: snapshotElementDiagnostics(record.target),
+                before: record.oldValue,
+                after: record.target.getAttribute(
+                    "data-is-intersecting"
+                )
+            });
+            continue;
+        }
+
+        if (record.type !== "childList") continue;
+        for (const element of record.addedNodes) {
+            if (element.nodeType !== Node.ELEMENT_NODE) continue;
+            if (element.tagName === "SECTION") {
+                probe.activationChanges.push({
+                    clock: performance.now(),
+                    phase,
+                    deck: snapshotElementDiagnostics(
+                        record.target.closest?.(
+                            "[data-turn-id-container]"
+                        )
+                    ),
+                    sectionChange: "added",
+                    section: mutationElementDiagnostics(element)
+                });
+                continue;
+            }
+            probe.renderingChanges.push({
+                clock: performance.now(),
+                phase,
+                change: "added",
+                element: mutationElementDiagnostics(element)
+            });
+        }
+        for (const element of record.removedNodes) {
+            if (element.nodeType !== Node.ELEMENT_NODE) continue;
+            if (element.tagName === "SECTION") {
+                probe.activationChanges.push({
+                    clock: performance.now(),
+                    phase,
+                    deck: snapshotElementDiagnostics(
+                        record.target.closest?.(
+                            "[data-turn-id-container]"
+                        )
+                    ),
+                    sectionChange: "removed",
+                    section: mutationElementDiagnostics(element)
+                });
+                continue;
+            }
+            probe.renderingChanges.push({
+                clock: performance.now(),
+                phase,
+                change: "removed",
+                element: mutationElementDiagnostics(element)
+            });
+        }
+    }
 }
 
 function mutationElementDiagnostics(element) {

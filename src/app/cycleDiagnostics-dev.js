@@ -74,6 +74,7 @@ export function resetCycleDiagnostics() {
         byJumpTarget: {},
         byOutcome: {},
         transitionPatterns: {},
+        phasePatterns: {},
         geometry: {},
         geometryByJumpTarget: {},
         geometryByOutcome: {}
@@ -408,8 +409,14 @@ function erasedJumpEntryDiagnostics(jump, outcome) {
         recovery: outcome === "erased" ? "pending" : "not-recovered",
         jumpTarget: probe?.jumpTarget ?? null,
         requestedJump: jump.requestedJump,
+        beforeFrame: compactJumpGeometryDiagnostics(
+            probe?.beforeFrame
+        ),
         beforeJump: compactJumpGeometryDiagnostics(
-            probe?.beforeJump
+            probe?.preCommand
+        ),
+        afterCommand: compactJumpGeometryDiagnostics(
+            probe?.afterCommand
         ),
         nextRaf: compactJumpGeometryDiagnostics(probe?.nextRaf),
         activationChanges: compactActivationChangesDiagnostics(
@@ -494,7 +501,9 @@ function jumpSummaryDiagnostics(jump) {
     return {
         jumpTarget: jump.erasedJumpProbe?.jumpTarget ?? null,
         requestedJump: jump.requestedJump,
-        beforeJump: jump.erasedJumpProbe?.beforeJump ?? null,
+        beforeFrame: jump.erasedJumpProbe?.beforeFrame ?? null,
+        beforeJump: jump.erasedJumpProbe?.preCommand ?? null,
+        afterCommand: jump.erasedJumpProbe?.afterCommand ?? null,
         nextRaf: jump.erasedJumpProbe?.nextRaf ?? null,
         activationChanges:
             jump.erasedJumpProbe?.activationChanges ?? [],
@@ -580,8 +589,43 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
     jumpPopulationDiagnostics.transitionPatterns[
         transitionPattern
     ] = patternOutcomes;
+    const phasePattern = [
+        "pre-command-frame",
+        "command",
+        "post-command",
+        "after-next-rAF"
+    ].map(phase => {
+        const changes = attributeChanges.filter(
+            change => change.phase === phase
+        );
+        const activations = changes.filter(
+            change =>
+                (change.before == null || change.before === "false") &&
+                change.after != null &&
+                change.after !== "false"
+        ).length;
+        const deactivations = changes.filter(
+            change =>
+                change.before != null &&
+                change.before !== "false" &&
+                (change.after == null || change.after === "false")
+        ).length;
+        return `${phase}:activation:${activations},` +
+            `deactivation:${deactivations}`;
+    }).join(";");
+    const phasePatternOutcomes =
+        jumpPopulationDiagnostics.phasePatterns[phasePattern] ?? {};
+    incrementJumpPopulationCategoryDiagnostics(
+        phasePatternOutcomes,
+        outcome
+    );
+    jumpPopulationDiagnostics.phasePatterns[phasePattern] =
+        phasePatternOutcomes;
 
-    const before = probe.beforeJump;
+    const before = probe.preCommand;
+    const beforeFrame = probe.beforeFrame;
+    const afterCommand = probe.afterCommand;
+    const nextRaf = probe.nextRaf;
     const geometryValues = {
         slabRoom: before.slabRoom,
         anchorRoom: before.anchorRoom,
@@ -597,6 +641,28 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
     ) {
         geometryValues.slabActivationGapAbove =
             before.slabRoom + before.activationDistanceAbove;
+    }
+    for (const name of [
+        "slabRoom",
+        "anchorRoom",
+        "deckRoom",
+        "scrollY"
+    ]) {
+        if (Number.isFinite(beforeFrame?.[name])) {
+            geometryValues[
+                `preCommand${name[0].toUpperCase()}${name.slice(1)}Change`
+            ] = before[name] - beforeFrame[name];
+        }
+        if (Number.isFinite(afterCommand?.[name])) {
+            geometryValues[
+                `command${name[0].toUpperCase()}${name.slice(1)}Change`
+            ] = afterCommand[name] - before[name];
+        }
+        if (Number.isFinite(nextRaf?.[name])) {
+            geometryValues[
+                `nextRaf${name[0].toUpperCase()}${name.slice(1)}Change`
+            ] = nextRaf[name] - before[name];
+        }
     }
     const targetGeometry =
         jumpPopulationDiagnostics.geometryByJumpTarget[

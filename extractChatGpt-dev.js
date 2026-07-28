@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.71
+// @version      2.72
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -308,6 +308,7 @@
       byJumpTarget: {},
       byOutcome: {},
       transitionPatterns: {},
+      phasePatterns: {},
       geometry: {},
       geometryByJumpTarget: {},
       geometryByOutcome: {}
@@ -605,8 +606,14 @@
       recovery: outcome === "erased" ? "pending" : "not-recovered",
       jumpTarget: probe?.jumpTarget ?? null,
       requestedJump: jump.requestedJump,
+      beforeFrame: compactJumpGeometryDiagnostics(
+        probe?.beforeFrame
+      ),
       beforeJump: compactJumpGeometryDiagnostics(
-        probe?.beforeJump
+        probe?.preCommand
+      ),
+      afterCommand: compactJumpGeometryDiagnostics(
+        probe?.afterCommand
       ),
       nextRaf: compactJumpGeometryDiagnostics(probe?.nextRaf),
       activationChanges: compactActivationChangesDiagnostics(
@@ -680,7 +687,9 @@
     return {
       jumpTarget: jump.erasedJumpProbe?.jumpTarget ?? null,
       requestedJump: jump.requestedJump,
-      beforeJump: jump.erasedJumpProbe?.beforeJump ?? null,
+      beforeFrame: jump.erasedJumpProbe?.beforeFrame ?? null,
+      beforeJump: jump.erasedJumpProbe?.preCommand ?? null,
+      afterCommand: jump.erasedJumpProbe?.afterCommand ?? null,
       nextRaf: jump.erasedJumpProbe?.nextRaf ?? null,
       activationChanges: jump.erasedJumpProbe?.activationChanges ?? [],
       renderingChanges: jump.erasedJumpProbe?.renderingChanges ?? [],
@@ -743,7 +752,33 @@
       outcome
     );
     jumpPopulationDiagnostics.transitionPatterns[transitionPattern] = patternOutcomes;
-    const before = probe.beforeJump;
+    const phasePattern = [
+      "pre-command-frame",
+      "command",
+      "post-command",
+      "after-next-rAF"
+    ].map((phase) => {
+      const changes = attributeChanges.filter(
+        (change) => change.phase === phase
+      );
+      const activations = changes.filter(
+        (change) => (change.before == null || change.before === "false") && change.after != null && change.after !== "false"
+      ).length;
+      const deactivations = changes.filter(
+        (change) => change.before != null && change.before !== "false" && (change.after == null || change.after === "false")
+      ).length;
+      return `${phase}:activation:${activations},deactivation:${deactivations}`;
+    }).join(";");
+    const phasePatternOutcomes = jumpPopulationDiagnostics.phasePatterns[phasePattern] ?? {};
+    incrementJumpPopulationCategoryDiagnostics(
+      phasePatternOutcomes,
+      outcome
+    );
+    jumpPopulationDiagnostics.phasePatterns[phasePattern] = phasePatternOutcomes;
+    const before = probe.preCommand;
+    const beforeFrame = probe.beforeFrame;
+    const afterCommand = probe.afterCommand;
+    const nextRaf = probe.nextRaf;
     const geometryValues = {
       slabRoom: before.slabRoom,
       anchorRoom: before.anchorRoom,
@@ -753,6 +788,22 @@
     };
     if (Number.isFinite(before.slabRoom) && Number.isFinite(before.activationDistanceAbove)) {
       geometryValues.slabActivationGapAbove = before.slabRoom + before.activationDistanceAbove;
+    }
+    for (const name of [
+      "slabRoom",
+      "anchorRoom",
+      "deckRoom",
+      "scrollY"
+    ]) {
+      if (Number.isFinite(beforeFrame?.[name])) {
+        geometryValues[`preCommand${name[0].toUpperCase()}${name.slice(1)}Change`] = before[name] - beforeFrame[name];
+      }
+      if (Number.isFinite(afterCommand?.[name])) {
+        geometryValues[`command${name[0].toUpperCase()}${name.slice(1)}Change`] = afterCommand[name] - before[name];
+      }
+      if (Number.isFinite(nextRaf?.[name])) {
+        geometryValues[`nextRaf${name[0].toUpperCase()}${name.slice(1)}Change`] = nextRaf[name] - before[name];
+      }
     }
     const targetGeometry = jumpPopulationDiagnostics.geometryByJumpTarget[probe.jumpTarget] ?? {};
     const outcomeGeometry = jumpPopulationDiagnostics.geometryByOutcome[outcome] ?? {};
@@ -2095,11 +2146,14 @@ ${fence}
     const supplyRoomBeforeDiagnostics = workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
       jumpTarget: anchorDiagnostics.element === retainedSlab() && anchorDiagnostics.edge === "top" ? "slabTop" : "ordinaryAnchor",
-      beforeJump: jumpProbeGeometryDiagnostics(
+      phase: "pre-command-frame",
+      beforeFrame: jumpProbeGeometryDiagnostics(
         anchorDiagnostics,
         supplyArea,
         workZone
       ),
+      preCommand: null,
+      afterCommand: null,
       nextRaf: null,
       activationChanges: [],
       renderingChanges: []
@@ -2118,7 +2172,24 @@ ${fence}
       erasedJumpProbe: probeDiagnostics
     });
     await nextAnimationFrame();
+    drainJumpObserverDiagnostics(
+      probeDiagnostics,
+      "pre-command-frame"
+    );
+    probeDiagnostics.preCommand = jumpProbeGeometryDiagnostics(
+      anchorDiagnostics,
+      supplyArea,
+      workZone
+    );
+    probeDiagnostics.phase = "command";
     moveWorkZone(jump, supplyArea, workZone);
+    drainJumpObserverDiagnostics(probeDiagnostics, "command");
+    probeDiagnostics.afterCommand = jumpProbeGeometryDiagnostics(
+      anchorDiagnostics,
+      supplyArea,
+      workZone
+    );
+    probeDiagnostics.phase = "post-command";
     const supplyRoomAfterDiagnostics = workZonePosition(supplyArea, workZone);
     updateJumpDiagnostics({
       scrollYAfter: supplyRoomAfterDiagnostics,
@@ -2135,6 +2206,10 @@ ${fence}
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
   }
+  function drainJumpObserverDiagnostics(probe, phase) {
+    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
+    recordJumpChangesDiagnostics(probe, records, phase);
+  }
   function resetSupplyWorkerDiagnostics() {
     resetJumpObserverDiagnostics();
     currentAnchorNumberDiagnostics = 0;
@@ -2147,11 +2222,13 @@ ${fence}
   }
   function captureNextRafJumpProbeDiagnostics(probe, anchor, supplyArea, workZone) {
     requestAnimationFrame(() => {
+      drainJumpObserverDiagnostics(probe, "post-command");
       probe.nextRaf = jumpProbeGeometryDiagnostics(
         anchor,
         supplyArea,
         workZone
       );
+      probe.phase = "after-next-rAF";
     });
   }
   function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
@@ -2199,67 +2276,7 @@ ${fence}
   }
   function observeJumpChangesDiagnostics(probe, supplyArea) {
     const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === "attributes" && record.attributeName === "data-is-intersecting") {
-          probe.activationChanges.push({
-            clock: performance.now(),
-            phase: probe.nextRaf == null ? "before-next-rAF" : "after-next-rAF",
-            deck: snapshotElementDiagnostics(record.target),
-            before: record.oldValue,
-            after: record.target.getAttribute(
-              "data-is-intersecting"
-            )
-          });
-          continue;
-        }
-        if (record.type !== "childList") continue;
-        for (const element of record.addedNodes) {
-          if (element.nodeType !== Node.ELEMENT_NODE) continue;
-          if (element.tagName === "SECTION") {
-            probe.activationChanges.push({
-              clock: performance.now(),
-              phase: probe.nextRaf == null ? "before-next-rAF" : "after-next-rAF",
-              deck: snapshotElementDiagnostics(
-                record.target.closest?.(
-                  "[data-turn-id-container]"
-                )
-              ),
-              sectionChange: "added",
-              section: mutationElementDiagnostics(element)
-            });
-            continue;
-          }
-          probe.renderingChanges.push({
-            clock: performance.now(),
-            phase: probe.nextRaf == null ? "before-next-rAF" : "after-next-rAF",
-            change: "added",
-            element: mutationElementDiagnostics(element)
-          });
-        }
-        for (const element of record.removedNodes) {
-          if (element.nodeType !== Node.ELEMENT_NODE) continue;
-          if (element.tagName === "SECTION") {
-            probe.activationChanges.push({
-              clock: performance.now(),
-              phase: probe.nextRaf == null ? "before-next-rAF" : "after-next-rAF",
-              deck: snapshotElementDiagnostics(
-                record.target.closest?.(
-                  "[data-turn-id-container]"
-                )
-              ),
-              sectionChange: "removed",
-              section: mutationElementDiagnostics(element)
-            });
-            continue;
-          }
-          probe.renderingChanges.push({
-            clock: performance.now(),
-            phase: probe.nextRaf == null ? "before-next-rAF" : "after-next-rAF",
-            change: "removed",
-            element: mutationElementDiagnostics(element)
-          });
-        }
-      }
+      recordJumpChangesDiagnostics(probe, records, probe.phase);
     });
     observer.observe(document.body, {
       subtree: true,
@@ -2269,6 +2286,69 @@ ${fence}
       attributeFilter: ["data-is-intersecting"]
     });
     return observer;
+  }
+  function recordJumpChangesDiagnostics(probe, records, phase) {
+    for (const record of records) {
+      if (record.type === "attributes" && record.attributeName === "data-is-intersecting") {
+        probe.activationChanges.push({
+          clock: performance.now(),
+          phase,
+          deck: snapshotElementDiagnostics(record.target),
+          before: record.oldValue,
+          after: record.target.getAttribute(
+            "data-is-intersecting"
+          )
+        });
+        continue;
+      }
+      if (record.type !== "childList") continue;
+      for (const element of record.addedNodes) {
+        if (element.nodeType !== Node.ELEMENT_NODE) continue;
+        if (element.tagName === "SECTION") {
+          probe.activationChanges.push({
+            clock: performance.now(),
+            phase,
+            deck: snapshotElementDiagnostics(
+              record.target.closest?.(
+                "[data-turn-id-container]"
+              )
+            ),
+            sectionChange: "added",
+            section: mutationElementDiagnostics(element)
+          });
+          continue;
+        }
+        probe.renderingChanges.push({
+          clock: performance.now(),
+          phase,
+          change: "added",
+          element: mutationElementDiagnostics(element)
+        });
+      }
+      for (const element of record.removedNodes) {
+        if (element.nodeType !== Node.ELEMENT_NODE) continue;
+        if (element.tagName === "SECTION") {
+          probe.activationChanges.push({
+            clock: performance.now(),
+            phase,
+            deck: snapshotElementDiagnostics(
+              record.target.closest?.(
+                "[data-turn-id-container]"
+              )
+            ),
+            sectionChange: "removed",
+            section: mutationElementDiagnostics(element)
+          });
+          continue;
+        }
+        probe.renderingChanges.push({
+          clock: performance.now(),
+          phase,
+          change: "removed",
+          element: mutationElementDiagnostics(element)
+        });
+      }
+    }
   }
   function mutationElementDiagnostics(element) {
     const deck = element.matches?.("[data-turn-id-container]") ? element : element.closest?.("[data-turn-id-container]");
@@ -3268,7 +3348,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.71" : "unbuilt";
+  var VERSION = true ? "2.72" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",
