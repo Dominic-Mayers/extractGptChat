@@ -172,13 +172,18 @@ above the work zone and outside the ready area. Geometry reported for that
 distant boundary may be incomplete, unstable, or derived from content that the
 Supplier's workers have not prepared yet.
 
-Anchors solve this by providing a sequence of local movement references inside
-the slab. The foreman requests one anchor movement using the current geometry.
-A worker selects the corresponding ready, visible physical anchor, moves it
-toward the bottom of the work zone, and reports the resulting geometry.
-Repeating this process progressively brings the slab top into the work zone.
-Once the slab top itself is a ready local reference, the worker can select it
-as the final anchor and bring it to the intended bottom position.
+Anchors solve this by providing a sequence of local movement references near
+the top of the work zone. An anchor can belong to any active rendered deck; it
+does not have to belong to the slab being moved. This distinction matters
+because the anchor supervises movement while the current slab top remains the
+overall movement target.
+
+For each small movement, the worker moves the work zone only until either the
+selected anchor or the current slab top reaches the bottom target. If the
+anchor arrives first while the slab top is still above the target, the worker
+selects another ready anchor near the top of the work zone and continues.
+Keeping anchor selection independent from the slab target avoids forcing a
+distant slab boundary to serve as the local geometric reference.
 
 Consequently, the foreman advances the work zone in small jumps relative to
 the current anchor. After each jump, it waits until the newly reached safe part
@@ -242,15 +247,87 @@ front of the accumulated result. This restores chronological reading order
 without changing traversal direction.
 
 On a later cycle, if traversal cannot reach the next slab directly, the current
-slab is moved geometrically through the work zone. Long message and
-Canvas/textdoc slabs use local anchors; generated-image and empty slabs use
-their top boundary. Each small work-zone movement is followed by layout and
-anchor stabilization.
+slab is moved geometrically through the work zone. A ready anchor near the top
+of the work zone supervises each jump, independently of the current slab top
+that is being brought to the bottom target. Each small work-zone movement is
+followed by layout and anchor stabilization.
 
 Traversal ends when no next deck exists above the current boundary. Export then
 creates the Markdown transcript, downloads generated images and Canvas/textdoc
 documents as companion files, replaces their deferred tokens with filenames,
 and downloads the final transcript.
+
+## Traversal Safeguards
+
+The safeguards below do not make ChatGPT's virtualized DOM reliable. They keep
+the extractor within an observed operating regime, detect several ways in
+which that regime can fail, and avoid silently committing incomplete content.
+
+### Establishing the starting boundary
+
+Traversal starts with a best-effort jump to ChatGPT's last prompt, waits for
+layout stabilization, scrolls to the literal end of the scroll container, and
+waits again. Only then does it measure the bottom-most deck boundary used to
+start traversal. The navigation control accelerates preparation; the literal
+container-end movement establishes the boundary.
+
+### Activation and content readiness
+
+A selected deck is not used until it reports activation. Waiting fails if the
+deck disconnects or does not activate before its operation-specific timeout.
+Activation alone is not treated as content readiness.
+
+Every selected slab then passes a type-specific readiness check. Messages
+require mounted non-placeholder content and usable image sources. Generated
+images require completed loading, non-zero natural dimensions, and decoding.
+Canvas/textdoc slabs require a mounted ProseMirror surface that already
+produces non-empty Markdown. A slab that disconnects or exceeds its readiness
+timeout stops extraction.
+
+Compilation repeats the readiness test for every slab in the deck. This second
+check prevents a deck from being committed if a previously selected slab is no
+longer ready when the deck is serialized.
+
+### Bounded movement and stabilization
+
+The work zone advances through calibrated jumps rather than teleporting into
+unprepared territory. A ready anchor near the top of the viewport supervises
+each jump. The jump is bounded so that neither the anchor nor the current slab
+top can pass the bottom target.
+
+After each jump, stabilization observes scroll-container height, scroll
+position, deck activation transitions, and the retained anchor across animation
+frames and additional event-loop yields. Sub-pixel height noise is tolerated.
+An activation boundary close above the viewport requires an additional stable
+animation frame. A bounded maximum number of frames converts failure to
+stabilize into an explicit error.
+
+Chromium can erase a scripted jump after the scroll command initially succeeds.
+When the retained anchor returns exactly to its pre-jump position, the
+extractor retries the movement once. A second consecutive erasure is an error
+rather than an invitation to retry indefinitely.
+
+### Late rendering before deactivation
+
+Readiness is operation-specific and can still be invalidated by later
+rendering. Before every jump, the extractor identifies compiled active decks
+that the jump is expected to move across the below-viewport deactivation
+boundary. It compares each deck's current height with the height stored in the
+walkway.
+
+If the deck has grown, the extractor re-enumerates its currently observable
+slabs, rechecks their readiness, recompiles the complete deck, and atomically
+replaces its walkway unit before allowing deactivation. This safeguard captures
+late content such as a Canvas that appears after the deck's initial traversal.
+A deck-height decrease is treated as a model violation and stops extraction.
+
+### Failing rather than continuing from invalid physical state
+
+Retained decks, slabs, and anchors are temporary physical references. The
+extractor stops when a required deck or slab disconnects, when no required slab
+or anchor can be selected, or when a readiness or stabilization limit is
+exceeded. These errors are deliberate safeguards against continuing with stale
+geometry. Recovery from a disconnected current slab is not yet implemented.
 
 ## Diagnostics
 

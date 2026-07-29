@@ -162,7 +162,24 @@ work zone in small jumps and checks local stability between jumps.
 
 This warning is about the extractor's scripted scroll movement. It does not mean every large viewport change is equivalent. Clicking a conversation navigation item or using the scrollbar may invoke different ChatGPT/browser positioning behavior. In the analogy, that is a different supplier service, not simply the foreman taking a larger step.
 
-That stability check is only a browser/layout signal. If the extractor observes a sandwiched-empty deck section — an apparently empty section between neighboring real slab sections — that is treated as evidence that browser stability was not enough and ChatGPT-level readiness still needs a better fingerprint.
+Layout stability is only one safeguard. The extractor also:
+
+* waits separately for deck activation and slab-type-specific content
+  readiness;
+* supervises calibrated jumps with a ready anchor near the viewport top while
+  independently limiting movement by the current slab top;
+* retries a jump once when the retained anchor returns exactly to its pre-jump
+  position;
+* rechecks the height of compiled decks immediately before a jump can
+  deactivate them, recompiling any deck that grew because of late rendering;
+* revalidates every slab during deck compilation; and
+* stops on disconnected physical references, readiness timeouts, repeated jump
+  erasure, or failure to stabilize instead of silently continuing.
+
+These safeguards are complementary. In particular, late rendering may occur
+after an earlier readiness decision. The pre-deactivation height check is what
+allows a newly rendered Canvas or other added content to replace the earlier
+compiled walkway unit before ChatGPT removes that deck's rendered section.
 
 A crucial consequence is that the extractor never attempts to understand the contents of an unprepared section. It only relies on a small set of observable readiness indicators exposed through the supplier.
 
