@@ -120,7 +120,9 @@ observation may now occur.
 Readiness observations are fallible. They are evidence, not proof. A readiness
 observation can time out, be too weak, or be invalidated by later diagnostics.
 
-## Activation, Collapsed Margins and Oscillation
+## Issues
+
+### Activation, Collapsed Margins and Oscillation
 
 Activation can change geometry even when an active deck and its placeholder
 have the same height. In one observed deck, both states were 392 px high, but
@@ -140,6 +142,22 @@ effects of the same CSS rule include
 [virtualized content jumping when margin collapse changes](https://gitlab.com/catamphetamine/virtual-scroller#margin-collapse),
 [an IntersectionObserver reader measuring less than the leaked margin adds](https://jonwinsley.com/notes/armorer-web-reader),
 and [a fixed-height parent acquiring scroll from a collapsed child margin](https://stackoverflow.com/questions/47737935/why-does-this-page-scroll).
+
+### Jump Erasure
+
+Chromium sometimes erases a scripted jump after initially applying it. The
+scroll command moves the viewport and the retained extractor anchor by the
+requested amount, but before the next accepted stable state both return
+exactly to their pre-jump positions. Observed erasures are strongly associated
+with deck deactivation, although the browser mechanism that restores the
+position remains unresolved.
+
+The extractor detects an erasure when its retained anchor returns exactly to
+its pre-jump position and retries the movement once. Recent completed runs show
+that these retries normally succeed. A second consecutive erasure remains an
+explicit error. Erasure occurring later than the current detection window is a
+possibility, but it has not been established as the cause of an extraction
+failure.
 
 # Work-Zone Movements
 
@@ -176,7 +194,11 @@ Anchors solve this by providing a sequence of local movement references near
 the top of the work zone. An anchor can belong to any active rendered deck; it
 does not have to belong to the slab being moved. This distinction matters
 because the anchor supervises movement while the current slab top remains the
-overall movement target.
+overall movement target. The browser's actual scroll anchor is not observable,
+so the extractor selects its own anchor near the top of the work zone. Its
+anchor should not lie far below the browser's effective anchor, because
+rendering between the two could preserve the browser anchor while displacing
+the extractor's reference.
 
 For each small movement, the worker moves the work zone only until either the
 selected anchor or the current slab top reaches the bottom target. If the
