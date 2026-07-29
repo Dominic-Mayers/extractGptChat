@@ -3,6 +3,8 @@
 A Tampermonkey userscript that exports a full ChatGPT conversation to Markdown by starting
 at the bottom and traversing upward through ChatGPT's lazy-loaded content.
 
+Project source: [GitHub repository](https://github.com/Dominic-Mayers/extractGptChat)
+
 ## Features
 
 * Exports ChatGPT conversations as Markdown
