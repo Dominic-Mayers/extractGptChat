@@ -146,13 +146,13 @@ and [a fixed-height parent acquiring scroll from a collapsed child margin](https
 ### Jump Erasure
 
 Chromium sometimes erases a scripted jump after initially applying it. The
-scroll command moves the viewport while the retained extractor anchor remains
-fixed in document geometry, so the anchor's position relative to the viewport
-changes by the requested amount. Before the next accepted stable state, the
-viewport returns to its pre-jump position and the anchor therefore returns to
-its pre-jump viewport-relative position. Observed erasures are strongly
-associated with deck deactivation, although the browser mechanism that
-restores the viewport position remains unresolved.
+scroll command changes only the viewport position: the DOM geometry does not
+change, and every DOM element consequently changes its position relative to the
+viewport by the requested amount. Before the next accepted stable state, the
+viewport returns to its pre-jump position. The retained extractor anchor is
+only the local measurement used to recognize that reversal. Observed erasures
+are strongly associated with deck deactivation, although the browser mechanism
+that restores the viewport position remains unresolved.
 
 The extractor detects an erasure when its retained anchor returns exactly to
 its pre-jump position and retries the movement once. Recent completed runs show
