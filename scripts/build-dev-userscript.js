@@ -4,7 +4,7 @@ const fs = require('fs');
 // Single source of truth: bumped on every modification to the dev build, so the
 // menu command label (see bootstrap.js) makes it obvious whether Tampermonkey
 // is actually running the build you just made, instead of a stale cached copy.
-const version = '2.87';
+const version = '2.88';
 const output = 'extractChatGpt-dev.js';
 
 const userscriptHeader = `// ==UserScript==
@@ -14,7 +14,7 @@ const userscriptHeader = `// ==UserScript==
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
-// @homepageURL  https://github.com/Dominic-Mayers/extractGptChat
+// @homepage     https://github.com/Dominic-Mayers/extractGptChat
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @noframes

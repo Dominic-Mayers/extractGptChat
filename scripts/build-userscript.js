@@ -4,7 +4,7 @@ const {
     buildProductionSources
 } = require('./build-production-sources');
 
-const version = '5.38';
+const version = '5.39';
 const output = 'extractChatGpt.js';
 
 const userscriptHeader = `// ==UserScript==
@@ -14,7 +14,7 @@ const userscriptHeader = `// ==UserScript==
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
-// @homepageURL  https://github.com/Dominic-Mayers/extractGptChat
+// @homepage     https://github.com/Dominic-Mayers/extractGptChat
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @noframes
