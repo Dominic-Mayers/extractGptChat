@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.37
+// @version      5.38
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
+// @homepageURL  https://github.com/Dominic-Mayers/extractGptChat
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
 // @noframes
@@ -762,22 +763,32 @@ ${fence}
   function viewportHeight() {
     return environment().workZone.height;
   }
-  async function selectAnchor(room) {
-    const { workZone } = environment();
-    const slab = retainedSlab();
-    const type = slabType(slab);
-    if (type === "unknown") {
-      throw new Error("Cannot move an unknown slab type.");
+  async function selectAnchor() {
+    const { activeArea, workZone } = environment();
+    const anchors = [];
+    for (const deck of elementsIn(
+      activeArea,
+      '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+      for (const slab of getSlabsIn(deck)) {
+        const anchor = getNextAnchorIn(slab, workZone);
+        if (!anchor) continue;
+        const rect = anchor.element.getBoundingClientRect();
+        const viewportTop = workZoneTop(workZone);
+        const viewportBottom = viewportTop + workZone.height;
+        if (rect.bottom < viewportTop || rect.top > viewportBottom) {
+          continue;
+        }
+        anchors.push(anchor);
+      }
     }
-    if (type === "image" || type === "empty") {
-      currentAnchor = { element: slab, edge: "top" };
-    } else if (room > 0) {
-      currentAnchor = { element: slab, edge: "top" };
-    } else {
-      currentAnchor = getNextAnchorIn(slab, workZone);
-    }
+    currentAnchor = anchors.sort((first, second) => {
+      const firstRoom = roomAhead(first, workZone);
+      const secondRoom = roomAhead(second, workZone);
+      return Math.abs(firstRoom) - Math.abs(secondRoom);
+    })[0] ?? null;
     if (!currentAnchor) {
-      throw new Error("No ready visible anchor found in current slab.");
+      throw new Error("No ready anchor found near the viewport top.");
     }
     return roomAhead(currentAnchor, workZone);
   }
@@ -809,6 +820,10 @@ ${fence}
   function roomUntilFirstNotReadyDeck() {
     const { activeArea, workZone } = environment();
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
+  }
+  function roomUntilFirstActiveDeckBelow() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstActiveDeckBelow(activeArea, workZone);
   }
   function thresholdDeckSnapshot() {
     const { activeArea, workZone } = environment();
@@ -997,6 +1012,23 @@ ${fence}
     }
     return roomUntilFirstNotReadyDeck2;
   }
+  function measureRoomUntilFirstActiveDeckBelow(activeArea, workZone) {
+    const viewportBoundary = workZoneTop(workZone) + workZone.height;
+    let roomUntilFirstActiveDeckBelow2 = Infinity;
+    for (const deck of elementsIn(
+      activeArea,
+      '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+      const rect = deck.getBoundingClientRect();
+      if (rect.top < viewportBoundary) continue;
+      const roomUntilDeck = rect.top - viewportBoundary;
+      roomUntilFirstActiveDeckBelow2 = Math.min(
+        roomUntilFirstActiveDeckBelow2,
+        roomUntilDeck
+      );
+    }
+    return roomUntilFirstActiveDeckBelow2;
+  }
   function environment() {
     if (!supplier) resetSupplyWorker();
     return supplier;
@@ -1025,7 +1057,11 @@ ${fence}
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
   } = {}) {
-    const stableFrames = trackAnchor && roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE ? 1 : 2;
+    const activationDistanceAbove = roomUntilFirstNotReadyDeck();
+    const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
+    const activationNear = activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
+    const deactivationNear = deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
+    const stableFrames = trackAnchor && !activationNear ? 1 : 2;
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
     let unchanged = 0;
@@ -1164,17 +1200,27 @@ ${fence}
       return initialRoom;
     }
     let room = initialRoom;
+    let currentSlabRoom = slabRoom();
     let retriedErasedJump = false;
-    let anchorAtBottom = isAnchorAtBottom(viewportHeight2, room);
-    if (anchorAtBottom) {
+    let anchorAtBottom = isAtBottom(viewportHeight2, room);
+    let slabTopAtBottom = isAtBottom(
+      viewportHeight2,
+      currentSlabRoom
+    );
+    if (anchorAtBottom || slabTopAtBottom) {
       return room;
     }
-    while (!anchorAtBottom) {
+    while (!anchorAtBottom && !slabTopAtBottom) {
       const supplyRoomBefore = supplyRoom();
       if (supplyRoomBefore <= 0) {
         return room;
       }
-      const jump = clampJump(calibratedJump, room, viewportHeight2);
+      const jump = clampJump(
+        calibratedJump,
+        room,
+        currentSlabRoom,
+        viewportHeight2
+      );
       await checkUpdateNeededBeforeDeactivation(jump);
       await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
@@ -1191,17 +1237,24 @@ ${fence}
       }
       retriedErasedJump = jumpWasErased;
       room = obtainedRoom;
-      anchorAtBottom = isAnchorAtBottom(viewportHeight2, room);
+      currentSlabRoom = slabRoom();
+      anchorAtBottom = isAtBottom(viewportHeight2, room);
+      slabTopAtBottom = isAtBottom(
+        viewportHeight2,
+        currentSlabRoom
+      );
     }
     return room;
   }
-  function clampJump(calibratedJump, room, viewportHeight2) {
+  function clampJump(calibratedJump, anchorRoom2, slabTopRoom, viewportHeight2) {
+    const targetRoom = viewportHeight2 - MIN_INTERSECT;
     return Math.min(
       calibratedJump,
-      viewportHeight2 - MIN_INTERSECT - room
+      targetRoom - anchorRoom2,
+      targetRoom - slabTopRoom
     );
   }
-  function isAnchorAtBottom(viewportHeight2, room) {
+  function isAtBottom(viewportHeight2, room) {
     const targetRoom = viewportHeight2 - MIN_INTERSECT;
     return room >= targetRoom - TOLERATED_ROUNDING;
   }
@@ -1210,9 +1263,9 @@ ${fence}
   async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
     let room = initialSlabRoom;
-    while (!isAnchorAtBottom(height, room)) {
+    while (!isAtBottom(height, room)) {
       const previousRoom = room;
-      const selectedAnchorRoom = await selectAnchor(room);
+      const selectedAnchorRoom = await selectAnchor();
       await moveAnchorToBottom(
         selectedAnchorRoom,
         height
@@ -1643,7 +1696,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.37" : "unbuilt";
+  var VERSION = true ? "5.38" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

@@ -195,25 +195,38 @@ export function viewportHeight() {
     return environment().workZone.height;
 }
 
-export async function selectAnchor(room) {
-    const { workZone } = environment();
-    const slab = retainedSlab();
-    const type = slabType(slab);
+export async function selectAnchor() {
+    const { activeArea, workZone } = environment();
+    const anchors = [];
 
-    if (type === "unknown") {
-        throw new Error("Cannot move an unknown slab type.");
+    for (const deck of elementsIn(
+        activeArea,
+        '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+        for (const slab of getSlabsIn(deck)) {
+            const anchor = getNextAnchorIn(slab, workZone);
+            if (!anchor) continue;
+            const rect = anchor.element.getBoundingClientRect();
+            const viewportTop = workZoneTop(workZone);
+            const viewportBottom = viewportTop + workZone.height;
+            if (
+                rect.bottom < viewportTop ||
+                rect.top > viewportBottom
+            ) {
+                continue;
+            }
+            anchors.push(anchor);
+        }
     }
 
-    if (type === "image" || type === "empty") {
-        currentAnchor = { element: slab, edge: "top" };
-    } else if (room > 0) {
-        currentAnchor = { element: slab, edge: "top" };
-    } else {
-        currentAnchor = getNextAnchorIn(slab, workZone);
-    }
+    currentAnchor = anchors.sort((first, second) => {
+        const firstRoom = roomAhead(first, workZone);
+        const secondRoom = roomAhead(second, workZone);
+        return Math.abs(firstRoom) - Math.abs(secondRoom);
+    })[0] ?? null;
 
     if (!currentAnchor) {
-        throw new Error("No ready visible anchor found in current slab.");
+        throw new Error("No ready anchor found near the viewport top.");
     }
 
     return roomAhead(currentAnchor, workZone);
@@ -252,6 +265,11 @@ export function supplyHeight() {
 export function roomUntilFirstNotReadyDeck() {
     const { activeArea, workZone } = environment();
     return measureRoomUntilFirstNotReadyDeck(activeArea, workZone);
+}
+
+export function roomUntilFirstActiveDeckBelow() {
+    const { activeArea, workZone } = environment();
+    return measureRoomUntilFirstActiveDeckBelow(activeArea, workZone);
 }
 
 export function thresholdDeckSnapshot() {
@@ -495,6 +513,26 @@ function measureRoomUntilFirstNotReadyDeck(activeArea, workZone) {
     }
 
     return roomUntilFirstNotReadyDeck;
+}
+
+function measureRoomUntilFirstActiveDeckBelow(activeArea, workZone) {
+    const viewportBoundary =
+        workZoneTop(workZone) + workZone.height;
+    let roomUntilFirstActiveDeckBelow = Infinity;
+
+    for (const deck of elementsIn(activeArea,
+        '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+        const rect = deck.getBoundingClientRect();
+        if (rect.top < viewportBoundary) continue;
+        const roomUntilDeck = rect.top - viewportBoundary;
+        roomUntilFirstActiveDeckBelow = Math.min(
+            roomUntilFirstActiveDeckBelow,
+            roomUntilDeck
+        );
+    }
+
+    return roomUntilFirstActiveDeckBelow;
 }
 
 function environment() {

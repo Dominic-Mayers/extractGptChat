@@ -7,6 +7,7 @@ import {
 import {
     anchorRoom,
     deckActivationTransitions,
+    roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
     supplyHeight,
@@ -21,8 +22,15 @@ export async function waitLayoutStable(
         trackAnchor = false
     } = {}
 ) {
-    const stableFrames = trackAnchor &&
-        roomUntilFirstNotReadyDeck() > MIN_ACTIVATION_DISTANCE
+    const activationDistanceAbove =
+        roomUntilFirstNotReadyDeck();
+    const deactivationDistanceBelow =
+        roomUntilFirstActiveDeckBelow();
+    const activationNear =
+        activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
+    const deactivationNear =
+        deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
+    const stableFrames = trackAnchor && !activationNear
         ? 1
         : 2;
 

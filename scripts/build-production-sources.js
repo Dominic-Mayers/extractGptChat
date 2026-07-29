@@ -55,15 +55,44 @@ function removeDiagnostics(source) {
 
     output = removeGeometryChangePropertiesDiagnostics(output);
     output = removeFunctionsDiagnostics(output);
+    output = removeConditionalBlocksDiagnostics(output);
     output = removeStatementsDiagnostics(output);
     output = output.replace(
         /from\s+(["'])(\.\/[^"']+?)-dev\.js\1/g,
         'from $1$2.js$1'
     );
     return output
+        .replace(/\s*if\s*\([^)]*\)\s*\{\s*\}/g, '')
         .replace(/\s*else\s*\{\s*\}/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trimEnd() + '\n';
+}
+
+function removeConditionalBlocksDiagnostics(source) {
+    const pattern = /\bif\s*\(/g;
+    let output = source;
+    let match;
+
+    while ((match = pattern.exec(output))) {
+        const openingParenthesis = output.indexOf('(', match.index);
+        const conditionEnd = findBalancedEnd(
+            output,
+            openingParenthesis,
+            '(',
+            ')'
+        );
+        if (!output.slice(openingParenthesis, conditionEnd)
+            .includes('Diagnostics')) {
+            pattern.lastIndex = conditionEnd;
+            continue;
+        }
+        const openingBrace = output.indexOf('{', conditionEnd);
+        const end = findBalancedEnd(output, openingBrace, '{', '}');
+        output = output.slice(0, match.index) + output.slice(end);
+        pattern.lastIndex = match.index;
+    }
+
+    return output;
 }
 
 function removeFunctionsDiagnostics(source) {
@@ -82,7 +111,7 @@ function removeFunctionsDiagnostics(source) {
 }
 
 function removeStatementsDiagnostics(source) {
-    const pattern = /^(\s*)(?:const|let|var)\s+\w*Diagnostics\b|^(\s*)(?:await\s+)?[\w.]*Diagnostics[\w.]*\s*\(|^(\s*)\w*Diagnostics(?:\+\+|--)\s*;/gm;
+    const pattern = /^(\s*)(?:const|let|var)\s+\w*Diagnostics\b|^(\s*)[\w.]*Diagnostics[\w.]*\s*=|^(\s*)(?:await\s+)?[\w.]*Diagnostics[\w.]*\s*\(|^(\s*)\w*Diagnostics(?:\+\+|--)\s*;/gm;
     let output = source;
     let match;
 
