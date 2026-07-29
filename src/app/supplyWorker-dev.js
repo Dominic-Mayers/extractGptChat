@@ -29,6 +29,7 @@ import {
     recordDeckSectionEnumerationDiagnostics,
     recordDeckUpdateDiagnostics,
     recordDeactivationPredictionDiagnostics,
+    recordCanvasGeometryDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics-dev.js";
 import {
@@ -46,6 +47,7 @@ let savedDeckActivationStatus;
 let currentJumpObserverDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let pendingDeactivationPredictionsDiagnostics = new Map();
+let deckActivationGeometryDiagnostics = new WeakMap();
 
 export function resetSupplyWorker() {
     resetSupplyWorkerDiagnostics();
@@ -72,6 +74,9 @@ export async function waitCurrentSlabReady() {
         deck: snapshotElementDiagnostics(deck)
     };
     const startedAtDiagnostics = performance.now();
+    const canvasBeforeReadinessDiagnostics = type === "canvas"
+        ? canvasGeometrySnapshotDiagnostics(deck, slab)
+        : null;
 
     beginPendingAwaitDiagnostics("slab-readiness", {
         type,
@@ -93,6 +98,21 @@ export async function waitCurrentSlabReady() {
         slab: snapshotElementDiagnostics(slab),
         deck: snapshotElementDiagnostics(deck)
     });
+    if (type === "canvas") {
+        recordCanvasGeometryDiagnostics({
+            turnId: deck.getAttribute("data-turn-id-container"),
+            canvasId: slab.id,
+            beforeActivation:
+                deckActivationGeometryDiagnostics.get(deck)
+                    ?.beforeActivation ?? null,
+            afterActivation:
+                deckActivationGeometryDiagnostics.get(deck)
+                    ?.afterActivation ?? null,
+            beforeReadiness: canvasBeforeReadinessDiagnostics,
+            afterReadiness:
+                canvasGeometrySnapshotDiagnostics(deck, slab)
+        });
+    }
 
     return {
         slabRoom: slabGeometry(slab, workZone).room,
@@ -213,12 +233,22 @@ export async function selectNextDeckRoom(area) {
     currentAnchor = null;
 
     const startedAtDiagnostics = performance.now();
+    const activationGeometryDiagnostics = {
+        beforeActivation: canvasGeometrySnapshotDiagnostics(deck),
+        afterActivation: null
+    };
+    deckActivationGeometryDiagnostics.set(
+        deck,
+        activationGeometryDiagnostics
+    );
 
     beginPendingAwaitDiagnostics("deck-activation", {
         deck: snapshotElementDiagnostics(deck),
         activation: deck.getAttribute("data-is-intersecting")
     });
     await waitDeckActive(deck, activeArea);
+    activationGeometryDiagnostics.afterActivation =
+        canvasGeometrySnapshotDiagnostics(deck);
     finishPendingAwaitDiagnostics({
         deck: snapshotElementDiagnostics(deck),
         activation: deck.getAttribute("data-is-intersecting")
@@ -628,6 +658,41 @@ function resetSupplyWorkerDiagnostics() {
     resetJumpObserverDiagnostics();
     currentAnchorNumberDiagnostics = 0;
     pendingDeactivationPredictionsDiagnostics = new Map();
+    deckActivationGeometryDiagnostics = new WeakMap();
+}
+
+function canvasGeometrySnapshotDiagnostics(deck, canvas = null) {
+    const { supplyArea, workZone } = environment();
+    const scrollY = workZonePosition(supplyArea, workZone);
+    const elementGeometry = element => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+            tagName: element.tagName?.toLowerCase() ?? null,
+            id: element.id || null,
+            className: element.getAttribute?.("class") ?? null,
+            top: rect.top,
+            bottom: rect.bottom,
+            height: rect.height,
+            documentTop: rect.top + scrollY,
+            documentBottom: rect.bottom + scrollY
+        };
+    };
+
+    return {
+        clock: performance.now(),
+        activation: deck.getAttribute("data-is-intersecting"),
+        scrollY,
+        scrollHeight: readSupplyHeight(supplyArea),
+        deck: elementGeometry(deck),
+        directChildren: Array.from(deck.children).map(elementGeometry),
+        section: elementGeometry(
+            Array.from(deck.children).find(child =>
+                child.matches("section")
+            )
+        ),
+        canvas: elementGeometry(canvas)
+    };
 }
 
 function beginJumpObserverDiagnostics(probe, supplyArea) {

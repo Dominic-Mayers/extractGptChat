@@ -22,6 +22,7 @@ let deactivationPredictionDiagnostics = null;
 let deactivationPredictionElapsedValuesDiagnostics = null;
 let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
+let canvasGeometryDiagnostics = null;
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -120,6 +121,7 @@ export function resetCycleDiagnostics() {
     deactivationPredictionElapsedValuesDiagnostics = [];
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
+    canvasGeometryDiagnostics = [];
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -203,6 +205,11 @@ export function recordStabilizationRuleDiagnostics({
 export function recordDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
     deactivationPredictionDiagnostics.predictionCount++;
+}
+
+export function recordCanvasGeometryDiagnostics(record) {
+    if (canvasGeometryDiagnostics == null) return;
+    canvasGeometryDiagnostics.push(record);
 }
 
 export function finishStabilizationDiagnostics(data = {}) {
@@ -1250,7 +1257,16 @@ export function flushCycleDiagnostics() {
     emitStabilizationRuleDiagnostics();
     emitDeckLifecycleDiagnostics();
     emitDeactivationPredictionDiagnostics();
+    emitCanvasGeometryDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+}
+
+function emitCanvasGeometryDiagnostics() {
+    if (canvasGeometryDiagnostics == null) return;
+    console.log(
+        "[canvas geometry]\n" +
+        JSON.stringify(canvasGeometryDiagnostics, null, 2)
+    );
 }
 
 function emitErasedJumpStructureDiagnostics() {

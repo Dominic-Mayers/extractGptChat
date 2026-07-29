@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.80
+// @version      2.81
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -259,6 +259,7 @@
   var deactivationPredictionElapsedValuesDiagnostics = null;
   var erasedJumpStructureDiagnostics = null;
   var currentErasedJumpEntryDiagnostics = null;
+  var canvasGeometryDiagnostics = null;
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -354,6 +355,7 @@
     deactivationPredictionElapsedValuesDiagnostics = [];
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
+    canvasGeometryDiagnostics = [];
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -429,6 +431,10 @@
   function recordDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
     deactivationPredictionDiagnostics.predictionCount++;
+  }
+  function recordCanvasGeometryDiagnostics(record) {
+    if (canvasGeometryDiagnostics == null) return;
+    canvasGeometryDiagnostics.push(record);
   }
   function finishStabilizationDiagnostics(data = {}) {
     const stabilizationDiagnostics = currentStabilizationDiagnostics();
@@ -1259,7 +1265,14 @@
     emitStabilizationRuleDiagnostics();
     emitDeckLifecycleDiagnostics();
     emitDeactivationPredictionDiagnostics();
+    emitCanvasGeometryDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+  }
+  function emitCanvasGeometryDiagnostics() {
+    if (canvasGeometryDiagnostics == null) return;
+    console.log(
+      "[canvas geometry]\n" + JSON.stringify(canvasGeometryDiagnostics, null, 2)
+    );
   }
   function emitErasedJumpStructureDiagnostics() {
     const jumpCount = erasedJumpStructureDiagnostics.reduce(
@@ -1992,6 +2005,7 @@ ${fence}
   var currentJumpObserverDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
   var pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
+  var deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
   function resetSupplyWorker() {
     resetSupplyWorkerDiagnostics();
     supplier = observeSupplier();
@@ -2015,6 +2029,7 @@ ${fence}
       deck: snapshotElementDiagnostics(deck)
     };
     const startedAtDiagnostics = performance.now();
+    const canvasBeforeReadinessDiagnostics = type === "canvas" ? canvasGeometrySnapshotDiagnostics(deck, slab) : null;
     beginPendingAwaitDiagnostics("slab-readiness", {
       type,
       ...beforeDiagnostics
@@ -2035,6 +2050,16 @@ ${fence}
       slab: snapshotElementDiagnostics(slab),
       deck: snapshotElementDiagnostics(deck)
     });
+    if (type === "canvas") {
+      recordCanvasGeometryDiagnostics({
+        turnId: deck.getAttribute("data-turn-id-container"),
+        canvasId: slab.id,
+        beforeActivation: deckActivationGeometryDiagnostics.get(deck)?.beforeActivation ?? null,
+        afterActivation: deckActivationGeometryDiagnostics.get(deck)?.afterActivation ?? null,
+        beforeReadiness: canvasBeforeReadinessDiagnostics,
+        afterReadiness: canvasGeometrySnapshotDiagnostics(deck, slab)
+      });
+    }
     return {
       slabRoom: slabGeometry(slab, workZone).room,
       deckRoom: deckGeometry(deck, workZone).room
@@ -2122,11 +2147,20 @@ ${fence}
     currentSlab = null;
     currentAnchor = null;
     const startedAtDiagnostics = performance.now();
+    const activationGeometryDiagnostics = {
+      beforeActivation: canvasGeometrySnapshotDiagnostics(deck),
+      afterActivation: null
+    };
+    deckActivationGeometryDiagnostics.set(
+      deck,
+      activationGeometryDiagnostics
+    );
     beginPendingAwaitDiagnostics("deck-activation", {
       deck: snapshotElementDiagnostics(deck),
       activation: deck.getAttribute("data-is-intersecting")
     });
     await waitDeckActive(deck, activeArea);
+    activationGeometryDiagnostics.afterActivation = canvasGeometrySnapshotDiagnostics(deck);
     finishPendingAwaitDiagnostics({
       deck: snapshotElementDiagnostics(deck),
       activation: deck.getAttribute("data-is-intersecting")
@@ -2454,6 +2488,39 @@ ${fence}
     resetJumpObserverDiagnostics();
     currentAnchorNumberDiagnostics = 0;
     pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
+    deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
+  }
+  function canvasGeometrySnapshotDiagnostics(deck, canvas = null) {
+    const { supplyArea, workZone } = environment();
+    const scrollY2 = workZonePosition(supplyArea, workZone);
+    const elementGeometry = (element) => {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        tagName: element.tagName?.toLowerCase() ?? null,
+        id: element.id || null,
+        className: element.getAttribute?.("class") ?? null,
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height,
+        documentTop: rect.top + scrollY2,
+        documentBottom: rect.bottom + scrollY2
+      };
+    };
+    return {
+      clock: performance.now(),
+      activation: deck.getAttribute("data-is-intersecting"),
+      scrollY: scrollY2,
+      scrollHeight: supplyHeight(supplyArea),
+      deck: elementGeometry(deck),
+      directChildren: Array.from(deck.children).map(elementGeometry),
+      section: elementGeometry(
+        Array.from(deck.children).find(
+          (child) => child.matches("section")
+        )
+      ),
+      canvas: elementGeometry(canvas)
+    };
   }
   function beginJumpObserverDiagnostics(probe, supplyArea) {
     currentJumpObserverDiagnostics = observeJumpChangesDiagnostics(
@@ -3647,7 +3714,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.80" : "unbuilt";
+  var VERSION = true ? "2.81" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",
