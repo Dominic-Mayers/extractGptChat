@@ -41,15 +41,14 @@ export async function waitLayoutStable(
         activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
     const deactivationNear =
         deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
-    const stableFrames = trackAnchor &&
-        !activationNear &&
-        !deactivationNear
+    const stableFrames = trackAnchor && !activationNear
         ? 1
         : 2;
     recordStabilizationRuleDiagnostics({
         trackAnchor,
         activationNear,
-        deactivationNear
+        deactivationNear,
+        stableFrames
     });
 
     let previous = geometrySnapshot();

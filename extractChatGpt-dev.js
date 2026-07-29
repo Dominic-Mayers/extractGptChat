@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.79
+// @version      2.80
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -404,7 +404,8 @@
   function recordStabilizationRuleDiagnostics({
     trackAnchor,
     activationNear,
-    deactivationNear
+    deactivationNear,
+    stableFrames
   }) {
     if (stabilizationRuleDiagnostics == null) return;
     if (!trackAnchor) {
@@ -412,16 +413,16 @@
       return;
     }
     stabilizationRuleDiagnostics.trackedStabilizationCount++;
-    if (!activationNear && !deactivationNear) {
+    if (stableFrames === 1) {
       stabilizationRuleDiagnostics.oneRafCount++;
-      return;
+    } else {
+      stabilizationRuleDiagnostics.twoRafCount++;
     }
-    stabilizationRuleDiagnostics.twoRafCount++;
     if (activationNear && deactivationNear) {
       stabilizationRuleDiagnostics.bothBoundariesCount++;
     } else if (activationNear) {
       stabilizationRuleDiagnostics.activationOnlyCount++;
-    } else {
+    } else if (deactivationNear) {
       stabilizationRuleDiagnostics.deactivationOnlyCount++;
     }
   }
@@ -1305,6 +1306,7 @@
     if (stabilizationRuleDiagnostics == null) return;
     const tracked = stabilizationRuleDiagnostics.trackedStabilizationCount;
     const asymmetricTwoRafCount = stabilizationRuleDiagnostics.activationOnlyCount + stabilizationRuleDiagnostics.bothBoundariesCount;
+    const symmetricTwoRafCount = asymmetricTwoRafCount + stabilizationRuleDiagnostics.deactivationOnlyCount;
     console.log(
       "[stabilization rule]\n" + JSON.stringify({
         ...stabilizationRuleDiagnostics,
@@ -1312,6 +1314,8 @@
         asymmetricTwoRafPercentage: tracked === 0 ? 0 : asymmetricTwoRafCount / tracked * 100,
         additionalSymmetricTwoRafCount: stabilizationRuleDiagnostics.deactivationOnlyCount,
         additionalSymmetricTwoRafPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.deactivationOnlyCount / tracked * 100,
+        symmetricTwoRafCount,
+        symmetricTwoRafPercentage: tracked === 0 ? 0 : symmetricTwoRafCount / tracked * 100,
         twoRafPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.twoRafCount / tracked * 100,
         activationOnlyPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.activationOnlyCount / tracked * 100,
         deactivationOnlyPercentage: tracked === 0 ? 0 : stabilizationRuleDiagnostics.deactivationOnlyCount / tracked * 100,
@@ -2795,11 +2799,12 @@ ${fence}
     const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
     const activationNear = activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
     const deactivationNear = deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
-    const stableFrames = trackAnchor && !activationNear && !deactivationNear ? 1 : 2;
+    const stableFrames = trackAnchor && !activationNear ? 1 : 2;
     recordStabilizationRuleDiagnostics({
       trackAnchor,
       activationNear,
-      deactivationNear
+      deactivationNear,
+      stableFrames
     });
     let previous = geometrySnapshot();
     let previousRafGeometry = previous;
@@ -3642,7 +3647,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.79" : "unbuilt";
+  var VERSION = true ? "2.80" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

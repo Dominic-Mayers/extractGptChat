@@ -175,7 +175,8 @@ export function beginStabilizationDiagnostics(data = {}) {
 export function recordStabilizationRuleDiagnostics({
     trackAnchor,
     activationNear,
-    deactivationNear
+    deactivationNear,
+    stableFrames
 }) {
     if (stabilizationRuleDiagnostics == null) return;
     if (!trackAnchor) {
@@ -184,17 +185,17 @@ export function recordStabilizationRuleDiagnostics({
     }
 
     stabilizationRuleDiagnostics.trackedStabilizationCount++;
-    if (!activationNear && !deactivationNear) {
+    if (stableFrames === 1) {
         stabilizationRuleDiagnostics.oneRafCount++;
-        return;
+    } else {
+        stabilizationRuleDiagnostics.twoRafCount++;
     }
 
-    stabilizationRuleDiagnostics.twoRafCount++;
     if (activationNear && deactivationNear) {
         stabilizationRuleDiagnostics.bothBoundariesCount++;
     } else if (activationNear) {
         stabilizationRuleDiagnostics.activationOnlyCount++;
-    } else {
+    } else if (deactivationNear) {
         stabilizationRuleDiagnostics.deactivationOnlyCount++;
     }
 }
@@ -1306,6 +1307,9 @@ function emitStabilizationRuleDiagnostics() {
     const asymmetricTwoRafCount =
         stabilizationRuleDiagnostics.activationOnlyCount +
         stabilizationRuleDiagnostics.bothBoundariesCount;
+    const symmetricTwoRafCount =
+        asymmetricTwoRafCount +
+        stabilizationRuleDiagnostics.deactivationOnlyCount;
     console.log(
         "[stabilization rule]\n" +
         JSON.stringify({
@@ -1320,6 +1324,10 @@ function emitStabilizationRuleDiagnostics() {
                 ? 0
                 : stabilizationRuleDiagnostics.deactivationOnlyCount /
                     tracked * 100,
+            symmetricTwoRafCount,
+            symmetricTwoRafPercentage: tracked === 0
+                ? 0
+                : symmetricTwoRafCount / tracked * 100,
             twoRafPercentage: tracked === 0
                 ? 0
                 : stabilizationRuleDiagnostics.twoRafCount /
