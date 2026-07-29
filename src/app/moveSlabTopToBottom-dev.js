@@ -1,6 +1,6 @@
 import {
 
-    isAnchorAtBottom,
+    isAtBottom,
     moveAnchorToBottom
 } from "./moveAnchorToBottom-dev.js";
 import {
@@ -14,9 +14,9 @@ export async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
     let room = initialSlabRoom;
 
-    while (!isAnchorAtBottom(height, room)) {
+    while (!isAtBottom(height, room)) {
         const previousRoom = room;
-        const selectedAnchorRoom = await selectAnchor(room);
+        const selectedAnchorRoom = await selectAnchor();
 
         await moveAnchorToBottom(
             selectedAnchorRoom,

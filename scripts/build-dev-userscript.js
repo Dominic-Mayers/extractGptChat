@@ -4,7 +4,7 @@ const fs = require('fs');
 // Single source of truth: bumped on every modification to the dev build, so the
 // menu command label (see bootstrap.js) makes it obvious whether Tampermonkey
 // is actually running the build you just made, instead of a stale cached copy.
-const version = '2.81';
+const version = '2.82';
 const output = 'extractChatGpt-dev.js';
 
 const userscriptHeader = `// ==UserScript==

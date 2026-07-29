@@ -8,6 +8,7 @@ import {
     anchorRoom,
     checkUpdateNeededBeforeDeactivation,
     moveWorkZoneBy,
+    slabRoom,
     supplyRoom
 } from "./supplyWorker-dev.js";
 import { waitLayoutStable } from "./waitLayoutStable-dev.js";
@@ -44,10 +45,15 @@ export async function moveAnchorToBottom(
     }
 
     let room = initialRoom;
+    let currentSlabRoom = slabRoom();
     let retriedErasedJump = false;
 
-    let anchorAtBottom = isAnchorAtBottom(viewportHeight, room);
-    if (anchorAtBottom) {
+    let anchorAtBottom = isAtBottom(viewportHeight, room);
+    let slabTopAtBottom = isAtBottom(
+        viewportHeight,
+        currentSlabRoom
+    );
+    if (anchorAtBottom || slabTopAtBottom) {
         finishJumpDiagnostics({
             anchorRoomBefore: room,
             obtainedAnchorRoom: room,
@@ -57,7 +63,7 @@ export async function moveAnchorToBottom(
         return room;
     }
 
-    while (!anchorAtBottom) {
+    while (!anchorAtBottom && !slabTopAtBottom) {
         beginOrContinueJumpDiagnostics({
             kind: "anchor-move",
             anchorRoomBefore: room
@@ -76,7 +82,12 @@ export async function moveAnchorToBottom(
             return room;
         }
 
-        const jump = clampJump(calibratedJump, room, viewportHeight);
+        const jump = clampJump(
+            calibratedJump,
+            room,
+            currentSlabRoom,
+            viewportHeight
+        );
         beginOrContinueJumpDiagnostics({
             requestedJump: jump,
             calibratedJump,
@@ -121,20 +132,32 @@ export async function moveAnchorToBottom(
 
         retriedErasedJump = jumpWasErased;
         room = obtainedRoom;
-        anchorAtBottom = isAnchorAtBottom(viewportHeight, room);
+        currentSlabRoom = slabRoom();
+        anchorAtBottom = isAtBottom(viewportHeight, room);
+        slabTopAtBottom = isAtBottom(
+            viewportHeight,
+            currentSlabRoom
+        );
     }
 
     return room;
 }
 
-export function clampJump(calibratedJump, room, viewportHeight) {
+export function clampJump(
+    calibratedJump,
+    anchorRoom,
+    slabTopRoom,
+    viewportHeight
+) {
+    const targetRoom = viewportHeight - MIN_INTERSECT;
     return Math.min(
         calibratedJump,
-        (viewportHeight - MIN_INTERSECT) - room
+        targetRoom - anchorRoom,
+        targetRoom - slabTopRoom
     );
 }
 
-export function isAnchorAtBottom(viewportHeight, room) {
+export function isAtBottom(viewportHeight, room) {
     const targetRoom = viewportHeight - MIN_INTERSECT;
     return room >= targetRoom - TOLERATED_ROUNDING;
 }

@@ -360,25 +360,38 @@ export function viewportHeight() {
     return environment().workZone.height;
 }
 
-export async function selectAnchor(room) {
-    const { workZone } = environment();
-    const slab = retainedSlab();
-    const type = slabType(slab);
+export async function selectAnchor() {
+    const { activeArea, workZone } = environment();
+    const anchors = [];
 
-    if (type === "unknown") {
-        throw new Error("Cannot move an unknown slab type.");
+    for (const deck of elementsIn(
+        activeArea,
+        '[data-turn-id-container][data-is-intersecting="true"]'
+    )) {
+        for (const slab of getSlabsIn(deck)) {
+            const anchor = getNextAnchorIn(slab, workZone);
+            if (!anchor) continue;
+            const rect = anchor.element.getBoundingClientRect();
+            const viewportTop = workZoneTop(workZone);
+            const viewportBottom = viewportTop + workZone.height;
+            if (
+                rect.bottom < viewportTop ||
+                rect.top > viewportBottom
+            ) {
+                continue;
+            }
+            anchors.push(anchor);
+        }
     }
 
-    if (type === "image" || type === "empty") {
-        currentAnchor = { element: slab, edge: "top" };
-    } else if (room > 0) {
-        currentAnchor = { element: slab, edge: "top" };
-    } else {
-        currentAnchor = getNextAnchorIn(slab, workZone);
-    }
+    currentAnchor = anchors.sort((first, second) => {
+        const firstRoom = roomAhead(first, workZone);
+        const secondRoom = roomAhead(second, workZone);
+        return Math.abs(firstRoom) - Math.abs(secondRoom);
+    })[0] ?? null;
 
     if (!currentAnchor) {
-        throw new Error("No ready visible anchor found in current slab.");
+        throw new Error("No ready anchor found near the viewport top.");
     }
     currentAnchorNumberDiagnostics++;
 
