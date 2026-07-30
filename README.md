@@ -23,7 +23,9 @@ Project source: [GitHub repository](https://github.com/Dominic-Mayers/extractGpt
 * Preserves uploaded file references as `Upload: filename` at the top of each user message — filenames remain meaningful even though the files themselves are not included in the export
 * Strips interactive UI elements (copy buttons, edit controls, show-more toggles) that have no representation in a plain-text export
 * Generates a table of contents at the top of the export, with one entry per user prompt and anchor links to each prompt in the body
-* Downloads generated images and Canvas/textdoc documents as companion files and links them from the transcript
+* Supports separate companion assets or one self-contained export:
+  * **Run extractor** downloads generated images and Canvas/textdoc documents as companion files and links them from the transcript
+  * **Run extractor (embedded)** embeds base64 images and inline Canvas content in the Markdown file
 * Includes a compatibility check for the DOM selectors and extracted markup
 
 ## Installation
@@ -38,10 +40,10 @@ Project source: [GitHub repository](https://github.com/Dominic-Mayers/extractGpt
 
 1. Open the ChatGPT conversation you want to export.
 2. Open the Tampermonkey menu.
-3. Select **Run extractor**.
+3. Select **Run extractor** for companion asset files, or **Run extractor (embedded)** for one self-contained Markdown file.
 4. Wait for traversal to finish. The Markdown file and any companion image or Canvas files download automatically.
 
-The exported file name is based on the chat title and a timestamp. Generated images and Canvas/textdoc files use the same title and timestamp prefix.
+The exported file name is based on the chat title and a timestamp. In the default separate mode, generated images and Canvas/textdoc files use the same title and timestamp prefix.
 
 ## Performance
 
@@ -139,6 +141,12 @@ acting on it, but the foreman knows only distances and heights. Once a slab has
 been prepared and traversed, its extracted content is recorded in the
 walkway.
 
+Traversal returns a neutral extraction snapshot containing prompts, image
+references, and Canvas content. Markdown materialization is a separate stage
+that chooses whether assets remain separate or are embedded. This boundary
+allows another application to reuse traversal without invoking the standalone
+download workflow.
+
 The supplier only exposes a changing, partial supply surface. The foreman
 cannot rely on a complete stable plan of the conversation; it keeps geometric
 traversal state and the walkway already built. Physical references retained by
@@ -209,7 +217,8 @@ It uses:
 GM_registerMenuCommand
 ```
 
-to add Tampermonkey menu commands for running extraction and opening the compatibility check.
+to add Tampermonkey menu commands for separate or embedded extraction and for
+opening the compatibility check.
 
 ## Authors
 

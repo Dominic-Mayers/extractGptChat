@@ -16,7 +16,7 @@ import {
     waitCurrentSlabReady
 } from "./supplyWorker.js";
 import {
-    exportMarkdown,
+    extractionSnapshot,
     resetExtraction
 } from "./extraction.js";
 import {
@@ -104,6 +104,7 @@ export async function traverseConversation() {
         slabRoom = nextSlabRoom;
 
     }
-    await exportMarkdown();
+    const snapshot = extractionSnapshot();
 
+    return snapshot;
 }

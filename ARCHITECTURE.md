@@ -276,10 +276,12 @@ of the work zone supervises each jump, independently of the current slab top
 that is being brought to the bottom target. Each small work-zone movement is
 followed by layout and anchor stabilization.
 
-Traversal ends when no next deck exists above the current boundary. Export then
-creates the Markdown transcript, downloads generated images and Canvas/textdoc
-documents as companion files, replaces their deferred tokens with filenames,
-and downloads the final transcript.
+Traversal ends when no next deck exists above the current boundary and returns
+a neutral extraction snapshot containing prompts, image references, and
+Canvas/textdoc content. Export is a separate stage. It materializes that
+snapshot either with companion asset files or with embedded base64 images and
+inline Canvas content, then downloads the final transcript. Consumers that do
+not need the standalone download workflow can use the snapshot directly.
 
 ## Traversal Safeguards
 

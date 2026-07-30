@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.41
+// @version      5.42
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -229,9 +229,12 @@
   // src/app/extraction.js
   var walkway = [];
   var assetCounter = 0;
+  var ASSET_MODE_SEPARATE = "separate";
+  var ASSET_MODE_EMBEDDED = "embedded";
   var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var escapeLabel = (value) => value.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
   var escapeUrl = (value) => value.replace(/>/g, "%3E");
+  var escapeHtml = (value) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   function resetExtraction() {
     walkway = [];
     assetCounter = 0;
@@ -250,6 +253,14 @@
       images: pendingImages.length,
       canvases: pendingCanvases.length,
       markdown: prompts.map((prompt) => prompt.text).join("\n")
+    };
+  }
+  function extractionSnapshot() {
+    return {
+      title: chatTitle(),
+      prompts: walkway.flatMap((deck) => deck.prompts).map((prompt) => ({ ...prompt })),
+      images: walkway.flatMap((deck) => deck.images).map((image) => ({ ...image })),
+      canvases: walkway.flatMap((deck) => deck.canvases).map((canvas) => ({ ...canvas }))
     };
   }
   async function waitSlabReady(type, slab, {
@@ -316,11 +327,36 @@
       walkway[index] = unit;
     }
   }
-  async function exportMarkdown(timestamp = Date.now()) {
-    const prompts = walkway.flatMap((deck) => deck.prompts);
-    const pendingImages = walkway.flatMap((deck) => deck.images);
-    const pendingCanvases = walkway.flatMap((deck) => deck.canvases);
-    const title = chatTitle();
+  async function exportMarkdown(snapshot, {
+    assetMode = ASSET_MODE_SEPARATE,
+    timestamp = Date.now()
+  } = {}) {
+    const output = await createMarkdownExport(snapshot, {
+      assetMode,
+      timestamp
+    });
+    for (const attachment of output.attachments) {
+      downloadBlob(attachment.blob, attachment.filename);
+      await sleep(300);
+    }
+    downloadBlob(
+      new Blob(
+        ["\uFEFF" + output.markdown],
+        { type: "text/markdown;charset=utf-8" }
+      ),
+      output.filename
+    );
+    return output;
+  }
+  async function createMarkdownExport(snapshot, {
+    assetMode = ASSET_MODE_SEPARATE,
+    timestamp = Date.now()
+  } = {}) {
+    const materialized = await materializeExtraction(snapshot, {
+      assetMode,
+      timestamp
+    });
+    const { prompts, attachments, title } = materialized;
     const slug = titleSlug(title);
     const date = (/* @__PURE__ */ new Date()).toISOString().replace("T", " ").slice(0, 19) + " UTC";
     const users = prompts.filter((prompt) => prompt.role === "user");
@@ -353,27 +389,80 @@ ${prompt.text}
 
 `;
     }
-    for (let index = 0; index < pendingImages.length; index++) {
-      const entry = pendingImages[index];
+    return {
+      markdown,
+      filename: `${slug}-${timestamp}.md`,
+      attachments
+    };
+  }
+  async function materializeExtraction(snapshot, {
+    assetMode = ASSET_MODE_SEPARATE,
+    timestamp = Date.now()
+  } = {}) {
+    if (assetMode !== ASSET_MODE_SEPARATE && assetMode !== ASSET_MODE_EMBEDDED) {
+      throw new Error(`Unknown asset mode: ${assetMode}.`);
+    }
+    const title = snapshot.title || "chat";
+    const slug = titleSlug(title);
+    const prompts = snapshot.prompts.map((prompt) => ({ ...prompt }));
+    const canvases = snapshot.canvases.map((canvas) => ({ ...canvas }));
+    const attachments = [];
+    const replaceToken = (token, replacement) => {
+      for (const prompt of prompts) {
+        prompt.text = prompt.text.split(token).join(replacement);
+      }
+      for (const canvas of canvases) {
+        canvas.text = canvas.text.split(token).join(replacement);
+      }
+    };
+    for (let index = 0; index < snapshot.images.length; index++) {
+      const entry = snapshot.images[index];
       let source = entry.url;
       try {
-        if (!source.startsWith("data:")) {
-          const response = await fetch(source, { credentials: "include" });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          source = await blobToDataUrl(await response.blob());
+        if (assetMode === ASSET_MODE_EMBEDDED) {
+          source = entry.url.startsWith("data:") ? entry.url : await blobToDataUrl(await fetchAssetBlob(entry.url));
+        } else {
+          const blob = await fetchAssetBlob(entry.url);
+          const extension = extensionForBlob(blob);
+          const filename = `${slug}-${timestamp}-img-${String(index + 1).padStart(3, "0")}.${extension}`;
+          attachments.push({ blob, filename });
+          source = filename;
         }
       } catch (error) {
-        console.warn(`[dev extraction] image ${index + 1} embedding failed.`, error);
+        console.warn(
+          `[dev extraction] image ${index + 1} ${assetMode === ASSET_MODE_EMBEDDED ? "embedding" : "download"} failed.`,
+          error
+        );
       }
-      markdown = markdown.split(entry.token).join(escapeUrl(source));
+      const replacement = assetMode === ASSET_MODE_EMBEDDED ? `![${escapeLabel(entry.alt)}](${escapeUrl(source)})` : separateImageMarkup(entry, source);
+      replaceToken(entry.token, replacement);
     }
-    for (const entry of pendingCanvases) {
-      markdown = markdown.split(entry.token).join(entry.text);
+    for (let index = 0; index < canvases.length; index++) {
+      const entry = canvases[index];
+      if (assetMode === ASSET_MODE_EMBEDDED) {
+        replaceToken(
+          entry.token,
+          `#### Canvas: ${entry.title}
+
+${entry.text}`
+        );
+        continue;
+      }
+      const filename = `${slug}-${timestamp}-canvas-${String(index + 1).padStart(3, "0")}.md`;
+      attachments.push({
+        blob: new Blob(
+          ["\uFEFF" + entry.text],
+          { type: "text/markdown;charset=utf-8" }
+        ),
+        filename
+      });
+      replaceToken(entry.token, `[${entry.title}](${filename})`);
     }
-    downloadBlob(
-      new Blob(["\uFEFF" + markdown], { type: "text/markdown;charset=utf-8" }),
-      `${slug}-${timestamp}.md`
-    );
+    return {
+      title,
+      prompts,
+      attachments
+    };
   }
   function isSlabReady(type, slab) {
     if (type === "empty") return true;
@@ -420,12 +509,7 @@ ${prompt.text}
       );
       const title = (titleElement?.textContent || "Canvas document").trim();
       const token = assetToken("CANVAS");
-      unit.canvases.push({
-        text: `#### Canvas: ${title}
-
-${text}`,
-        token
-      });
+      unit.canvases.push({ title, text, token });
       return promptIdentity(
         slab,
         token,
@@ -543,8 +627,15 @@ ${text}`,
         const source = node.getAttribute("src") || "";
         if (!source) return alt ? `[image: ${escapeLabel(alt)}]` : "[image]";
         const token = assetToken("IMG");
-        unit.images.push({ url: source, token });
-        return `![${escapeLabel(alt)}](${token})`;
+        const rect = node.getBoundingClientRect();
+        unit.images.push({
+          url: source,
+          token,
+          alt,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height)
+        });
+        return token;
       }
       if (tag === "button") {
         const label2 = node.getAttribute("aria-label") || node.innerText.trim();
@@ -641,6 +732,19 @@ ${fence}
       });
       reader.readAsDataURL(blob);
     });
+  }
+  async function fetchAssetBlob(url) {
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.blob();
+  }
+  function extensionForBlob(blob) {
+    return (blob.type.split("/")[1] || "png").split(";")[0].replace("jpeg", "jpg");
+  }
+  function separateImageMarkup(entry, source) {
+    const dimensions = entry.width > 0 && entry.height > 0 ? ` width="${entry.width}" height="${entry.height}"` : "";
+    const escapedSource = escapeHtml(source);
+    return `<a href="${escapedSource}" target="_blank" rel="noopener"><img src="${escapedSource}" alt="${escapeHtml(entry.alt)}"${dimensions}></a>`;
   }
 
   // src/app/supplyWorker.js
@@ -1362,7 +1466,8 @@ ${fence}
       } = await waitCurrentSlabReady());
       slabRoom2 = nextSlabRoom;
     }
-    await exportMarkdown();
+    const snapshot = extractionSnapshot();
+    return snapshot;
   }
 
   // src/app/compatibility.js
@@ -1659,13 +1764,14 @@ Do not omit or combine any item.`;
   function installExtractorApp({
     version,
     runLabel,
+    embeddedRunLabel,
     compatibilityLabel,
     logPrefix
   }) {
     const VERSION2 = version;
     console.log(`[${logPrefix}] loaded, version ${VERSION2}`);
     let activeRuns = 0;
-    const runTraversal = async () => {
+    const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
       if (activeRuns > 0) {
         console.log(`[${logPrefix}] ignored: a traversal is already in progress.`);
         return;
@@ -1673,7 +1779,8 @@ Do not omit or combine any item.`;
       activeRuns++;
       console.log(`[${logPrefix}] started.`);
       try {
-        await traverseConversation();
+        const snapshot = await traverseConversation();
+        await exportMarkdown(snapshot, { assetMode });
         console.log(`[${logPrefix}] finished.`);
       } catch (error) {
         console.error(`[${logPrefix}] failed.`, error);
@@ -1683,9 +1790,17 @@ Do not omit or combine any item.`;
       }
     };
     const menuLabel = `${runLabel} v${VERSION2}`;
+    const embeddedMenuLabel = `${embeddedRunLabel} v${VERSION2}`;
     const registerMenuCommand = typeof GM_registerMenuCommand === "function" ? GM_registerMenuCommand : typeof GM !== "undefined" && typeof GM.registerMenuCommand === "function" ? GM.registerMenuCommand.bind(GM) : null;
     if (registerMenuCommand) {
-      registerMenuCommand(menuLabel, runTraversal);
+      registerMenuCommand(
+        menuLabel,
+        () => runTraversal(ASSET_MODE_SEPARATE)
+      );
+      registerMenuCommand(
+        embeddedMenuLabel,
+        () => runTraversal(ASSET_MODE_EMBEDDED)
+      );
       registerMenuCommand(
         `${compatibilityLabel} v${VERSION2}`,
         () => showCompatibilityCheck(VERSION2)
@@ -1699,10 +1814,11 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.41" : "unbuilt";
+  var VERSION = true ? "5.42" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",
+    embeddedRunLabel: "Run extractor (embedded)",
     compatibilityLabel: "Compatibility check",
     logPrefix: "extractor"
   });

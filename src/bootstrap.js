@@ -7,6 +7,7 @@ const VERSION = typeof __PROD_USERSCRIPT_VERSION__ !== 'undefined'
 installExtractorApp({
     version: VERSION,
     runLabel: 'Run extractor',
+    embeddedRunLabel: 'Run extractor (embedded)',
     compatibilityLabel: 'Compatibility check',
     logPrefix: 'extractor'
 });

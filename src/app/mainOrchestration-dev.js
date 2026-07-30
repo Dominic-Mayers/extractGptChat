@@ -16,7 +16,7 @@ import {
     waitCurrentSlabReady
 } from "./supplyWorker-dev.js";
 import {
-    exportMarkdown,
+    extractionSnapshot,
     resetExtraction
 } from "./extraction-dev.js";
 import {
@@ -155,6 +155,7 @@ export async function traverseConversation() {
         });
 
     }
-    await exportMarkdown();
+    const snapshot = extractionSnapshot();
     flushCycleDiagnostics();
+    return snapshot;
 }

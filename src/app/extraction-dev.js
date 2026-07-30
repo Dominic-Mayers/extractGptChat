@@ -3,9 +3,17 @@ import { slabType } from "./slabType-dev.js";
 let walkway = [];
 let assetCounter = 0;
 
+export const ASSET_MODE_SEPARATE = "separate";
+export const ASSET_MODE_EMBEDDED = "embedded";
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const escapeLabel = value => value.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
 const escapeUrl = value => value.replace(/>/g, "%3E");
+const escapeHtml = value => value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
 export function resetExtraction() {
     walkway = [];
@@ -26,6 +34,18 @@ export function compatibilityExtraction() {
         images: pendingImages.length,
         canvases: pendingCanvases.length,
         markdown: prompts.map(prompt => prompt.text).join("\n")
+    };
+}
+
+export function extractionSnapshot() {
+    return {
+        title: chatTitle(),
+        prompts: walkway.flatMap(deck => deck.prompts)
+            .map(prompt => ({ ...prompt })),
+        images: walkway.flatMap(deck => deck.images)
+            .map(image => ({ ...image })),
+        canvases: walkway.flatMap(deck => deck.canvases)
+            .map(canvas => ({ ...canvas }))
     };
 }
 
@@ -101,11 +121,40 @@ export function storeCompiledDeck(unit) {
     }
 }
 
-export async function exportMarkdown(timestamp = Date.now()) {
-    const prompts = walkway.flatMap(deck => deck.prompts);
-    const pendingImages = walkway.flatMap(deck => deck.images);
-    const pendingCanvases = walkway.flatMap(deck => deck.canvases);
-    const title = chatTitle();
+export async function exportMarkdown(snapshot, {
+    assetMode = ASSET_MODE_SEPARATE,
+    timestamp = Date.now()
+} = {}) {
+    const output = await createMarkdownExport(snapshot, {
+        assetMode,
+        timestamp
+    });
+
+    for (const attachment of output.attachments) {
+        downloadBlob(attachment.blob, attachment.filename);
+        await sleep(300);
+    }
+
+    downloadBlob(
+        new Blob(
+            ["﻿" + output.markdown],
+            { type: "text/markdown;charset=utf-8" }
+        ),
+        output.filename
+    );
+
+    return output;
+}
+
+export async function createMarkdownExport(snapshot, {
+    assetMode = ASSET_MODE_SEPARATE,
+    timestamp = Date.now()
+} = {}) {
+    const materialized = await materializeExtraction(snapshot, {
+        assetMode,
+        timestamp
+    });
+    const { prompts, attachments, title } = materialized;
     const slug = titleSlug(title);
     const date = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
     const users = prompts.filter(prompt => prompt.role === "user");
@@ -138,29 +187,96 @@ export async function exportMarkdown(timestamp = Date.now()) {
         markdown += `${anchor}${label}\n\n${prompt.text}\n\n---\n\n`;
     }
 
-    for (let index = 0; index < pendingImages.length; index++) {
-        const entry = pendingImages[index];
+    return {
+        markdown,
+        filename: `${slug}-${timestamp}.md`,
+        attachments
+    };
+}
+
+export async function materializeExtraction(snapshot, {
+    assetMode = ASSET_MODE_SEPARATE,
+    timestamp = Date.now()
+} = {}) {
+    if (
+        assetMode !== ASSET_MODE_SEPARATE &&
+        assetMode !== ASSET_MODE_EMBEDDED
+    ) {
+        throw new Error(`Unknown asset mode: ${assetMode}.`);
+    }
+
+    const title = snapshot.title || "chat";
+    const slug = titleSlug(title);
+    const prompts = snapshot.prompts.map(prompt => ({ ...prompt }));
+    const canvases = snapshot.canvases.map(canvas => ({ ...canvas }));
+    const attachments = [];
+    const replaceToken = (token, replacement) => {
+        for (const prompt of prompts) {
+            prompt.text = prompt.text.split(token).join(replacement);
+        }
+        for (const canvas of canvases) {
+            canvas.text = canvas.text.split(token).join(replacement);
+        }
+    };
+
+    for (let index = 0; index < snapshot.images.length; index++) {
+        const entry = snapshot.images[index];
         let source = entry.url;
         try {
-            if (!source.startsWith("data:")) {
-                const response = await fetch(source, { credentials: "include" });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                source = await blobToDataUrl(await response.blob());
+            if (assetMode === ASSET_MODE_EMBEDDED) {
+                source = entry.url.startsWith("data:")
+                    ? entry.url
+                    : await blobToDataUrl(await fetchAssetBlob(entry.url));
+            } else {
+                const blob = await fetchAssetBlob(entry.url);
+                const extension = extensionForBlob(blob);
+                const filename =
+                    `${slug}-${timestamp}-img-` +
+                    `${String(index + 1).padStart(3, "0")}.${extension}`;
+                attachments.push({ blob, filename });
+                source = filename;
             }
         } catch (error) {
-            console.warn(`[dev extraction] image ${index + 1} embedding failed.`, error);
+            console.warn(
+                `[dev extraction] image ${index + 1} ` +
+                `${assetMode === ASSET_MODE_EMBEDDED ? "embedding" : "download"} failed.`,
+                error
+            );
         }
-        markdown = markdown.split(entry.token).join(escapeUrl(source));
+        const replacement = assetMode === ASSET_MODE_EMBEDDED
+            ? `![${escapeLabel(entry.alt)}](${escapeUrl(source)})`
+            : separateImageMarkup(entry, source);
+        replaceToken(entry.token, replacement);
     }
 
-    for (const entry of pendingCanvases) {
-        markdown = markdown.split(entry.token).join(entry.text);
+    for (let index = 0; index < canvases.length; index++) {
+        const entry = canvases[index];
+        if (assetMode === ASSET_MODE_EMBEDDED) {
+            replaceToken(
+                entry.token,
+                `#### Canvas: ${entry.title}\n\n${entry.text}`
+            );
+            continue;
+        }
+
+        const filename =
+            `${slug}-${timestamp}-canvas-` +
+            `${String(index + 1).padStart(3, "0")}.md`;
+        attachments.push({
+            blob: new Blob(
+                ["﻿" + entry.text],
+                { type: "text/markdown;charset=utf-8" }
+            ),
+            filename
+        });
+        replaceToken(entry.token, `[${entry.title}](${filename})`);
     }
 
-    downloadBlob(
-        new Blob(["﻿" + markdown], { type: "text/markdown;charset=utf-8" }),
-        `${slug}-${timestamp}.md`
-    );
+    return {
+        title,
+        prompts,
+        attachments
+    };
 }
 
 export function isSlabReady(type, slab) {
@@ -216,10 +332,7 @@ function promptFrom(type, slab, unit) {
         );
         const title = (titleElement?.textContent || "Canvas document").trim();
         const token = assetToken("CANVAS");
-        unit.canvases.push({
-            text: `#### Canvas: ${title}\n\n${text}`,
-            token
-        });
+        unit.canvases.push({ title, text, token });
         return promptIdentity(
             slab,
             token,
@@ -356,8 +469,15 @@ function htmlToMarkdown(element, unit) {
             const source = node.getAttribute("src") || "";
             if (!source) return alt ? `[image: ${escapeLabel(alt)}]` : "[image]";
             const token = assetToken("IMG");
-            unit.images.push({ url: source, token });
-            return `![${escapeLabel(alt)}](${token})`;
+            const rect = node.getBoundingClientRect();
+            unit.images.push({
+                url: source,
+                token,
+                alt,
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+            });
+            return token;
         }
         if (tag === "button") {
             const label = node.getAttribute("aria-label") || node.innerText.trim();
@@ -468,4 +588,26 @@ function blobToDataUrl(blob) {
         });
         reader.readAsDataURL(blob);
     });
+}
+
+async function fetchAssetBlob(url) {
+    const response = await fetch(url, { credentials: "include" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.blob();
+}
+
+function extensionForBlob(blob) {
+    return (blob.type.split("/")[1] || "png")
+        .split(";")[0]
+        .replace("jpeg", "jpg");
+}
+
+function separateImageMarkup(entry, source) {
+    const dimensions = entry.width > 0 && entry.height > 0
+        ? ` width="${entry.width}" height="${entry.height}"`
+        : "";
+    const escapedSource = escapeHtml(source);
+    return `<a href="${escapedSource}" target="_blank" rel="noopener">` +
+        `<img src="${escapedSource}" alt="${escapeHtml(entry.alt)}"` +
+        `${dimensions}></a>`;
 }

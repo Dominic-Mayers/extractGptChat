@@ -42,7 +42,7 @@ function writeGeneratedFile(filename, content) {
 function productionBootstrap(source) {
     return source
         .replace(/__DEV_USERSCRIPT_VERSION__/g, '__PROD_USERSCRIPT_VERSION__')
-        .replace('Run dev extractor', 'Run extractor')
+        .replaceAll('Run dev extractor', 'Run extractor')
         .replace('Dev compatibility check', 'Compatibility check')
         .replace('dev traversal', 'extractor');
 }
