@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.89
+// @version      2.92
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -298,8 +298,8 @@
     deckUpdatesDiagnostics = {
       checkedCount: 0,
       unchangedCount: 0,
-      replacedCount: 0,
-      replacements: [],
+      recompiledCount: 0,
+      recompilations: [],
       recentUnchanged: []
     };
     erasedJumpDiagnostics = null;
@@ -1158,9 +1158,9 @@
       ...data
     };
     deckUpdatesDiagnostics.checkedCount++;
-    if (data.decision === "replaced") {
-      deckUpdatesDiagnostics.replacedCount++;
-      deckUpdatesDiagnostics.replacements.push(record);
+    if (data.decision === "recompiled") {
+      deckUpdatesDiagnostics.recompiledCount++;
+      deckUpdatesDiagnostics.recompilations.push(record);
       return;
     }
     deckUpdatesDiagnostics.unchangedCount++;
@@ -1589,7 +1589,6 @@
   var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var escapeLabel = (value) => value.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
   var escapeUrl = (value) => value.replace(/>/g, "%3E");
-  var escapeHtml = (value) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   function resetExtraction() {
     walkway = [];
     assetCounter = 0;
@@ -1713,29 +1712,20 @@ ${prompt.text}
     }
     for (let index = 0; index < pendingImages.length; index++) {
       const entry = pendingImages[index];
-      let filename = escapeHtml(entry.url);
+      let source = entry.url;
       try {
-        const response = await fetch(entry.url, { credentials: "include" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        const extension = (blob.type.split("/")[1] || "png").split(";")[0].replace("jpeg", "jpg");
-        filename = `${slug}-${timestamp}-img-${String(index + 1).padStart(3, "0")}.${extension}`;
-        downloadBlob(blob, filename);
-        await sleep(300);
+        if (!source.startsWith("data:")) {
+          const response = await fetch(source, { credentials: "include" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          source = await blobToDataUrl(await response.blob());
+        }
       } catch (error) {
-        console.warn(`[dev extraction] image ${index + 1} download failed.`, error);
+        console.warn(`[dev extraction] image ${index + 1} embedding failed.`, error);
       }
-      markdown = markdown.split(entry.token).join(filename);
+      markdown = markdown.split(entry.token).join(escapeUrl(source));
     }
-    for (let index = 0; index < pendingCanvases.length; index++) {
-      const entry = pendingCanvases[index];
-      const filename = `${slug}-${timestamp}-canvas-${String(index + 1).padStart(3, "0")}.md`;
-      downloadBlob(
-        new Blob(["\uFEFF" + entry.text], { type: "text/markdown;charset=utf-8" }),
-        filename
-      );
-      markdown = markdown.split(entry.token).join(filename);
-      await sleep(300);
+    for (const entry of pendingCanvases) {
+      markdown = markdown.split(entry.token).join(entry.text);
     }
     downloadBlob(
       new Blob(["\uFEFF" + markdown], { type: "text/markdown;charset=utf-8" }),
@@ -1787,10 +1777,15 @@ ${prompt.text}
       );
       const title = (titleElement?.textContent || "Canvas document").trim();
       const token = assetToken("CANVAS");
-      unit.canvases.push({ text, token });
+      unit.canvases.push({
+        text: `#### Canvas: ${title}
+
+${text}`,
+        token
+      });
       return promptIdentity(
         slab,
-        `[${title}](${token})`,
+        token,
         title
       );
     }
@@ -1906,11 +1901,7 @@ ${prompt.text}
         if (!source) return alt ? `[image: ${escapeLabel(alt)}]` : "[image]";
         const token = assetToken("IMG");
         unit.images.push({ url: source, token });
-        const rect = node.getBoundingClientRect();
-        const width = Math.round(rect.width);
-        const height = Math.round(rect.height);
-        const dimensions = width > 0 && height > 0 ? ` width="${width}" height="${height}"` : "";
-        return `<a href="${token}" target="_blank" rel="noopener"><img src="${token}" alt="${escapeHtml(alt)}"${dimensions}></a>`;
+        return `![${escapeLabel(alt)}](${token})`;
       }
       if (tag === "button") {
         const label2 = node.getAttribute("aria-label") || node.innerText.trim();
@@ -1995,6 +1986,18 @@ ${fence}
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 100);
+  }
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(reader.result), {
+        once: true
+      });
+      reader.addEventListener("error", () => reject(reader.error), {
+        once: true
+      });
+      reader.readAsDataURL(blob);
+    });
   }
 
   // src/app/supplyWorker-dev.js
@@ -2089,6 +2092,7 @@ ${fence}
       const previousDiagnostics = compiledDeckFor(turnIdDiagnostics);
       const slabTypesBeforeDiagnostics = getSlabsIn(deck).map((slab) => slabType(slab));
       const updated = isUpdated(deck);
+      const recompileStartedAtDiagnostics = updated ? performance.now() : null;
       if (updated) await replaceByUpdate(deck);
       recordDeckUpdateDiagnostics({
         turnId: turnIdDiagnostics,
@@ -2099,9 +2103,10 @@ ${fence}
         compiledHeight: previousDiagnostics.height,
         currentHeight: rect.height,
         slabTypesBefore: slabTypesBeforeDiagnostics,
-        decision: updated ? "replaced" : "unchanged",
-        replacementHeight: updated ? compiledDeckFor(turnIdDiagnostics).height : null,
-        slabTypesAfter: updated ? getSlabsIn(deck).map((slab) => slabType(slab)) : null
+        decision: updated ? "recompiled" : "unchanged",
+        recompiledHeight: updated ? compiledDeckFor(turnIdDiagnostics).height : null,
+        recompiledSlabTypes: updated ? getSlabsIn(deck).map((slab) => slabType(slab)) : null,
+        recompileElapsedMs: updated ? performance.now() - recompileStartedAtDiagnostics : null
       });
     }
   }
@@ -3742,7 +3747,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.89" : "unbuilt";
+  var VERSION = true ? "2.92" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

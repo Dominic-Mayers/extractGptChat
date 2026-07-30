@@ -155,6 +155,9 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
         const slabTypesBeforeDiagnostics =
             getSlabsIn(deck).map(slab => slabType(slab));
         const updated = isUpdated(deck);
+        const recompileStartedAtDiagnostics = updated
+            ? performance.now()
+            : null;
 
         if (updated) await replaceByUpdate(deck);
 
@@ -167,12 +170,15 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
             compiledHeight: previousDiagnostics.height,
             currentHeight: rect.height,
             slabTypesBefore: slabTypesBeforeDiagnostics,
-            decision: updated ? "replaced" : "unchanged",
-            replacementHeight: updated
+            decision: updated ? "recompiled" : "unchanged",
+            recompiledHeight: updated
                 ? compiledDeckFor(turnIdDiagnostics).height
                 : null,
-            slabTypesAfter: updated
+            recompiledSlabTypes: updated
                 ? getSlabsIn(deck).map(slab => slabType(slab))
+                : null,
+            recompileElapsedMs: updated
+                ? performance.now() - recompileStartedAtDiagnostics
                 : null
         });
     }
