@@ -63,8 +63,8 @@ export function resetCycleDiagnostics() {
     deckUpdatesDiagnostics = {
         checkedCount: 0,
         unchangedCount: 0,
-        replacedCount: 0,
-        replacements: [],
+        recompiledCount: 0,
+        recompilations: [],
         recentUnchanged: []
     };
     erasedJumpDiagnostics = null;
@@ -1111,9 +1111,9 @@ export function recordDeckUpdateDiagnostics(data) {
     };
     deckUpdatesDiagnostics.checkedCount++;
 
-    if (data.decision === "replaced") {
-        deckUpdatesDiagnostics.replacedCount++;
-        deckUpdatesDiagnostics.replacements.push(record);
+    if (data.decision === "recompiled") {
+        deckUpdatesDiagnostics.recompiledCount++;
+        deckUpdatesDiagnostics.recompilations.push(record);
         return;
     }
 
