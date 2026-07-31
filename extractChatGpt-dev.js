@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (dev)
 // @namespace    http://tampermonkey.net/
-// @version      2.93
+// @version      2.94
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -2176,6 +2176,7 @@ ${fence}
   async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary = workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
+    let deactivationPredicted = false;
     const decks = elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting]:not([data-is-intersecting="false"])'
@@ -2186,6 +2187,7 @@ ${fence}
       if (rect.top >= deactivationBoundary - TOLERATED_ROUNDING || topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
         continue;
       }
+      deactivationPredicted = true;
       if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
         pendingDeactivationPredictionsDiagnostics.set(deck, {
           predictedAt: performance.now()
@@ -2213,6 +2215,7 @@ ${fence}
         recompileElapsedMs: updated ? performance.now() - recompileStartedAtDiagnostics : null
       });
     }
+    return deactivationPredicted;
   }
   function isUpdated(deck) {
     const turnId = deck.getAttribute("data-turn-id-container");
@@ -3317,7 +3320,7 @@ ${fence}
         calibratedJump,
         viewportHeight: viewportHeight2
       });
-      await checkUpdateNeededBeforeDeactivation(jump);
+      const deactivationPredicted = await checkUpdateNeededBeforeDeactivation(jump);
       await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
@@ -3331,6 +3334,14 @@ ${fence}
         break;
       }
       await waitLayoutStable({ trackAnchor: true });
+      if (deactivationPredicted) {
+        if (typeof globalThis.gc !== "function") {
+          throw new Error(
+            "GC is unavailable. Launch Chromium with --expose-gc."
+          );
+        }
+        globalThis.gc();
+      }
       const obtainedRoom = anchorRoom();
       finishJumpDiagnostics({
         obtainedAnchorRoom: obtainedRoom
@@ -3862,7 +3873,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-dev.js
-  var VERSION = true ? "2.93" : "unbuilt";
+  var VERSION = true ? "2.94" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run dev extractor",

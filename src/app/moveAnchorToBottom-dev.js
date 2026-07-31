@@ -93,7 +93,8 @@ export async function moveAnchorToBottom(
             calibratedJump,
             viewportHeight
         });
-        await checkUpdateNeededBeforeDeactivation(jump);
+        const deactivationPredicted =
+            await checkUpdateNeededBeforeDeactivation(jump);
         await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
@@ -109,6 +110,14 @@ export async function moveAnchorToBottom(
         }
 
         await waitLayoutStable({ trackAnchor: true });
+        if (deactivationPredicted) {
+            if (typeof globalThis.gc !== "function") {
+                throw new Error(
+                    "GC is unavailable. Launch Chromium with --expose-gc."
+                );
+            }
+            globalThis.gc();
+        }
 
         const obtainedRoom = anchorRoom();
         finishJumpDiagnostics({

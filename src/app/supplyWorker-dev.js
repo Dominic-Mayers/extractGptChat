@@ -124,6 +124,7 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary =
         workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
+    let deactivationPredicted = false;
     const decks = elementsIn(
         activeArea,
         '[data-turn-id-container][data-is-intersecting]' +
@@ -142,6 +143,7 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
             continue;
         }
 
+        deactivationPredicted = true;
         if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
             pendingDeactivationPredictionsDiagnostics.set(deck, {
                 predictedAt: performance.now()
@@ -182,6 +184,8 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
                 : null
         });
     }
+
+    return deactivationPredicted;
 }
 
 export function isUpdated(deck) {
