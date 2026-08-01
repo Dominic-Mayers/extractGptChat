@@ -892,9 +892,7 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                     : leadMs < 10
                         ? "5-9"
                         : leadMs < 20
-                            ? `${Math.floor(leadMs)}-<${
-                                Math.floor(leadMs) + 1
-                            }`
+                            ? "10-19"
                             : leadMs < 50
                                 ? "20-49"
                                 : leadMs < 100
@@ -1815,7 +1813,30 @@ function emitDeactivationPredictionDiagnostics() {
     console.log(
         "[height update lead]\n" +
         JSON.stringify(
-            output.singleDeactivationJumpByLastKnownHeightLeadMs,
+            Object.fromEntries(Object.entries(
+                output.singleDeactivationJumpByLastKnownHeightLeadMs
+            ).map(([bucket, value]) => [bucket, {
+                jumpCount: value.jumpCount,
+                erasedJumpCount: value.erasedJumpCount,
+                preservedJumpCount: value.preservedJumpCount,
+                erasurePercentage: value.erasurePercentage,
+                leadMsAverage: value.leadMsAverage,
+                leadMsMinimum: value.leadMsMinimum,
+                leadMsMaximum: value.leadMsMaximum,
+                byPredictionJumpLag: Object.fromEntries(
+                    Object.entries(value.byPredictionJumpLag).map(
+                        ([lag, byLag]) => [lag, {
+                            jumpCount: byLag.jumpCount,
+                            erasedJumpCount: byLag.erasedJumpCount,
+                            preservedJumpCount:
+                                byLag.preservedJumpCount,
+                            erasurePercentage:
+                                byLag.erasurePercentage,
+                            leadMsAverage: byLag.leadMsAverage
+                        }]
+                    )
+                )
+            }])),
             null,
             2
         )
