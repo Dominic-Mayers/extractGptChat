@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.55
+// @version      5.56
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1675,66 +1675,28 @@
           retries: output.singleDeactivationRetryByLastKnownHeightLeadMs
         }).map(([population, buckets]) => [
           population,
-          Object.fromEntries(
-            [
-              "before-gte250",
-              "before-100-250",
-              "before-50-100",
-              "before-20-50",
-              "before-10-20",
-              "before-5-10",
-              "before-0-5",
-              "after-0-5",
-              "after-5-10",
-              "after-10-15",
-              "after-15-20",
-              "after-20-25",
-              "after-25-30",
-              "after-30-35",
-              "after-35-40",
-              "after-40-45",
-              "after-45-50",
-              "after-gte50",
-              "missing"
-            ].filter(
-              (bucket) => population === "ordinary" || buckets[bucket] != null
-            ).map((bucket) => [bucket, buckets[bucket] ?? {
-              jumpCount: 0,
-              erasedJumpCount: 0,
-              preservedJumpCount: 0,
-              erasurePercentage: null,
-              leadMsAverage: null,
-              leadMsMinimum: null,
-              leadMsMaximum: null,
-              byPredictionJumpLag: {}
-            }]).map(([bucket, value]) => [
-              bucket,
-              value.jumpCount === 0 ? {
-                jumpCount: 0,
-                erasedJumpCount: 0,
-                preservedJumpCount: 0
-              } : {
-                jumpCount: value.jumpCount,
-                erasedJumpCount: value.erasedJumpCount,
-                preservedJumpCount: value.preservedJumpCount,
-                erasurePercentage: value.erasurePercentage,
-                leadMsAverage: value.leadMsAverage,
-                leadMsMinimum: value.leadMsMinimum,
-                leadMsMaximum: value.leadMsMaximum,
-                byPredictionJumpLag: Object.fromEntries(
-                  Object.entries(
-                    value.byPredictionJumpLag
-                  ).map(([lag, byLag]) => [lag, {
-                    jumpCount: byLag.jumpCount,
-                    erasedJumpCount: byLag.erasedJumpCount,
-                    preservedJumpCount: byLag.preservedJumpCount,
-                    erasurePercentage: byLag.erasurePercentage,
-                    leadMsAverage: byLag.leadMsAverage
-                  }])
-                )
-              }
-            ])
-          )
+          Object.fromEntries(Object.entries(buckets).map(
+            ([bucket, value]) => [bucket, {
+              jumpCount: value.jumpCount,
+              erasedJumpCount: value.erasedJumpCount,
+              preservedJumpCount: value.preservedJumpCount,
+              erasurePercentage: value.erasurePercentage,
+              leadMsAverage: value.leadMsAverage,
+              leadMsMinimum: value.leadMsMinimum,
+              leadMsMaximum: value.leadMsMaximum,
+              byPredictionJumpLag: Object.fromEntries(
+                Object.entries(
+                  value.byPredictionJumpLag
+                ).map(([lag, byLag]) => [lag, {
+                  jumpCount: byLag.jumpCount,
+                  erasedJumpCount: byLag.erasedJumpCount,
+                  preservedJumpCount: byLag.preservedJumpCount,
+                  erasurePercentage: byLag.erasurePercentage,
+                  leadMsAverage: byLag.leadMsAverage
+                }])
+              )
+            }]
+          ))
         ])),
         null,
         2
@@ -4757,7 +4719,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.55" : "unbuilt";
+  var VERSION = true ? "5.56" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
