@@ -51,6 +51,7 @@ let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
 let pendingDeactivationPredictionsDiagnostics = new Map();
 let deckActivationGeometryDiagnostics = new WeakMap();
+let lastKnownHeightUpdateDiagnostics = new WeakMap();
 let nativeRemovalInstrumentationInstalledDiagnostics = false;
 let viewportOscillationRafDiagnostics = null;
 let viewportOscillationFrameDiagnostics = 0;
@@ -1041,6 +1042,7 @@ export async function moveWorkZoneBy(jump) {
         workZone
     );
     probeDiagnostics.phase = "command";
+    probeDiagnostics.commandClock = performance.now();
     moveWorkZone(jump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
         previousViewportSampleDiagnostics.extractorJump = {
@@ -1102,6 +1104,7 @@ function resetSupplyWorkerDiagnostics() {
     movementJumpNumberDiagnostics = 0;
     pendingDeactivationPredictionsDiagnostics = new Map();
     deckActivationGeometryDiagnostics = new WeakMap();
+    lastKnownHeightUpdateDiagnostics = new WeakMap();
 }
 
 function installNativeRemovalInstrumentationDiagnostics() {
@@ -1327,10 +1330,15 @@ function recordJumpChangesDiagnostics(
                 "--last-known-height"
             );
             if (before !== after) {
+                const clock = performance.now();
+                lastKnownHeightUpdateDiagnostics.set(record.target, {
+                    clock,
+                    movementJumpNumber: movementJumpNumberDiagnostics
+                });
                 probe.renderingChanges.push({
                     delivery,
                     order: ++probe.mutationOrder,
-                    clock: performance.now(),
+                    clock,
                     phase,
                     change: "last-known-height",
                     before,
@@ -1357,6 +1365,9 @@ function recordJumpChangesDiagnostics(
                 before != null &&
                 before !== "false" &&
                 (after == null || after === "false");
+            const lastKnownHeightUpdate = deactivated
+                ? lastKnownHeightUpdateDiagnostics.get(record.target)
+                : null;
             const prediction = deactivated
                 ? pendingDeactivationPredictionsDiagnostics.get(
                     record.target
@@ -1384,6 +1395,13 @@ function recordJumpChangesDiagnostics(
                     ? null
                     : movementJumpNumberDiagnostics -
                         prediction.predictedOnJumpNumber,
+                lastKnownHeightUpdateClock:
+                    lastKnownHeightUpdate?.clock ?? null,
+                lastKnownHeightUpdateJumpLag:
+                    lastKnownHeightUpdate == null
+                        ? null
+                        : movementJumpNumberDiagnostics -
+                            lastKnownHeightUpdate.movementJumpNumber,
                 deckHeightAtPrediction: prediction == null
                     ? null
                     : prediction.deckHeightAtPrediction

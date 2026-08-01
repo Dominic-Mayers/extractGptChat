@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.48
+// @version      5.49
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -356,7 +356,8 @@
       byPhase: {},
       matchedDeactivationByJumpLag: {},
       singleDeactivationJumpByPredictionLag: {},
-      singleDeactivationJumpByPreCommandLastKnownHeight: {}
+      singleDeactivationJumpByPreCommandLastKnownHeight: {},
+      singleDeactivationJumpByLastKnownHeightLeadMs: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -802,6 +803,8 @@
       scrollYAtMutationDeliveryStart: change.scrollYAtMutationDeliveryStart ?? null,
       predictionElapsedMs: change.predictionElapsedMs ?? null,
       predictionJumpLag: change.predictionJumpLag ?? null,
+      lastKnownHeightUpdateClock: change.lastKnownHeightUpdateClock ?? null,
+      lastKnownHeightUpdateJumpLag: change.lastKnownHeightUpdateJumpLag ?? null,
       deckHeightAtPrediction: change.deckHeightAtPrediction ?? null,
       deckId: change.deck?.id ?? null,
       before: change.before ?? null,
@@ -995,6 +998,64 @@
         byHeightState.byDelayMs[delayBucket] = byDelay;
       }
       deactivationPredictionDiagnostics.singleDeactivationJumpByPreCommandLastKnownHeight[heightState] = byHeightState;
+      const leadMs = Number.isFinite(
+        deactivation.lastKnownHeightUpdateClock
+      ) && Number.isFinite(probe.commandClock) ? probe.commandClock - deactivation.lastKnownHeightUpdateClock : null;
+      const leadBucket = leadMs == null ? "missing" : leadMs < 0 ? "after-jump" : leadMs < 5 ? "0-4" : leadMs < 10 ? "5-9" : leadMs < 20 ? "10-19" : leadMs < 50 ? "20-49" : leadMs < 100 ? "50-99" : leadMs < 250 ? "100-249" : "gte250";
+      const byLead = deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs[leadBucket] ?? {
+        jumpCount: 0,
+        erasedJumpCount: 0,
+        preservedJumpCount: 0,
+        leadMsCount: 0,
+        leadMsSum: 0,
+        leadMsMinimum: null,
+        leadMsMaximum: null,
+        byOutcome: {},
+        byPredictionJumpLag: {}
+      };
+      byLead.jumpCount++;
+      if (outcome === "erased" || outcome === "retry-erased") {
+        byLead.erasedJumpCount++;
+      } else {
+        byLead.preservedJumpCount++;
+      }
+      if (leadMs != null) {
+        byLead.leadMsCount++;
+        byLead.leadMsSum += leadMs;
+        byLead.leadMsMinimum = byLead.leadMsMinimum == null ? leadMs : Math.min(byLead.leadMsMinimum, leadMs);
+        byLead.leadMsMaximum = byLead.leadMsMaximum == null ? leadMs : Math.max(byLead.leadMsMaximum, leadMs);
+      }
+      incrementJumpPopulationCategoryDiagnostics(
+        byLead.byOutcome,
+        outcome
+      );
+      if (Number.isInteger(deactivation.predictionJumpLag)) {
+        const lag = deactivation.predictionJumpLag;
+        const byLag = byLead.byPredictionJumpLag[lag] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0,
+          leadMsCount: 0,
+          leadMsSum: 0,
+          byOutcome: {}
+        };
+        byLag.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+          byLag.erasedJumpCount++;
+        } else {
+          byLag.preservedJumpCount++;
+        }
+        if (leadMs != null) {
+          byLag.leadMsCount++;
+          byLag.leadMsSum += leadMs;
+        }
+        incrementJumpPopulationCategoryDiagnostics(
+          byLag.byOutcome,
+          outcome
+        );
+        byLead.byPredictionJumpLag[lag] = byLag;
+      }
+      deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs[leadBucket] = byLead;
     }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -1588,6 +1649,18 @@
           byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
           byLag.delayMsAverage = byLag.jumpCount === 0 ? null : byLag.delayMsSum / byLag.jumpCount;
         }
+      }
+    }
+    for (const byLead of Object.values(
+      output.singleDeactivationJumpByLastKnownHeightLeadMs
+    )) {
+      byLead.erasurePercentage = byLead.jumpCount === 0 ? null : byLead.erasedJumpCount / byLead.jumpCount * 100;
+      byLead.leadMsAverage = byLead.leadMsCount === 0 ? null : byLead.leadMsSum / byLead.leadMsCount;
+      for (const byLag of Object.values(
+        byLead.byPredictionJumpLag
+      )) {
+        byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
+        byLag.leadMsAverage = byLag.leadMsCount === 0 ? null : byLag.leadMsSum / byLag.leadMsCount;
       }
     }
     output.deckHeightByJumpLag = Object.fromEntries(
@@ -2400,6 +2473,7 @@ ${fence}
   var movementJumpNumberDiagnostics = 0;
   var pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
   var deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
+  var lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
   var nativeRemovalInstrumentationInstalledDiagnostics = false;
   var viewportOscillationRafDiagnostics = null;
   var viewportOscillationFrameDiagnostics = 0;
@@ -3182,6 +3256,7 @@ ${fence}
       workZone
     );
     probeDiagnostics.phase = "command";
+    probeDiagnostics.commandClock = performance.now();
     moveWorkZone(jump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
       previousViewportSampleDiagnostics.extractorJump = {
@@ -3235,6 +3310,7 @@ ${fence}
     movementJumpNumberDiagnostics = 0;
     pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
     deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
+    lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
   }
   function installNativeRemovalInstrumentationDiagnostics() {
     if (nativeRemovalInstrumentationInstalledDiagnostics) return;
@@ -3413,10 +3489,15 @@ ${fence}
           "--last-known-height"
         );
         if (before !== after) {
+          const clock = performance.now();
+          lastKnownHeightUpdateDiagnostics.set(record.target, {
+            clock,
+            movementJumpNumber: movementJumpNumberDiagnostics
+          });
           probe.renderingChanges.push({
             delivery,
             order: ++probe.mutationOrder,
-            clock: performance.now(),
+            clock,
             phase,
             change: "last-known-height",
             before,
@@ -3436,6 +3517,7 @@ ${fence}
           "data-is-intersecting"
         );
         const deactivated = before != null && before !== "false" && (after == null || after === "false");
+        const lastKnownHeightUpdate = deactivated ? lastKnownHeightUpdateDiagnostics.get(record.target) : null;
         const prediction = deactivated ? pendingDeactivationPredictionsDiagnostics.get(
           record.target
         ) : null;
@@ -3455,6 +3537,8 @@ ${fence}
           after,
           predictionElapsedMs: prediction == null ? null : performance.now() - prediction.predictedAt,
           predictionJumpLag: prediction == null ? null : movementJumpNumberDiagnostics - prediction.predictedOnJumpNumber,
+          lastKnownHeightUpdateClock: lastKnownHeightUpdate?.clock ?? null,
+          lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
           deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction
         });
         continue;
@@ -4594,7 +4678,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.48" : "unbuilt";
+  var VERSION = true ? "5.49" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

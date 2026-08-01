@@ -121,7 +121,8 @@ export function resetCycleDiagnostics() {
         byPhase: {},
         matchedDeactivationByJumpLag: {},
         singleDeactivationJumpByPredictionLag: {},
-        singleDeactivationJumpByPreCommandLastKnownHeight: {}
+        singleDeactivationJumpByPreCommandLastKnownHeight: {},
+        singleDeactivationJumpByLastKnownHeightLeadMs: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -627,6 +628,10 @@ function compactActivationChangesDiagnostics(changes) {
             change.scrollYAtMutationDeliveryStart ?? null,
         predictionElapsedMs: change.predictionElapsedMs ?? null,
         predictionJumpLag: change.predictionJumpLag ?? null,
+        lastKnownHeightUpdateClock:
+            change.lastKnownHeightUpdateClock ?? null,
+        lastKnownHeightUpdateJumpLag:
+            change.lastKnownHeightUpdateJumpLag ?? null,
         deckHeightAtPrediction:
             change.deckHeightAtPrediction ?? null,
         deckId: change.deck?.id ?? null,
@@ -872,6 +877,93 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             .singleDeactivationJumpByPreCommandLastKnownHeight[
                 heightState
             ] = byHeightState;
+        const leadMs = Number.isFinite(
+            deactivation.lastKnownHeightUpdateClock
+        ) && Number.isFinite(probe.commandClock)
+            ? probe.commandClock -
+                deactivation.lastKnownHeightUpdateClock
+            : null;
+        const leadBucket = leadMs == null
+            ? "missing"
+            : leadMs < 0
+                ? "after-jump"
+                : leadMs < 5
+                    ? "0-4"
+                    : leadMs < 10
+                        ? "5-9"
+                        : leadMs < 20
+                            ? "10-19"
+                            : leadMs < 50
+                                ? "20-49"
+                                : leadMs < 100
+                                    ? "50-99"
+                                    : leadMs < 250
+                                        ? "100-249"
+                                        : "gte250";
+        const byLead = deactivationPredictionDiagnostics
+            .singleDeactivationJumpByLastKnownHeightLeadMs[
+                leadBucket
+            ] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                leadMsCount: 0,
+                leadMsSum: 0,
+                leadMsMinimum: null,
+                leadMsMaximum: null,
+                byOutcome: {},
+                byPredictionJumpLag: {}
+            };
+        byLead.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+            byLead.erasedJumpCount++;
+        } else {
+            byLead.preservedJumpCount++;
+        }
+        if (leadMs != null) {
+            byLead.leadMsCount++;
+            byLead.leadMsSum += leadMs;
+            byLead.leadMsMinimum = byLead.leadMsMinimum == null
+                ? leadMs
+                : Math.min(byLead.leadMsMinimum, leadMs);
+            byLead.leadMsMaximum = byLead.leadMsMaximum == null
+                ? leadMs
+                : Math.max(byLead.leadMsMaximum, leadMs);
+        }
+        incrementJumpPopulationCategoryDiagnostics(
+            byLead.byOutcome,
+            outcome
+        );
+        if (Number.isInteger(deactivation.predictionJumpLag)) {
+            const lag = deactivation.predictionJumpLag;
+            const byLag = byLead.byPredictionJumpLag[lag] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                leadMsCount: 0,
+                leadMsSum: 0,
+                byOutcome: {}
+            };
+            byLag.jumpCount++;
+            if (outcome === "erased" || outcome === "retry-erased") {
+                byLag.erasedJumpCount++;
+            } else {
+                byLag.preservedJumpCount++;
+            }
+            if (leadMs != null) {
+                byLag.leadMsCount++;
+                byLag.leadMsSum += leadMs;
+            }
+            incrementJumpPopulationCategoryDiagnostics(
+                byLag.byOutcome,
+                outcome
+            );
+            byLead.byPredictionJumpLag[lag] = byLag;
+        }
+        deactivationPredictionDiagnostics
+            .singleDeactivationJumpByLastKnownHeightLeadMs[
+                leadBucket
+            ] = byLead;
     }
 
     jumpPopulationDiagnostics.classifiedJumpCount++;
@@ -1696,6 +1788,26 @@ function emitDeactivationPredictionDiagnostics() {
                     ? null
                     : byLag.delayMsSum / byLag.jumpCount;
             }
+        }
+    }
+    for (const byLead of Object.values(
+        output.singleDeactivationJumpByLastKnownHeightLeadMs
+    )) {
+        byLead.erasurePercentage = byLead.jumpCount === 0
+            ? null
+            : byLead.erasedJumpCount / byLead.jumpCount * 100;
+        byLead.leadMsAverage = byLead.leadMsCount === 0
+            ? null
+            : byLead.leadMsSum / byLead.leadMsCount;
+        for (const byLag of Object.values(
+            byLead.byPredictionJumpLag
+        )) {
+            byLag.erasurePercentage = byLag.jumpCount === 0
+                ? null
+                : byLag.erasedJumpCount / byLag.jumpCount * 100;
+            byLag.leadMsAverage = byLag.leadMsCount === 0
+                ? null
+                : byLag.leadMsSum / byLag.leadMsCount;
         }
     }
     output.deckHeightByJumpLag = Object.fromEntries(
