@@ -1,10 +1,15 @@
-import { traverseConversation } from './mainOrchestration.js';
-import { showCompatibilityCheck } from './compatibility.js';
+import {
+    traverseConversation
+} from './mainOrchestration.js';
+import {
+    showCompatibilityCheck
+} from './compatibility.js';
 import {
     ASSET_MODE_EMBEDDED,
     ASSET_MODE_SEPARATE,
     exportMarkdown
 } from './extraction.js';
+
 export function installExtractorApp({
     version,
     runLabel,
@@ -36,6 +41,7 @@ const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
         console.error(`[${logPrefix}] failed.`, error);
         throw error;
     } finally {
+
         activeRuns--;
     }
 };

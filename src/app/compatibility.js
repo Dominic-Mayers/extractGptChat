@@ -1,4 +1,6 @@
-import { compatibilityExtraction } from './extraction.js';
+import {
+    compatibilityExtraction
+} from './extraction.js';
 
 const MARKUP_PROMPT = `Create one response containing all of the following:
 1. A level-2 heading named "Compatibility Results".
@@ -92,7 +94,7 @@ export function showCompatibilityCheck(version) {
     const conversationHeading = heading("Create a test conversation");
     const instructions = textElement(
         "div",
-        "Start a new conversation and send each copied prompt as a separate user message. Run the dev extractor, reopen this panel, then check the extracted content.",
+        "Start a new conversation and send each copied prompt as a separate user message. Run the diagnostic extractor, reopen this panel, then check the extracted content.",
         { color: "#bac2de", marginBottom: "8px" }
     );
     const prompts = [
@@ -212,7 +214,7 @@ function renderExtraction(target) {
     target.replaceChildren();
     const state = compatibilityExtraction();
     if (state.count === 0) {
-        addResult(target, null, "Extraction state", "run the dev extractor first");
+        addResult(target, null, "Extraction state", "run the diagnostic extractor first");
         return;
     }
     addResult(

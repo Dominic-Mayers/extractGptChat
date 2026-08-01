@@ -1,7 +1,9 @@
-import { installExtractorApp } from './app/installExtractorApp.js';
+import {
+    installExtractorApp
+} from './app/installExtractorApp.js';
 
-const VERSION = typeof __PROD_USERSCRIPT_VERSION__ !== 'undefined'
-    ? __PROD_USERSCRIPT_VERSION__
+const VERSION = typeof __NO_DIAG_USERSCRIPT_VERSION__ !== 'undefined'
+    ? __NO_DIAG_USERSCRIPT_VERSION__
     : 'unbuilt';
 
 installExtractorApp({

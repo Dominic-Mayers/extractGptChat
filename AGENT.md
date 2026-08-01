@@ -1,8 +1,8 @@
 # Context for conversation
 
-## Development and production sources
+## Diagnostic and no-diagnostic sources
 
-The `*-dev.js` files are the canonical development sources. Plain `*.js` files are generated production sources.
+The `*-diag.js` files are the canonical sources with diagnostics. Plain `*.js` files are generated from them with diagnostics removed. Both bundles must be built after every modification and must remain functionally synchronized.
 
 ## Rules
 

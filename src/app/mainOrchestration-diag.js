@@ -6,29 +6,30 @@
 // This file implements only the geometric part of the
 // traversal.  Content extraction is intentionally omitted.
 
-import { getNextDeckRoomIn } from "./getNextDeckIn-dev.js";
-import { moveSlabTopToBottom } from "./moveSlabTopToBottom-dev.js";
-import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-dev.js";
+import { getNextDeckRoomIn } from "./getNextDeckIn-diag.js";
+import { moveSlabTopToBottom } from "./moveSlabTopToBottom-diag.js";
+import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom-diag.js";
 import {
     compileCurrentDeck,
     resetSupplyWorker,
     selectNextSlabRoom,
+    startSupplyWorkerDiagnostics,
     waitCurrentSlabReady
-} from "./supplyWorker-dev.js";
+} from "./supplyWorker-diag.js";
 import {
     extractionSnapshot,
     resetExtraction
-} from "./extraction-dev.js";
+} from "./extraction-diag.js";
 import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
-} from "./constants-dev.js";
+} from "./constants-diag.js";
 import {
     resetCycleDiagnostics,
     beginCycleDiagnostics,
     recordCycleStageDiagnostics,
     flushCycleDiagnostics
-} from "./cycleDiagnostics-dev.js";
+} from "./cycleDiagnostics-diag.js";
 
 export async function traverseConversation() {
 
@@ -39,6 +40,7 @@ export async function traverseConversation() {
 
     // Establishes the measured starting boundary; see ASSUMPTIONS.md A9.
     const initial = await moveViewportToDocumentBottom();
+    startSupplyWorkerDiagnostics();
 
     let slabRoom = null;
     let deckRoom = null;

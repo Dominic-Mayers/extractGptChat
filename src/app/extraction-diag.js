@@ -1,4 +1,4 @@
-import { slabType } from "./slabType-dev.js";
+import { slabType } from "./slabType-diag.js";
 
 let walkway = [];
 let assetCounter = 0;

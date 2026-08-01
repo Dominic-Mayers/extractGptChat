@@ -6,9 +6,15 @@
 // This file implements only the geometric part of the
 // traversal.  Content extraction is intentionally omitted.
 
-import { getNextDeckRoomIn } from "./getNextDeckIn.js";
-import { moveSlabTopToBottom } from "./moveSlabTopToBottom.js";
-import { moveViewportToDocumentBottom } from "./moveViewportToDocumentBottom.js";
+import {
+    getNextDeckRoomIn
+} from "./getNextDeckIn.js";
+import {
+    moveSlabTopToBottom
+} from "./moveSlabTopToBottom.js";
+import {
+    moveViewportToDocumentBottom
+} from "./moveViewportToDocumentBottom.js";
 import {
     compileCurrentDeck,
     resetSupplyWorker,
@@ -23,6 +29,7 @@ import {
     MAX_SLAB_GAP,
     MINIMUM_SLAB_HEIGHT
 } from "./constants.js";
+
 export async function traverseConversation() {
 
     resetSupplyWorker();

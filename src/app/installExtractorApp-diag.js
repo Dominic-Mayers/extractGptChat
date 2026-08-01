@@ -1,16 +1,17 @@
-import { traverseConversation } from './mainOrchestration-dev.js';
-import { showCompatibilityCheck } from './compatibility-dev.js';
+import { traverseConversation } from './mainOrchestration-diag.js';
+import { showCompatibilityCheck } from './compatibility-diag.js';
 import {
     ASSET_MODE_EMBEDDED,
     ASSET_MODE_SEPARATE,
     exportMarkdown
-} from './extraction-dev.js';
+} from './extraction-diag.js';
 import {
     logActiveTraversalDiagnostics,
     logCycleContextDiagnostics,
     recordCycleStageDiagnostics,
     selectCurrentJumpDiagnostics
-} from './cycleDiagnostics-dev.js';
+} from './cycleDiagnostics-diag.js';
+import { stopSupplyWorkerDiagnostics } from './supplyWorker-diag.js';
 
 export function installExtractorApp({
     version,
@@ -45,6 +46,7 @@ const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
         console.error(`[${logPrefix}] failed.`, error);
         throw error;
     } finally {
+        stopSupplyWorkerDiagnostics();
         activeRuns--;
     }
 };

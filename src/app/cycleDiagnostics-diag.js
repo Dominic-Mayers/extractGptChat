@@ -2,7 +2,7 @@ import {
 
     supplyHeight,
     workZonePosition
-} from "./scrollContainer-dev.js";
+} from "./scrollContainer-diag.js";
 
 let previousCycle = null;
 let currentCycle = null;
@@ -20,6 +20,8 @@ let stabilizationRuleDiagnostics = null;
 let deckLifecycleDiagnostics = null;
 let deactivationPredictionDiagnostics = null;
 let deactivationPredictionElapsedValuesDiagnostics = null;
+let predictionDeckHeightsByJumpLagDiagnostics = null;
+let pendingPredictionJumpDiagnostics = null;
 let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
 let canvasGeometryDiagnostics = null;
@@ -116,9 +118,19 @@ export function resetCycleDiagnostics() {
         elapsedMsSum: 0,
         elapsedMsMinimum: null,
         elapsedMsMaximum: null,
-        byPhase: {}
+        byPhase: {},
+        matchedDeactivationByJumpLag: {},
+        singleDeactivationJumpByPredictionLag: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
+    predictionDeckHeightsByJumpLagDiagnostics = {};
+    pendingPredictionJumpDiagnostics = {
+        jumpCount: 0,
+        geometricallyDeactivatingJumpCount: 0,
+        geometricallyPredictedDeckCount: 0,
+        atJumpStart: pendingPredictionStageDiagnostics(),
+        beforeCommand: pendingPredictionStageDiagnostics()
+    };
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     canvasGeometryDiagnostics = [];
@@ -205,6 +217,58 @@ export function recordStabilizationRuleDiagnostics({
 export function recordDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
     deactivationPredictionDiagnostics.predictionCount++;
+}
+
+export function recordPendingDeactivationPredictionsForJumpDiagnostics({
+    atJumpStart,
+    beforeCommand,
+    geometricallyPredictedDeckCount
+}) {
+    if (pendingPredictionJumpDiagnostics == null) return;
+    pendingPredictionJumpDiagnostics.jumpCount++;
+    pendingPredictionJumpDiagnostics.geometricallyPredictedDeckCount +=
+        geometricallyPredictedDeckCount;
+    if (geometricallyPredictedDeckCount > 0) {
+        pendingPredictionJumpDiagnostics
+            .geometricallyDeactivatingJumpCount++;
+    }
+    recordPendingPredictionStageDiagnostics(
+        pendingPredictionJumpDiagnostics.atJumpStart,
+        atJumpStart
+    );
+    recordPendingPredictionStageDiagnostics(
+        pendingPredictionJumpDiagnostics.beforeCommand,
+        beforeCommand
+    );
+}
+
+function pendingPredictionStageDiagnostics() {
+    return {
+        zeroCount: 0,
+        nonzeroCount: 0,
+        countSum: 0,
+        countMaximum: 0,
+        nonzeroAverageAgeMsSum: 0,
+        oldestAgeMsMaximum: null,
+        countDistribution: {}
+    };
+}
+
+function recordPendingPredictionStageDiagnostics(stage, snapshot) {
+    const count = snapshot.count;
+    stage.countSum += count;
+    stage.countMaximum = Math.max(stage.countMaximum, count);
+    stage.countDistribution[count] =
+        (stage.countDistribution[count] ?? 0) + 1;
+    if (count === 0) {
+        stage.zeroCount++;
+        return;
+    }
+    stage.nonzeroCount++;
+    stage.nonzeroAverageAgeMsSum += snapshot.averageAgeMs;
+    stage.oldestAgeMsMaximum = stage.oldestAgeMsMaximum == null
+        ? snapshot.oldestAgeMs
+        : Math.max(stage.oldestAgeMsMaximum, snapshot.oldestAgeMs);
 }
 
 export function recordCanvasGeometryDiagnostics(record) {
@@ -501,6 +565,8 @@ function erasedJumpEntryDiagnostics(jump, outcome) {
         activationChanges: compactActivationChangesDiagnostics(
             probe?.activationChanges ?? []
         ),
+        sectionRemovalBoundaries:
+            probe?.sectionRemovalBoundaries ?? [],
         renderingChanges: compactRenderingChangesDiagnostics(
             probe?.renderingChanges ?? []
         ),
@@ -522,6 +588,8 @@ function compactPreviousJumpDiagnostics(previous) {
         activationChanges: compactActivationChangesDiagnostics(
             previous.activationChanges
         ),
+        sectionRemovalBoundaries:
+            previous.sectionRemovalBoundaries ?? [],
         renderingChanges: compactRenderingChangesDiagnostics(
             previous.renderingChanges
         ),
@@ -554,7 +622,12 @@ function compactActivationChangesDiagnostics(changes) {
         delivery: change.delivery ?? null,
         order: change.order ?? null,
         phase: change.phase ?? null,
+        scrollYAtMutationDeliveryStart:
+            change.scrollYAtMutationDeliveryStart ?? null,
         predictionElapsedMs: change.predictionElapsedMs ?? null,
+        predictionJumpLag: change.predictionJumpLag ?? null,
+        deckHeightAtPrediction:
+            change.deckHeightAtPrediction ?? null,
         deckId: change.deck?.id ?? null,
         before: change.before ?? null,
         after: change.after ?? null,
@@ -635,6 +708,51 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             change.before !== "false" &&
             (change.after == null || change.after === "false")
     ).length;
+
+    const matchedDeactivations = attributeChanges.filter(change =>
+        change.before != null &&
+        change.before !== "false" &&
+        (change.after == null || change.after === "false") &&
+        Number.isInteger(change.predictionJumpLag)
+    );
+    for (const change of matchedDeactivations) {
+        incrementJumpPopulationCategoryDiagnostics(
+            deactivationPredictionDiagnostics
+                .matchedDeactivationByJumpLag,
+            change.predictionJumpLag
+        );
+        if (Number.isFinite(change.deckHeightAtPrediction)) {
+            const heights = predictionDeckHeightsByJumpLagDiagnostics[
+                change.predictionJumpLag
+            ] ?? [];
+            heights.push(change.deckHeightAtPrediction);
+            predictionDeckHeightsByJumpLagDiagnostics[
+                change.predictionJumpLag
+            ] = heights;
+        }
+    }
+    if (deactivationCount === 1 && matchedDeactivations.length === 1) {
+        const lag = matchedDeactivations[0].predictionJumpLag;
+        const byLag = deactivationPredictionDiagnostics
+            .singleDeactivationJumpByPredictionLag[lag] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                byOutcome: {}
+            };
+        byLag.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+            byLag.erasedJumpCount++;
+        } else {
+            byLag.preservedJumpCount++;
+        }
+        incrementJumpPopulationCategoryDiagnostics(
+            byLag.byOutcome,
+            outcome
+        );
+        deactivationPredictionDiagnostics
+            .singleDeactivationJumpByPredictionLag[lag] = byLag;
+    }
 
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -1257,8 +1375,38 @@ export function flushCycleDiagnostics() {
     emitStabilizationRuleDiagnostics();
     emitDeckLifecycleDiagnostics();
     emitDeactivationPredictionDiagnostics();
+    emitPendingPredictionJumpDiagnostics();
     emitCanvasGeometryDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+}
+
+function emitPendingPredictionJumpDiagnostics() {
+    if (pendingPredictionJumpDiagnostics == null) return;
+    const output = structuredClone(pendingPredictionJumpDiagnostics);
+    for (const name of ["atJumpStart", "beforeCommand"]) {
+        const stage = output[name];
+        stage.countAverage = output.jumpCount === 0
+            ? null
+            : stage.countSum / output.jumpCount;
+        stage.zeroPercentage = output.jumpCount === 0
+            ? null
+            : stage.zeroCount / output.jumpCount * 100;
+        stage.nonzeroPercentage = output.jumpCount === 0
+            ? null
+            : stage.nonzeroCount / output.jumpCount * 100;
+        stage.averageAgeMsWhenNonzero = stage.nonzeroCount === 0
+            ? null
+            : stage.nonzeroAverageAgeMsSum / stage.nonzeroCount;
+    }
+    output.geometricallyDeactivatingJumpPercentage =
+        output.jumpCount === 0
+            ? null
+            : output.geometricallyDeactivatingJumpCount /
+                output.jumpCount * 100;
+    console.log(
+        "[pending deactivation predictions by jump]\n" +
+        JSON.stringify(output, null, 2)
+    );
 }
 
 function emitCanvasGeometryDiagnostics() {
@@ -1389,10 +1537,32 @@ function emitDeactivationPredictionDiagnostics() {
                 Math.ceil(value / 100 * count) - 1
             )
         ];
+    const output = structuredClone(deactivationPredictionDiagnostics);
+    for (const byLag of Object.values(
+        output.singleDeactivationJumpByPredictionLag
+    )) {
+        byLag.erasurePercentage = byLag.jumpCount === 0
+            ? null
+            : byLag.erasedJumpCount / byLag.jumpCount * 100;
+    }
+    output.deckHeightByJumpLag = Object.fromEntries(
+        Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
+            .map(([lag, heights]) => [
+                lag,
+                distributionDiagnostics(heights)
+            ])
+    );
+    const lagHeightPairs = Object.entries(
+        predictionDeckHeightsByJumpLagDiagnostics
+    ).flatMap(([lag, heights]) =>
+        heights.map(height => ({ x: Number(lag), y: height }))
+    );
+    output.jumpLagDeckHeightPearsonCorrelation =
+        pearsonCorrelationDiagnostics(lagHeightPairs);
     console.log(
         "[deactivation prediction]\n" +
         JSON.stringify({
-            ...deactivationPredictionDiagnostics,
+            ...output,
             pendingPredictionCount:
                 deactivationPredictionDiagnostics.predictionCount -
                 deactivationPredictionDiagnostics
@@ -1407,6 +1577,52 @@ function emitDeactivationPredictionDiagnostics() {
             elapsedMsP99: percentile(99)
         }, null, 2)
     );
+}
+
+function distributionDiagnostics(values) {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((first, second) => first - second);
+    const percentile = value => sorted[
+        Math.min(
+            sorted.length - 1,
+            Math.ceil(value / 100 * sorted.length) - 1
+        )
+    ];
+    return {
+        count: sorted.length,
+        average: sorted.reduce((sum, value) => sum + value, 0) /
+            sorted.length,
+        minimum: sorted[0],
+        median: percentile(50),
+        p90: percentile(90),
+        maximum: sorted.at(-1)
+    };
+}
+
+function pearsonCorrelationDiagnostics(pairs) {
+    const count = pairs.length;
+    if (count < 2) return null;
+    const sumX = pairs.reduce((sum, pair) => sum + pair.x, 0);
+    const sumY = pairs.reduce((sum, pair) => sum + pair.y, 0);
+    const sumXX = pairs.reduce(
+        (sum, pair) => sum + pair.x * pair.x,
+        0
+    );
+    const sumYY = pairs.reduce(
+        (sum, pair) => sum + pair.y * pair.y,
+        0
+    );
+    const sumXY = pairs.reduce(
+        (sum, pair) => sum + pair.x * pair.y,
+        0
+    );
+    const denominator = Math.sqrt(
+        (count * sumXX - sumX * sumX) *
+        (count * sumYY - sumY * sumY)
+    );
+    return denominator === 0
+        ? null
+        : (count * sumXY - sumX * sumY) / denominator;
 }
 
 function emitDeckSectionReadinessDiagnostics() {

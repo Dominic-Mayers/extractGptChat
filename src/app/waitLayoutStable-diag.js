@@ -3,7 +3,7 @@ import {
     MIN_ACTIVATION_DISTANCE,
     TOLERATED_ROUNDING,
     MAX_FRAMES_FOR_STABILIZATION
-} from "./constants-dev.js";
+} from "./constants-diag.js";
 import {
     anchorRoom,
     deckActivationTransitions,
@@ -13,7 +13,7 @@ import {
     supplyHeight,
     supplyRoom,
     thresholdDeckSnapshot
-} from "./supplyWorker-dev.js";
+} from "./supplyWorker-diag.js";
 import {
     beginStabilizationDiagnostics,
     finishStabilizationDiagnostics,
@@ -24,8 +24,8 @@ import {
     finishYieldDiagnostics,
     finishRafDiagnostics,
     recordStabilizationRuleDiagnostics
-} from "./cycleDiagnostics-dev.js";
-import { nextAnimationFrame } from "./scrollContainer-dev.js";
+} from "./cycleDiagnostics-diag.js";
+import { nextAnimationFrame } from "./scrollContainer-diag.js";
 
 export async function waitLayoutStable(
     {

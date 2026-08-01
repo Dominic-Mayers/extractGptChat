@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.42
+// @version      5.44
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -779,6 +779,7 @@ ${fence}
   async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary = workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
+    const predictedDecks = [];
     const decks = elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting]:not([data-is-intersecting="false"])'
@@ -789,9 +790,11 @@ ${fence}
       if (rect.top >= deactivationBoundary - TOLERATED_ROUNDING || topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
         continue;
       }
+      predictedDecks.push(deck);
       const updated = isUpdated(deck);
       if (updated) await replaceByUpdate(deck);
     }
+    return predictedDecks;
   }
   function isUpdated(deck) {
     const turnId = deck.getAttribute("data-turn-id-container");
@@ -871,8 +874,49 @@ ${fence}
     return environment().workZone.height;
   }
   async function selectAnchor() {
-    const { activeArea, workZone } = environment();
+    const { activeArea, supplyArea, workZone } = environment();
+    while (true) {
+      const {
+        anchors,
+        rejectedAcrossInactiveDecks
+      } = anchorCandidates(activeArea, supplyArea, workZone);
+      const tentativeAnchor = anchors.sort((first, second) => {
+        const firstRoom = roomAhead(first, workZone);
+        const secondRoom = roomAhead(second, workZone);
+        return Math.abs(firstRoom) - Math.abs(secondRoom);
+      })[0] ?? null;
+      if (!tentativeAnchor) {
+        throw new Error(
+          rejectedAcrossInactiveDecks.length > 0 ? "No anchor can reach the current slab without crossing a DOM-inactive deck." : "No ready anchor found near the viewport top."
+        );
+      }
+      const pathSlabs = slabsBetweenCurrentAndAnchor(
+        tentativeAnchor,
+        supplyArea
+      );
+      if (pathSlabs == null) {
+        throw new Error(
+          "Cannot enumerate slabs between the current slab and the tentative anchor."
+        );
+      }
+      const unreadySlabs = pathSlabs.filter((slab) => {
+        const type = slabType(slab);
+        return !isSlabReady(type, slab);
+      });
+      if (unreadySlabs.length === 0) {
+        currentAnchor = tentativeAnchor;
+        return roomAhead(currentAnchor, workZone);
+      }
+      for (const slab of unreadySlabs) {
+        const type = slabType(slab);
+        await waitSlabReady(type, slab);
+      }
+      await nextAnimationFrame();
+    }
+  }
+  function anchorCandidates(activeArea, supplyArea, workZone) {
     const anchors = [];
+    const rejectedAcrossInactiveDecks = [];
     for (const deck of elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting="true"]'
@@ -886,18 +930,83 @@ ${fence}
         if (rect.bottom < viewportTop || rect.top > viewportBottom) {
           continue;
         }
+        const interveningDecks = decksBetweenAnchorAndCurrentSlab(
+          anchor,
+          supplyArea
+        );
+        if (interveningDecks == null) {
+          rejectedAcrossInactiveDecks.push({
+            anchorDeckId: activationDeckForAnchor(anchor)?.getAttribute("data-turn-id-container") ?? null,
+            currentDeckId: retainedDeck().getAttribute("data-turn-id-container"),
+            inactiveDeckIds: [],
+            unresolvedDeckPath: true
+          });
+          continue;
+        }
+        const inactiveDecks = interveningDecks.filter(
+          (candidate) => candidate.getAttribute("data-is-intersecting") !== "true"
+        );
+        if (inactiveDecks.length > 0) {
+          rejectedAcrossInactiveDecks.push({
+            anchorDeckId: activationDeckForAnchor(anchor)?.getAttribute("data-turn-id-container") ?? null,
+            currentDeckId: retainedDeck().getAttribute("data-turn-id-container"),
+            inactiveDeckIds: inactiveDecks.map(
+              (candidate) => candidate.getAttribute("data-turn-id-container")
+            )
+          });
+          continue;
+        }
         anchors.push(anchor);
       }
     }
-    currentAnchor = anchors.sort((first, second) => {
-      const firstRoom = roomAhead(first, workZone);
-      const secondRoom = roomAhead(second, workZone);
-      return Math.abs(firstRoom) - Math.abs(secondRoom);
-    })[0] ?? null;
-    if (!currentAnchor) {
-      throw new Error("No ready anchor found near the viewport top.");
+    return { anchors, rejectedAcrossInactiveDecks };
+  }
+  function slabsBetweenCurrentAndAnchor(anchor, supplyArea) {
+    const decks = decksBetweenAnchorAndCurrentSlab(anchor, supplyArea);
+    if (decks == null) return null;
+    const current = retainedSlab();
+    const currentRect = current.getBoundingClientRect();
+    const anchorRect = anchor.element.getBoundingClientRect();
+    const anchorPosition = anchor.edge === "bottom" ? anchorRect.bottom : anchorRect.top;
+    const currentPosition = currentRect.top;
+    const pathTop = Math.min(anchorPosition, currentPosition);
+    const pathBottom = Math.max(anchorPosition, currentPosition);
+    const slabs = [];
+    for (const deck of decks) {
+      for (const slab of getSlabsIn(deck)) {
+        const rect = slab.getBoundingClientRect();
+        if (slab !== current && (rect.bottom < pathTop || rect.top > pathBottom)) {
+          continue;
+        }
+        if (!slabs.includes(slab)) slabs.push(slab);
+      }
     }
-    return roomAhead(currentAnchor, workZone);
+    if (!slabs.includes(current)) slabs.push(current);
+    slabs.sort(
+      (first, second) => second.getBoundingClientRect().bottom - first.getBoundingClientRect().bottom
+    );
+    return slabs;
+  }
+  function decksBetweenAnchorAndCurrentSlab(anchor, supplyArea) {
+    const anchorDeck = activationDeckForAnchor(anchor);
+    const slabDeck = retainedDeck();
+    if (anchorDeck == null) return [slabDeck];
+    if (anchorDeck === slabDeck) return [slabDeck];
+    const decks = getDecks(supplyArea);
+    const anchorIndex = decks.indexOf(anchorDeck);
+    const slabIndex = decks.indexOf(slabDeck);
+    if (anchorIndex < 0 || slabIndex < 0) {
+      return null;
+    }
+    return decks.slice(
+      Math.min(anchorIndex, slabIndex),
+      Math.max(anchorIndex, slabIndex) + 1
+    );
+  }
+  function activationDeckForAnchor(anchor) {
+    return anchor.element.closest?.(
+      "[data-turn-id-container][data-is-intersecting]"
+    ) ?? anchor.element.deck ?? null;
   }
   function anchorRoom() {
     const { workZone } = environment();
@@ -1328,7 +1437,7 @@ ${fence}
         currentSlabRoom,
         viewportHeight2
       );
-      await checkUpdateNeededBeforeDeactivation(jump);
+      const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
       await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
@@ -1556,7 +1665,7 @@ Do not omit or combine any item.`;
     const conversationHeading = heading("Create a test conversation");
     const instructions = textElement(
       "div",
-      "Start a new conversation and send each copied prompt as a separate user message. Run the dev extractor, reopen this panel, then check the extracted content.",
+      "Start a new conversation and send each copied prompt as a separate user message. Run the diagnostic extractor, reopen this panel, then check the extracted content.",
       { color: "#bac2de", marginBottom: "8px" }
     );
     const prompts = [
@@ -1666,7 +1775,7 @@ Do not omit or combine any item.`;
     target.replaceChildren();
     const state = compatibilityExtraction();
     if (state.count === 0) {
-      addResult(target, null, "Extraction state", "run the dev extractor first");
+      addResult(target, null, "Extraction state", "run the diagnostic extractor first");
       return;
     }
     addResult(
@@ -1814,7 +1923,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.42" : "unbuilt";
+  var VERSION = true ? "5.44" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

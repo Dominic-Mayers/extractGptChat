@@ -1,5 +1,4 @@
 import {
-
     isAtBottom,
     moveAnchorToBottom
 } from "./moveAnchorToBottom.js";

@@ -1,14 +1,14 @@
 const esbuild = require('esbuild');
 const fs = require('fs');
+const { version } = require('./version');
 
-// Single source of truth: bumped on every modification to the dev build, so the
+// Single source of truth: bumped on every modification to the diagnostic build, so the
 // menu command label (see bootstrap.js) makes it obvious whether Tampermonkey
 // is actually running the build you just made, instead of a stale cached copy.
-const version = '2.94';
-const output = 'extractChatGpt-dev.js';
+const output = 'extractChatGpt-diag.js';
 
 const userscriptHeader = `// ==UserScript==
-// @name         ChatGPT Chat Extractor (dev)
+// @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
 // @version      ${version}
 // @description  Extracts ChatGPT conversations with the geometric traversal.
@@ -24,12 +24,12 @@ const userscriptHeader = `// ==UserScript==
 if (fs.existsSync(output)) fs.chmodSync(output, 0o644);
 try {
     esbuild.buildSync({
-        entryPoints: ['src/bootstrap-dev.js'],
+        entryPoints: ['src/bootstrap-diag.js'],
         bundle: true,
         format: 'iife',
         target: ['es2020'],
         banner: { js: userscriptHeader },
-        define: { __DEV_USERSCRIPT_VERSION__: JSON.stringify(version) },
+        define: { __DIAG_USERSCRIPT_VERSION__: JSON.stringify(version) },
         outfile: output,
     });
 } finally {

@@ -1,5 +1,4 @@
 import {
-
     MIN_ACTIVATION_DISTANCE,
     TOLERATED_ROUNDING,
     MAX_FRAMES_FOR_STABILIZATION
@@ -14,7 +13,10 @@ import {
     supplyRoom,
     thresholdDeckSnapshot
 } from "./supplyWorker.js";
-import { nextAnimationFrame } from "./scrollContainer.js";
+
+import {
+    nextAnimationFrame
+} from "./scrollContainer.js";
 
 export async function waitLayoutStable(
     {

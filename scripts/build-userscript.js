@@ -1,10 +1,10 @@
 const esbuild = require('esbuild');
 const fs = require('fs');
 const {
-    buildProductionSources
-} = require('./build-production-sources');
+    buildNoDiagnosticSources
+} = require('./build-no-diagnostic-sources');
+const { version } = require('./version');
 
-const version = '5.42';
 const output = 'extractChatGpt.js';
 
 const userscriptHeader = `// ==UserScript==
@@ -21,7 +21,7 @@ const userscriptHeader = `// ==UserScript==
 // @grant        GM_registerMenuCommand
 // ==/UserScript==`;
 
-buildProductionSources();
+buildNoDiagnosticSources();
 
 if (fs.existsSync(output)) fs.chmodSync(output, 0o644);
 try {
@@ -31,7 +31,7 @@ try {
         format: 'iife',
         target: ['es2020'],
         banner: { js: userscriptHeader },
-        define: { __PROD_USERSCRIPT_VERSION__: JSON.stringify(version) },
+        define: { __NO_DIAG_USERSCRIPT_VERSION__: JSON.stringify(version) },
         outfile: output,
     });
 } finally {

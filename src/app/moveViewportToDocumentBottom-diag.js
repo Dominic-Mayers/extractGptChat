@@ -5,13 +5,13 @@
 // position at the true bottom of the conversation — see
 // ASSUMPTIONS.md A9.
 
-import { waitLayoutStable } from "./waitLayoutStable-dev.js";
-import { getDecks } from "./getNextDeckIn-dev.js";
+import { waitLayoutStable } from "./waitLayoutStable-diag.js";
+import { getDecks } from "./getNextDeckIn-diag.js";
 import {
     moveWorkZoneToSupplyEnd,
     observeSupplier,
     roomAhead
-} from "./scrollContainer-dev.js";
+} from "./scrollContainer-diag.js";
 
 /**
  * Move the viewport to the bottom of the conversation.

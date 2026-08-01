@@ -153,7 +153,9 @@ function clientHeight(container) {
 
 function scrollBy(container, top) {
 
-    const target = container === document.documentElement ? window : container;
+    const target = container === document.documentElement
+        ? window
+        : container;
     target.scrollBy({ top, behavior: "instant" });
 }
 

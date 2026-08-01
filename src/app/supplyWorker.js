@@ -1,13 +1,18 @@
 import {
-
     ADJACENCY_OVERLAP_TOLERANCE,
     MIN_ACTIVATION_DISTANCE,
     MAX_SLAB_GAP,
     TOLERATED_ROUNDING
 } from "./constants.js";
-import { slabType } from "./slabType.js";
-import { getNextAnchorIn } from "./getNextAnchorIn.js";
-import { areaAhead } from "./geometry.js";
+import {
+    slabType
+} from "./slabType.js";
+import {
+    getNextAnchorIn
+} from "./getNextAnchorIn.js";
+import {
+    areaAhead
+} from "./geometry.js";
 import {
     contains,
     elementsIn,
@@ -19,9 +24,11 @@ import {
     workZonePosition,
     workZoneTop
 } from "./scrollContainer.js";
+
 import {
     compileDeck,
     compiledDeckFor,
+    isSlabReady,
     waitSlabReady,
     storeCompiledDeck
 } from "./extraction.js";
@@ -31,6 +38,11 @@ let currentDeck;
 let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
+
+// TEMPORARY DIAGNOSTIC (v3.15): remove after the viewport-oscillation study.
+const VIEWPORT_OSCILLATION_MINIMUM_MOVEMENT = 40;
+const VIEWPORT_OSCILLATION_MAXIMUM_FRAME_GAP = 2;
+const VIEWPORT_OSCILLATION_MAXIMUM_NET_RATIO = 0.25;
 
 export function resetSupplyWorker() {
 
@@ -65,6 +77,7 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary =
         workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
+    const predictedDecks = [];
     const decks = elementsIn(
         activeArea,
         '[data-turn-id-container][data-is-intersecting]' +
@@ -83,11 +96,15 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
             continue;
         }
 
+        predictedDecks.push(deck);
+
         const updated = isUpdated(deck);
 
         if (updated) await replaceByUpdate(deck);
 
     }
+
+    return predictedDecks;
 }
 
 export function isUpdated(deck) {
@@ -196,8 +213,66 @@ export function viewportHeight() {
 }
 
 export async function selectAnchor() {
-    const { activeArea, workZone } = environment();
+    const { activeArea, supplyArea, workZone } = environment();
+
+    while (true) {
+        const {
+            anchors,
+            rejectedAcrossInactiveDecks
+        } = anchorCandidates(activeArea, supplyArea, workZone);
+
+        const tentativeAnchor = anchors.sort((first, second) => {
+            const firstRoom = roomAhead(first, workZone);
+            const secondRoom = roomAhead(second, workZone);
+            return Math.abs(firstRoom) - Math.abs(secondRoom);
+        })[0] ?? null;
+
+        if (!tentativeAnchor) {
+
+            throw new Error(
+                rejectedAcrossInactiveDecks.length > 0
+                    ? "No anchor can reach the current slab without " +
+                        "crossing a DOM-inactive deck."
+                    : "No ready anchor found near the viewport top."
+            );
+        }
+
+        const pathSlabs = slabsBetweenCurrentAndAnchor(
+            tentativeAnchor,
+            supplyArea
+        );
+        if (pathSlabs == null) {
+            throw new Error(
+                "Cannot enumerate slabs between the current slab and " +
+                    "the tentative anchor."
+            );
+        }
+        const unreadySlabs = pathSlabs.filter(slab => {
+            const type = slabType(slab);
+            return !isSlabReady(type, slab);
+        });
+
+        if (unreadySlabs.length === 0) {
+            currentAnchor = tentativeAnchor;
+
+            return roomAhead(currentAnchor, workZone);
+        }
+
+        for (const slab of unreadySlabs) {
+            const type = slabType(slab);
+            await waitSlabReady(type, slab);
+        }
+
+        // Readiness can replace content and radically change deck geometry.
+        // Never move the anchor selected from the pre-readiness layout.
+        await nextAnimationFrame();
+
+    }
+}
+
+function anchorCandidates(activeArea, supplyArea, workZone) {
     const anchors = [];
+    const rejectedAcrossInactiveDecks = [];
 
     for (const deck of elementsIn(
         activeArea,
@@ -215,21 +290,101 @@ export async function selectAnchor() {
             ) {
                 continue;
             }
+            const interveningDecks = decksBetweenAnchorAndCurrentSlab(
+                anchor,
+                supplyArea
+            );
+            if (interveningDecks == null) {
+                rejectedAcrossInactiveDecks.push({
+                    anchorDeckId: activationDeckForAnchor(anchor)
+                        ?.getAttribute("data-turn-id-container") ?? null,
+                    currentDeckId: retainedDeck()
+                        .getAttribute("data-turn-id-container"),
+                    inactiveDeckIds: [],
+                    unresolvedDeckPath: true
+                });
+                continue;
+            }
+            const inactiveDecks = interveningDecks.filter(candidate =>
+                candidate.getAttribute("data-is-intersecting") !== "true"
+            );
+            if (inactiveDecks.length > 0) {
+                rejectedAcrossInactiveDecks.push({
+                    anchorDeckId: activationDeckForAnchor(anchor)
+                        ?.getAttribute("data-turn-id-container") ?? null,
+                    currentDeckId: retainedDeck()
+                        .getAttribute("data-turn-id-container"),
+                    inactiveDeckIds: inactiveDecks.map(candidate =>
+                        candidate.getAttribute("data-turn-id-container")
+                    )
+                });
+                continue;
+            }
             anchors.push(anchor);
         }
     }
 
-    currentAnchor = anchors.sort((first, second) => {
-        const firstRoom = roomAhead(first, workZone);
-        const secondRoom = roomAhead(second, workZone);
-        return Math.abs(firstRoom) - Math.abs(secondRoom);
-    })[0] ?? null;
+    return { anchors, rejectedAcrossInactiveDecks };
+}
 
-    if (!currentAnchor) {
-        throw new Error("No ready anchor found near the viewport top.");
+function slabsBetweenCurrentAndAnchor(anchor, supplyArea) {
+    const decks = decksBetweenAnchorAndCurrentSlab(anchor, supplyArea);
+    if (decks == null) return null;
+
+    const current = retainedSlab();
+    const currentRect = current.getBoundingClientRect();
+    const anchorRect = anchor.element.getBoundingClientRect();
+    const anchorPosition = anchor.edge === "bottom"
+        ? anchorRect.bottom
+        : anchorRect.top;
+    const currentPosition = currentRect.top;
+    const pathTop = Math.min(anchorPosition, currentPosition);
+    const pathBottom = Math.max(anchorPosition, currentPosition);
+    const slabs = [];
+
+    for (const deck of decks) {
+        for (const slab of getSlabsIn(deck)) {
+            const rect = slab.getBoundingClientRect();
+            if (
+                slab !== current &&
+                (rect.bottom < pathTop || rect.top > pathBottom)
+            ) {
+                continue;
+            }
+            if (!slabs.includes(slab)) slabs.push(slab);
+        }
     }
 
-    return roomAhead(currentAnchor, workZone);
+    if (!slabs.includes(current)) slabs.push(current);
+    slabs.sort((first, second) =>
+        second.getBoundingClientRect().bottom -
+            first.getBoundingClientRect().bottom
+    );
+    return slabs;
+}
+
+function decksBetweenAnchorAndCurrentSlab(anchor, supplyArea) {
+    const anchorDeck = activationDeckForAnchor(anchor);
+    const slabDeck = retainedDeck();
+    if (anchorDeck == null) return [slabDeck];
+    if (anchorDeck === slabDeck) return [slabDeck];
+
+    const decks = getDecks(supplyArea);
+    const anchorIndex = decks.indexOf(anchorDeck);
+    const slabIndex = decks.indexOf(slabDeck);
+    if (anchorIndex < 0 || slabIndex < 0) {
+        return null;
+    }
+    return decks.slice(
+        Math.min(anchorIndex, slabIndex),
+        Math.max(anchorIndex, slabIndex) + 1
+    );
+}
+
+function activationDeckForAnchor(anchor) {
+    return anchor.element.closest?.(
+        "[data-turn-id-container][data-is-intersecting]"
+    ) ?? anchor.element.deck ?? null;
 }
 
 export function anchorRoom() {

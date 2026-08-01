@@ -1,6 +1,6 @@
-import { MIN_INTERSECT, MAX_DRIFT } from './constants-dev.js';
-import { slabType } from "./slabType-dev.js";
-import { roomAhead, workZoneTop } from "./scrollContainer-dev.js";
+import { MIN_INTERSECT, MAX_DRIFT } from './constants-diag.js';
+import { slabType } from "./slabType-diag.js";
+import { roomAhead, workZoneTop } from "./scrollContainer-diag.js";
 
 const TEXT_ANCHOR_SELECTOR = [
     "p",

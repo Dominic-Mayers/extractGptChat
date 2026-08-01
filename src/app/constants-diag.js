@@ -1,6 +1,6 @@
 export const MINIMUM_SLAB_HEIGHT = 90;
 
-export const MIN_INTERSECT = 80 // Aproximatively 0.1 * viewportHeight. 
+export const MIN_INTERSECT = 80 // Approximately 0.1 * viewportHeight.
 export const TOLERATED_ROUNDING = 1;
 export const MAX_SLAB_GAP = 160; // Including across decks
 export const MAX_DECK_GAP = 20;

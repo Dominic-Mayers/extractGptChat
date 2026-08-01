@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         ChatGPT Chat Extractor (dev)
+// @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      2.94
+// @version      5.44
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -12,7 +12,7 @@
 // @grant        GM_registerMenuCommand
 // ==/UserScript==
 (() => {
-  // src/app/constants-dev.js
+  // src/app/constants-diag.js
   var MINIMUM_SLAB_HEIGHT = 90;
   var MIN_INTERSECT = 80;
   var TOLERATED_ROUNDING = 1;
@@ -24,7 +24,7 @@
   var MIN_ACTIVATION_DISTANCE = 1e3;
   var MAX_FRAMES_FOR_STABILIZATION = 3e3;
 
-  // src/app/geometry-dev.js
+  // src/app/geometry-diag.js
   function areaAhead(referenceTop, maxGap) {
     return {
       top: referenceTop - maxGap,
@@ -32,7 +32,7 @@
     };
   }
 
-  // src/app/slabType-dev.js
+  // src/app/slabType-diag.js
   function slabType(slab) {
     if (!slab?.matches) return "empty";
     if (slab.matches(".group\\/imagegen-image")) return "image";
@@ -41,7 +41,7 @@
     return "unknown";
   }
 
-  // src/app/scrollContainer-dev.js
+  // src/app/scrollContainer-diag.js
   var containers = /* @__PURE__ */ new WeakMap();
   function findScrollContainer() {
     const messageEl = document.querySelector("[data-message-author-role]");
@@ -140,7 +140,7 @@
     target.scrollTo({ top, behavior: "instant" });
   }
 
-  // src/app/getNextAnchorIn-dev.js
+  // src/app/getNextAnchorIn-diag.js
   var TEXT_ANCHOR_SELECTOR = [
     "p",
     "h1",
@@ -241,7 +241,7 @@
     }
   }
 
-  // src/app/cycleDiagnostics-dev.js
+  // src/app/cycleDiagnostics-diag.js
   var previousCycle = null;
   var currentCycle = null;
   var runPerformanceOriginDiagnostics = 0;
@@ -258,6 +258,8 @@
   var deckLifecycleDiagnostics = null;
   var deactivationPredictionDiagnostics = null;
   var deactivationPredictionElapsedValuesDiagnostics = null;
+  var predictionDeckHeightsByJumpLagDiagnostics = null;
+  var pendingPredictionJumpDiagnostics = null;
   var erasedJumpStructureDiagnostics = null;
   var currentErasedJumpEntryDiagnostics = null;
   var canvasGeometryDiagnostics = null;
@@ -351,9 +353,19 @@
       elapsedMsSum: 0,
       elapsedMsMinimum: null,
       elapsedMsMaximum: null,
-      byPhase: {}
+      byPhase: {},
+      matchedDeactivationByJumpLag: {},
+      singleDeactivationJumpByPredictionLag: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
+    predictionDeckHeightsByJumpLagDiagnostics = {};
+    pendingPredictionJumpDiagnostics = {
+      jumpCount: 0,
+      geometricallyDeactivatingJumpCount: 0,
+      geometricallyPredictedDeckCount: 0,
+      atJumpStart: pendingPredictionStageDiagnostics(),
+      beforeCommand: pendingPredictionStageDiagnostics()
+    };
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     canvasGeometryDiagnostics = [];
@@ -432,6 +444,50 @@
   function recordDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
     deactivationPredictionDiagnostics.predictionCount++;
+  }
+  function recordPendingDeactivationPredictionsForJumpDiagnostics({
+    atJumpStart,
+    beforeCommand,
+    geometricallyPredictedDeckCount
+  }) {
+    if (pendingPredictionJumpDiagnostics == null) return;
+    pendingPredictionJumpDiagnostics.jumpCount++;
+    pendingPredictionJumpDiagnostics.geometricallyPredictedDeckCount += geometricallyPredictedDeckCount;
+    if (geometricallyPredictedDeckCount > 0) {
+      pendingPredictionJumpDiagnostics.geometricallyDeactivatingJumpCount++;
+    }
+    recordPendingPredictionStageDiagnostics(
+      pendingPredictionJumpDiagnostics.atJumpStart,
+      atJumpStart
+    );
+    recordPendingPredictionStageDiagnostics(
+      pendingPredictionJumpDiagnostics.beforeCommand,
+      beforeCommand
+    );
+  }
+  function pendingPredictionStageDiagnostics() {
+    return {
+      zeroCount: 0,
+      nonzeroCount: 0,
+      countSum: 0,
+      countMaximum: 0,
+      nonzeroAverageAgeMsSum: 0,
+      oldestAgeMsMaximum: null,
+      countDistribution: {}
+    };
+  }
+  function recordPendingPredictionStageDiagnostics(stage, snapshot) {
+    const count = snapshot.count;
+    stage.countSum += count;
+    stage.countMaximum = Math.max(stage.countMaximum, count);
+    stage.countDistribution[count] = (stage.countDistribution[count] ?? 0) + 1;
+    if (count === 0) {
+      stage.zeroCount++;
+      return;
+    }
+    stage.nonzeroCount++;
+    stage.nonzeroAverageAgeMsSum += snapshot.averageAgeMs;
+    stage.oldestAgeMsMaximum = stage.oldestAgeMsMaximum == null ? snapshot.oldestAgeMs : Math.max(stage.oldestAgeMsMaximum, snapshot.oldestAgeMs);
   }
   function recordCanvasGeometryDiagnostics(record) {
     if (canvasGeometryDiagnostics == null) return;
@@ -694,6 +750,7 @@
       activationChanges: compactActivationChangesDiagnostics(
         probe?.activationChanges ?? []
       ),
+      sectionRemovalBoundaries: probe?.sectionRemovalBoundaries ?? [],
       renderingChanges: compactRenderingChangesDiagnostics(
         probe?.renderingChanges ?? []
       ),
@@ -714,6 +771,7 @@
       activationChanges: compactActivationChangesDiagnostics(
         previous.activationChanges
       ),
+      sectionRemovalBoundaries: previous.sectionRemovalBoundaries ?? [],
       renderingChanges: compactRenderingChangesDiagnostics(
         previous.renderingChanges
       ),
@@ -740,7 +798,10 @@
       delivery: change.delivery ?? null,
       order: change.order ?? null,
       phase: change.phase ?? null,
+      scrollYAtMutationDeliveryStart: change.scrollYAtMutationDeliveryStart ?? null,
       predictionElapsedMs: change.predictionElapsedMs ?? null,
+      predictionJumpLag: change.predictionJumpLag ?? null,
+      deckHeightAtPrediction: change.deckHeightAtPrediction ?? null,
       deckId: change.deck?.id ?? null,
       before: change.before ?? null,
       after: change.after ?? null,
@@ -804,6 +865,40 @@
     const deactivationCount = attributeChanges.filter(
       (change) => change.before != null && change.before !== "false" && (change.after == null || change.after === "false")
     ).length;
+    const matchedDeactivations = attributeChanges.filter(
+      (change) => change.before != null && change.before !== "false" && (change.after == null || change.after === "false") && Number.isInteger(change.predictionJumpLag)
+    );
+    for (const change of matchedDeactivations) {
+      incrementJumpPopulationCategoryDiagnostics(
+        deactivationPredictionDiagnostics.matchedDeactivationByJumpLag,
+        change.predictionJumpLag
+      );
+      if (Number.isFinite(change.deckHeightAtPrediction)) {
+        const heights = predictionDeckHeightsByJumpLagDiagnostics[change.predictionJumpLag] ?? [];
+        heights.push(change.deckHeightAtPrediction);
+        predictionDeckHeightsByJumpLagDiagnostics[change.predictionJumpLag] = heights;
+      }
+    }
+    if (deactivationCount === 1 && matchedDeactivations.length === 1) {
+      const lag = matchedDeactivations[0].predictionJumpLag;
+      const byLag = deactivationPredictionDiagnostics.singleDeactivationJumpByPredictionLag[lag] ?? {
+        jumpCount: 0,
+        erasedJumpCount: 0,
+        preservedJumpCount: 0,
+        byOutcome: {}
+      };
+      byLag.jumpCount++;
+      if (outcome === "erased" || outcome === "retry-erased") {
+        byLag.erasedJumpCount++;
+      } else {
+        byLag.preservedJumpCount++;
+      }
+      incrementJumpPopulationCategoryDiagnostics(
+        byLag.byOutcome,
+        outcome
+      );
+      deactivationPredictionDiagnostics.singleDeactivationJumpByPredictionLag[lag] = byLag;
+    }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
       jumpPopulationDiagnostics.erasedJumpCount++;
@@ -1266,8 +1361,24 @@
     emitStabilizationRuleDiagnostics();
     emitDeckLifecycleDiagnostics();
     emitDeactivationPredictionDiagnostics();
+    emitPendingPredictionJumpDiagnostics();
     emitCanvasGeometryDiagnostics();
     emitExecutionTimeStatisticsDiagnostics();
+  }
+  function emitPendingPredictionJumpDiagnostics() {
+    if (pendingPredictionJumpDiagnostics == null) return;
+    const output = structuredClone(pendingPredictionJumpDiagnostics);
+    for (const name of ["atJumpStart", "beforeCommand"]) {
+      const stage = output[name];
+      stage.countAverage = output.jumpCount === 0 ? null : stage.countSum / output.jumpCount;
+      stage.zeroPercentage = output.jumpCount === 0 ? null : stage.zeroCount / output.jumpCount * 100;
+      stage.nonzeroPercentage = output.jumpCount === 0 ? null : stage.nonzeroCount / output.jumpCount * 100;
+      stage.averageAgeMsWhenNonzero = stage.nonzeroCount === 0 ? null : stage.nonzeroAverageAgeMsSum / stage.nonzeroCount;
+    }
+    output.geometricallyDeactivatingJumpPercentage = output.jumpCount === 0 ? null : output.geometricallyDeactivatingJumpCount / output.jumpCount * 100;
+    console.log(
+      "[pending deactivation predictions by jump]\n" + JSON.stringify(output, null, 2)
+    );
   }
   function emitCanvasGeometryDiagnostics() {
     if (canvasGeometryDiagnostics == null) return;
@@ -1356,9 +1467,27 @@
       count - 1,
       Math.ceil(value / 100 * count) - 1
     )];
+    const output = structuredClone(deactivationPredictionDiagnostics);
+    for (const byLag of Object.values(
+      output.singleDeactivationJumpByPredictionLag
+    )) {
+      byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
+    }
+    output.deckHeightByJumpLag = Object.fromEntries(
+      Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
+        lag,
+        distributionDiagnostics(heights)
+      ])
+    );
+    const lagHeightPairs = Object.entries(
+      predictionDeckHeightsByJumpLagDiagnostics
+    ).flatMap(
+      ([lag, heights]) => heights.map((height) => ({ x: Number(lag), y: height }))
+    );
+    output.jumpLagDeckHeightPearsonCorrelation = pearsonCorrelationDiagnostics(lagHeightPairs);
     console.log(
       "[deactivation prediction]\n" + JSON.stringify({
-        ...deactivationPredictionDiagnostics,
+        ...output,
         pendingPredictionCount: deactivationPredictionDiagnostics.predictionCount - deactivationPredictionDiagnostics.matchedDeactivationCount,
         elapsedMsAverage: count === 0 ? null : deactivationPredictionDiagnostics.elapsedMsSum / count,
         elapsedMsMedian: percentile(50),
@@ -1367,6 +1496,44 @@
         elapsedMsP99: percentile(99)
       }, null, 2)
     );
+  }
+  function distributionDiagnostics(values) {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((first, second) => first - second);
+    const percentile = (value) => sorted[Math.min(
+      sorted.length - 1,
+      Math.ceil(value / 100 * sorted.length) - 1
+    )];
+    return {
+      count: sorted.length,
+      average: sorted.reduce((sum, value) => sum + value, 0) / sorted.length,
+      minimum: sorted[0],
+      median: percentile(50),
+      p90: percentile(90),
+      maximum: sorted.at(-1)
+    };
+  }
+  function pearsonCorrelationDiagnostics(pairs) {
+    const count = pairs.length;
+    if (count < 2) return null;
+    const sumX = pairs.reduce((sum, pair) => sum + pair.x, 0);
+    const sumY = pairs.reduce((sum, pair) => sum + pair.y, 0);
+    const sumXX = pairs.reduce(
+      (sum, pair) => sum + pair.x * pair.x,
+      0
+    );
+    const sumYY = pairs.reduce(
+      (sum, pair) => sum + pair.y * pair.y,
+      0
+    );
+    const sumXY = pairs.reduce(
+      (sum, pair) => sum + pair.x * pair.y,
+      0
+    );
+    const denominator = Math.sqrt(
+      (count * sumXX - sumX * sumX) * (count * sumYY - sumY * sumY)
+    );
+    return denominator === 0 ? null : (count * sumXY - sumX * sumY) / denominator;
   }
   function emitDeckSectionReadinessDiagnostics() {
     console.log(
@@ -1583,7 +1750,7 @@
     return Number.isFinite(value) ? Math.round(value * 100) / 100 : value;
   }
 
-  // src/app/extraction-dev.js
+  // src/app/extraction-diag.js
   var walkway = [];
   var assetCounter = 0;
   var ASSET_MODE_SEPARATE = "separate";
@@ -2104,16 +2271,26 @@ ${fence}
     return `<a href="${escapedSource}" target="_blank" rel="noopener"><img src="${escapedSource}" alt="${escapeHtml(entry.alt)}"${dimensions}></a>`;
   }
 
-  // src/app/supplyWorker-dev.js
+  // src/app/supplyWorker-diag.js
   var supplier;
   var currentDeck;
   var currentSlab;
   var currentAnchor;
   var savedDeckActivationStatus;
   var currentJumpObserverDiagnostics = null;
+  var currentJumpProbeDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
+  var movementJumpNumberDiagnostics = 0;
   var pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
   var deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
+  var nativeRemovalInstrumentationInstalledDiagnostics = false;
+  var viewportOscillationRafDiagnostics = null;
+  var viewportOscillationFrameDiagnostics = 0;
+  var previousViewportSampleDiagnostics = null;
+  var previousAnchorMovementDiagnostics = null;
+  var VIEWPORT_OSCILLATION_MINIMUM_MOVEMENT = 40;
+  var VIEWPORT_OSCILLATION_MAXIMUM_FRAME_GAP = 2;
+  var VIEWPORT_OSCILLATION_MAXIMUM_NET_RATIO = 0.25;
   function resetSupplyWorker() {
     resetSupplyWorkerDiagnostics();
     supplier = observeSupplier();
@@ -2121,6 +2298,167 @@ ${fence}
     currentSlab = null;
     currentAnchor = null;
     savedDeckActivationStatus = null;
+  }
+  function stopSupplyWorkerDiagnostics() {
+    if (viewportOscillationRafDiagnostics != null) {
+      cancelAnimationFrame(viewportOscillationRafDiagnostics);
+    }
+    viewportOscillationRafDiagnostics = null;
+    previousViewportSampleDiagnostics = null;
+    previousAnchorMovementDiagnostics = null;
+  }
+  function startSupplyWorkerDiagnostics() {
+    stopSupplyWorkerDiagnostics();
+    viewportOscillationFrameDiagnostics = 0;
+    const sample = (clock) => {
+      viewportOscillationFrameDiagnostics++;
+      const { supplyArea, workZone } = environment();
+      const current = {
+        frame: viewportOscillationFrameDiagnostics,
+        clock,
+        scrollY: workZonePosition(supplyArea, workZone),
+        scrollHeight: supplyHeight(supplyArea),
+        anchor: anchorPositionSampleDiagnostics(workZone),
+        movementJumpNumber: currentJumpProbeDiagnostics?.movementJumpNumber ?? movementJumpNumberDiagnostics,
+        jumpPhase: currentJumpProbeDiagnostics?.phase ?? null
+      };
+      const previous = previousViewportSampleDiagnostics;
+      if (previous != null) {
+        recordScrollYRafIncreaseDiagnostics(previous, current);
+        recordAnchorMovementSampleDiagnostics(previous, current);
+      }
+      previousViewportSampleDiagnostics = current;
+      viewportOscillationRafDiagnostics = requestAnimationFrame(sample);
+    };
+    viewportOscillationRafDiagnostics = requestAnimationFrame(sample);
+  }
+  function anchorPositionSampleDiagnostics(workZone) {
+    if (!currentAnchor?.element?.isConnected) return null;
+    return {
+      element: currentAnchor.element,
+      edge: currentAnchor.edge,
+      position: roomAhead(currentAnchor, workZone)
+    };
+  }
+  function recordAnchorMovementSampleDiagnostics(previous, current) {
+    const before = previous.anchor;
+    const after = current.anchor;
+    if (before == null || after == null || before.element !== after.element || before.edge !== after.edge) {
+      previousAnchorMovementDiagnostics = null;
+      return;
+    }
+    const delta = after.position - before.position;
+    if (Math.abs(delta) < VIEWPORT_OSCILLATION_MINIMUM_MOVEMENT) return;
+    const movement = {
+      reference: after.element,
+      edge: after.edge,
+      from: serializableFrameSampleDiagnostics(previous),
+      to: serializableFrameSampleDiagnostics(current),
+      delta
+    };
+    const first = previousAnchorMovementDiagnostics;
+    if (first != null && first.reference === movement.reference && first.edge === movement.edge) {
+      recordAnchorOscillationDiagnostics(first, movement);
+    }
+    previousAnchorMovementDiagnostics = movement;
+  }
+  function recordAnchorOscillationDiagnostics(first, second) {
+    if (Math.sign(first.delta) === Math.sign(second.delta)) return;
+    const frameGap = second.to.frame - first.to.frame;
+    if (frameGap > VIEWPORT_OSCILLATION_MAXIMUM_FRAME_GAP) return;
+    const largestMovement = Math.max(
+      Math.abs(first.delta),
+      Math.abs(second.delta)
+    );
+    const net = first.delta + second.delta;
+    if (Math.abs(net) / largestMovement > VIEWPORT_OSCILLATION_MAXIMUM_NET_RATIO) {
+      return;
+    }
+    const probe = currentJumpProbeDiagnostics;
+    console.info(
+      "[viewport content oscillation]\n" + JSON.stringify({
+        direction: first.delta > 0 ? "content-down-then-up" : "content-up-then-down",
+        first: serializableMovementDiagnostics(first),
+        second: serializableMovementDiagnostics(second),
+        net,
+        frameGap,
+        movementJumpNumber: probe?.movementJumpNumber ?? movementJumpNumberDiagnostics,
+        jumpPhase: probe?.phase ?? null,
+        jumpTarget: probe?.jumpTarget ?? null,
+        activationChanges: probe?.activationChanges?.map((change) => ({
+          order: change.order,
+          phase: change.phase,
+          deckId: change.deck?.id ?? null,
+          before: change.before ?? null,
+          after: change.after ?? null,
+          sectionChange: change.sectionChange ?? null
+        })) ?? [],
+        anchor: safeElementSnapshotDiagnostics(currentAnchor),
+        slab: safeElementSnapshotDiagnostics(currentSlab),
+        deck: safeElementSnapshotDiagnostics(currentDeck)
+      })
+    );
+  }
+  function serializableMovementDiagnostics(movement) {
+    return {
+      edge: movement.edge,
+      from: movement.from,
+      to: movement.to,
+      delta: movement.delta
+    };
+  }
+  function serializableFrameSampleDiagnostics(sample) {
+    return {
+      frame: sample.frame,
+      clock: sample.clock,
+      scrollY: sample.scrollY,
+      scrollHeight: sample.scrollHeight,
+      anchorPosition: sample.anchor?.position ?? null,
+      movementJumpNumber: sample.movementJumpNumber,
+      jumpPhase: sample.jumpPhase,
+      extractorJump: sample.extractorJump ?? null
+    };
+  }
+  function recordScrollYRafIncreaseDiagnostics(previous, current) {
+    const increase = current.scrollY - previous.scrollY;
+    if (increase <= 0) return;
+    const probe = currentJumpProbeDiagnostics;
+    console.info(
+      "[scrollY rAF increase]\n" + JSON.stringify({
+        previous: serializableFrameSampleDiagnostics(previous),
+        current: serializableFrameSampleDiagnostics(current),
+        increase,
+        scrollHeightChange: current.scrollHeight - previous.scrollHeight,
+        anchorPositionChange: previous.anchor != null && current.anchor != null && previous.anchor.element === current.anchor.element && previous.anchor.edge === current.anchor.edge ? current.anchor.position - previous.anchor.position : null,
+        movementJumpNumber: probe?.movementJumpNumber ?? movementJumpNumberDiagnostics,
+        jumpPhase: probe?.phase ?? null,
+        jumpTarget: probe?.jumpTarget ?? null,
+        command: probe == null ? null : {
+          beforeFrameScrollY: probe.beforeFrame?.scrollY ?? null,
+          preCommandScrollY: probe.preCommand?.scrollY ?? null,
+          afterCommandScrollY: probe.afterCommand?.scrollY ?? null,
+          nextRafScrollY: probe.nextRaf?.scrollY ?? null
+        },
+        activationChanges: probe?.activationChanges?.map((change) => ({
+          order: change.order,
+          phase: change.phase,
+          deckId: change.deck?.id ?? null,
+          before: change.before ?? null,
+          after: change.after ?? null,
+          sectionChange: change.sectionChange ?? null
+        })) ?? [],
+        anchor: safeElementSnapshotDiagnostics(currentAnchor),
+        slab: safeElementSnapshotDiagnostics(currentSlab),
+        deck: safeElementSnapshotDiagnostics(currentDeck)
+      })
+    );
+  }
+  function safeElementSnapshotDiagnostics(value) {
+    try {
+      return snapshotElementDiagnostics(value);
+    } catch {
+      return null;
+    }
   }
   async function compileCurrentDeck() {
     const deck = retainedDeck();
@@ -2176,7 +2514,7 @@ ${fence}
   async function checkUpdateNeededBeforeDeactivation(jump) {
     const { activeArea, workZone } = environment();
     const deactivationBoundary = workZoneTop(workZone) + workZone.height + MIN_ACTIVATION_DISTANCE;
-    let deactivationPredicted = false;
+    const predictedDecks = [];
     const decks = elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting]:not([data-is-intersecting="false"])'
@@ -2187,10 +2525,12 @@ ${fence}
       if (rect.top >= deactivationBoundary - TOLERATED_ROUNDING || topAfterJump < deactivationBoundary - TOLERATED_ROUNDING) {
         continue;
       }
-      deactivationPredicted = true;
+      predictedDecks.push(deck);
       if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
         pendingDeactivationPredictionsDiagnostics.set(deck, {
-          predictedAt: performance.now()
+          predictedAt: performance.now(),
+          predictedOnJumpNumber: movementJumpNumberDiagnostics + 1,
+          deckHeightAtPrediction: rect.height
         });
         recordDeactivationPredictionDiagnostics();
       }
@@ -2215,7 +2555,21 @@ ${fence}
         recompileElapsedMs: updated ? performance.now() - recompileStartedAtDiagnostics : null
       });
     }
-    return deactivationPredicted;
+    return predictedDecks;
+  }
+  function pendingDeactivationPredictionSnapshotDiagnostics() {
+    const now = performance.now();
+    const ages = Array.from(
+      pendingDeactivationPredictionsDiagnostics.values(),
+      (prediction) => now - prediction.predictedAt
+    );
+    const count = ages.length;
+    return {
+      count,
+      averageAgeMs: count === 0 ? null : ages.reduce((sum, age) => sum + age, 0) / count,
+      youngestAgeMs: count === 0 ? null : Math.min(...ages),
+      oldestAgeMs: count === 0 ? null : Math.max(...ages)
+    };
   }
   function isUpdated(deck) {
     const turnId = deck.getAttribute("data-turn-id-container");
@@ -2361,8 +2715,72 @@ ${fence}
     return environment().workZone.height;
   }
   async function selectAnchor() {
-    const { activeArea, workZone } = environment();
+    const { activeArea, supplyArea, workZone } = environment();
+    let recomputationCountDiagnostics = 0;
+    while (true) {
+      const {
+        anchors,
+        rejectedAcrossInactiveDecks
+      } = anchorCandidates(activeArea, supplyArea, workZone);
+      const tentativeAnchor = anchors.sort((first, second) => {
+        const firstRoom = roomAhead(first, workZone);
+        const secondRoom = roomAhead(second, workZone);
+        return Math.abs(firstRoom) - Math.abs(secondRoom);
+      })[0] ?? null;
+      if (!tentativeAnchor) {
+        recordCycleStageDiagnostics("anchor-search", {
+          acceptedCount: anchors.length,
+          rejectedAcrossInactiveDecks,
+          recomputationCount: recomputationCountDiagnostics,
+          selected: null
+        });
+        throw new Error(
+          rejectedAcrossInactiveDecks.length > 0 ? "No anchor can reach the current slab without crossing a DOM-inactive deck." : "No ready anchor found near the viewport top."
+        );
+      }
+      const pathSlabs = slabsBetweenCurrentAndAnchor(
+        tentativeAnchor,
+        supplyArea
+      );
+      if (pathSlabs == null) {
+        throw new Error(
+          "Cannot enumerate slabs between the current slab and the tentative anchor."
+        );
+      }
+      const unreadySlabs = pathSlabs.filter((slab) => {
+        const type = slabType(slab);
+        return !isSlabReady(type, slab);
+      });
+      if (unreadySlabs.length === 0) {
+        currentAnchor = tentativeAnchor;
+        recordCycleStageDiagnostics("anchor-search", {
+          acceptedCount: anchors.length,
+          rejectedAcrossInactiveDecks,
+          pathSlabCount: pathSlabs.length,
+          waitedSlabCount: 0,
+          recomputationCount: recomputationCountDiagnostics,
+          selected: snapshotElementDiagnostics(currentAnchor)
+        });
+        currentAnchorNumberDiagnostics++;
+        return roomAhead(currentAnchor, workZone);
+      }
+      recordCycleStageDiagnostics("anchor-path-readiness", {
+        pathSlabCount: pathSlabs.length,
+        waitedSlabCount: unreadySlabs.length,
+        recomputationCount: recomputationCountDiagnostics,
+        tentative: snapshotElementDiagnostics(tentativeAnchor)
+      });
+      for (const slab of unreadySlabs) {
+        const type = slabType(slab);
+        await waitSlabReady(type, slab);
+      }
+      await nextAnimationFrame();
+      recomputationCountDiagnostics++;
+    }
+  }
+  function anchorCandidates(activeArea, supplyArea, workZone) {
     const anchors = [];
+    const rejectedAcrossInactiveDecks = [];
     for (const deck of elementsIn(
       activeArea,
       '[data-turn-id-container][data-is-intersecting="true"]'
@@ -2376,19 +2794,83 @@ ${fence}
         if (rect.bottom < viewportTop || rect.top > viewportBottom) {
           continue;
         }
+        const interveningDecks = decksBetweenAnchorAndCurrentSlab(
+          anchor,
+          supplyArea
+        );
+        if (interveningDecks == null) {
+          rejectedAcrossInactiveDecks.push({
+            anchorDeckId: activationDeckForAnchor(anchor)?.getAttribute("data-turn-id-container") ?? null,
+            currentDeckId: retainedDeck().getAttribute("data-turn-id-container"),
+            inactiveDeckIds: [],
+            unresolvedDeckPath: true
+          });
+          continue;
+        }
+        const inactiveDecks = interveningDecks.filter(
+          (candidate) => candidate.getAttribute("data-is-intersecting") !== "true"
+        );
+        if (inactiveDecks.length > 0) {
+          rejectedAcrossInactiveDecks.push({
+            anchorDeckId: activationDeckForAnchor(anchor)?.getAttribute("data-turn-id-container") ?? null,
+            currentDeckId: retainedDeck().getAttribute("data-turn-id-container"),
+            inactiveDeckIds: inactiveDecks.map(
+              (candidate) => candidate.getAttribute("data-turn-id-container")
+            )
+          });
+          continue;
+        }
         anchors.push(anchor);
       }
     }
-    currentAnchor = anchors.sort((first, second) => {
-      const firstRoom = roomAhead(first, workZone);
-      const secondRoom = roomAhead(second, workZone);
-      return Math.abs(firstRoom) - Math.abs(secondRoom);
-    })[0] ?? null;
-    if (!currentAnchor) {
-      throw new Error("No ready anchor found near the viewport top.");
+    return { anchors, rejectedAcrossInactiveDecks };
+  }
+  function slabsBetweenCurrentAndAnchor(anchor, supplyArea) {
+    const decks = decksBetweenAnchorAndCurrentSlab(anchor, supplyArea);
+    if (decks == null) return null;
+    const current = retainedSlab();
+    const currentRect = current.getBoundingClientRect();
+    const anchorRect = anchor.element.getBoundingClientRect();
+    const anchorPosition = anchor.edge === "bottom" ? anchorRect.bottom : anchorRect.top;
+    const currentPosition = currentRect.top;
+    const pathTop = Math.min(anchorPosition, currentPosition);
+    const pathBottom = Math.max(anchorPosition, currentPosition);
+    const slabs = [];
+    for (const deck of decks) {
+      for (const slab of getSlabsIn(deck)) {
+        const rect = slab.getBoundingClientRect();
+        if (slab !== current && (rect.bottom < pathTop || rect.top > pathBottom)) {
+          continue;
+        }
+        if (!slabs.includes(slab)) slabs.push(slab);
+      }
     }
-    currentAnchorNumberDiagnostics++;
-    return roomAhead(currentAnchor, workZone);
+    if (!slabs.includes(current)) slabs.push(current);
+    slabs.sort(
+      (first, second) => second.getBoundingClientRect().bottom - first.getBoundingClientRect().bottom
+    );
+    return slabs;
+  }
+  function decksBetweenAnchorAndCurrentSlab(anchor, supplyArea) {
+    const anchorDeck = activationDeckForAnchor(anchor);
+    const slabDeck = retainedDeck();
+    if (anchorDeck == null) return [slabDeck];
+    if (anchorDeck === slabDeck) return [slabDeck];
+    const decks = getDecks(supplyArea);
+    const anchorIndex = decks.indexOf(anchorDeck);
+    const slabIndex = decks.indexOf(slabDeck);
+    if (anchorIndex < 0 || slabIndex < 0) {
+      return null;
+    }
+    return decks.slice(
+      Math.min(anchorIndex, slabIndex),
+      Math.max(anchorIndex, slabIndex) + 1
+    );
+  }
+  function activationDeckForAnchor(anchor) {
+    return anchor.element.closest?.(
+      "[data-turn-id-container][data-is-intersecting]"
+    ) ?? anchor.element.deck ?? null;
   }
   function anchorRoom() {
     const { workZone } = environment();
@@ -2535,11 +3017,13 @@ ${fence}
   }
   async function moveWorkZoneBy(jump) {
     resetJumpObserverDiagnostics();
+    movementJumpNumberDiagnostics++;
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
     const anchorRoomBeforeDiagnostics = roomAhead(anchorDiagnostics, workZone);
     const supplyRoomBeforeDiagnostics = workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
+      movementJumpNumber: movementJumpNumberDiagnostics,
       jumpTarget: anchorDiagnostics.element === retainedSlab() && anchorDiagnostics.edge === "top" ? "slabTop" : "ordinaryAnchor",
       phase: "pre-command-frame",
       beforeFrame: jumpProbeGeometryDiagnostics(
@@ -2553,8 +3037,10 @@ ${fence}
       mutationDeliveryNumber: 0,
       mutationOrder: 0,
       activationChanges: [],
+      sectionRemovalBoundaries: [],
       renderingChanges: []
     };
+    currentJumpProbeDiagnostics = probeDiagnostics;
     beginJumpObserverDiagnostics(
       probeDiagnostics,
       supplyArea
@@ -2580,6 +3066,13 @@ ${fence}
     );
     probeDiagnostics.phase = "command";
     moveWorkZone(jump, supplyArea, workZone);
+    if (previousViewportSampleDiagnostics != null) {
+      previousViewportSampleDiagnostics.extractorJump = {
+        movementJumpNumber: movementJumpNumberDiagnostics,
+        requestedJump: jump,
+        scrollYAfterCommand: workZonePosition(supplyArea, workZone)
+      };
+    }
     drainJumpObserverDiagnostics(probeDiagnostics, "command");
     probeDiagnostics.afterCommand = jumpProbeGeometryDiagnostics(
       anchorDiagnostics,
@@ -2604,14 +3097,76 @@ ${fence}
     currentJumpObserverDiagnostics = null;
   }
   function drainJumpObserverDiagnostics(probe, phase) {
+    const { supplyArea, workZone } = environment();
+    const scrollYAtDeliveryStart = workZonePosition(
+      supplyArea,
+      workZone
+    );
     const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-    recordJumpChangesDiagnostics(probe, records, phase);
+    recordJumpChangesDiagnostics(
+      probe,
+      records,
+      phase,
+      scrollYAtDeliveryStart
+    );
   }
   function resetSupplyWorkerDiagnostics() {
+    installNativeRemovalInstrumentationDiagnostics();
     resetJumpObserverDiagnostics();
+    currentJumpProbeDiagnostics = null;
     currentAnchorNumberDiagnostics = 0;
+    movementJumpNumberDiagnostics = 0;
     pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
     deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
+  }
+  function installNativeRemovalInstrumentationDiagnostics() {
+    if (nativeRemovalInstrumentationInstalledDiagnostics) return;
+    nativeRemovalInstrumentationInstalledDiagnostics = true;
+    const nativeRemoveChild = Node.prototype.removeChild;
+    Node.prototype.removeChild = function(child) {
+      return recordNativeSectionRemovalDiagnostics(
+        "removeChild",
+        child,
+        () => nativeRemoveChild.call(this, child)
+      );
+    };
+    const nativeRemove = Element.prototype.remove;
+    Element.prototype.remove = function() {
+      return recordNativeSectionRemovalDiagnostics(
+        "remove",
+        this,
+        () => nativeRemove.call(this)
+      );
+    };
+  }
+  function recordNativeSectionRemovalDiagnostics(method, element, remove) {
+    const probe = currentJumpProbeDiagnostics;
+    if (probe == null || element?.nodeType !== Node.ELEMENT_NODE || element.tagName !== "SECTION") {
+      return remove();
+    }
+    const deck = element.closest(
+      "[data-turn-id-container][data-is-intersecting]"
+    );
+    if (deck == null) return remove();
+    const { supplyArea, workZone } = environment();
+    const deckId = deck.getAttribute("data-turn-id-container");
+    const activationBeforeRemoval = deck.getAttribute("data-is-intersecting");
+    const before = workZonePosition(supplyArea, workZone);
+    const clockBefore = performance.now();
+    const result = remove();
+    const clockAfter = performance.now();
+    const after = workZonePosition(supplyArea, workZone);
+    probe.sectionRemovalBoundaries.push({
+      method,
+      phase: probe.phase,
+      clockBefore,
+      clockAfter,
+      scrollYBeforeRemoval: before,
+      scrollYAfterRemoval: after,
+      deckId,
+      activationBeforeRemoval
+    });
+    return result;
   }
   function canvasGeometrySnapshotDiagnostics(deck, canvas = null) {
     const { supplyArea, workZone } = environment();
@@ -2708,21 +3263,56 @@ ${fence}
   }
   function observeJumpChangesDiagnostics(probe, supplyArea) {
     const observer = new MutationObserver((records) => {
-      recordJumpChangesDiagnostics(probe, records, probe.phase);
+      const { workZone } = environment();
+      const scrollYAtDeliveryStart = workZonePosition(
+        supplyArea,
+        workZone
+      );
+      recordJumpChangesDiagnostics(
+        probe,
+        records,
+        probe.phase,
+        scrollYAtDeliveryStart
+      );
     });
     observer.observe(document.body, {
       subtree: true,
       childList: true,
       attributes: true,
       attributeOldValue: true,
-      attributeFilter: ["data-is-intersecting"]
+      attributeFilter: ["data-is-intersecting", "style"]
     });
     return observer;
   }
-  function recordJumpChangesDiagnostics(probe, records, phase) {
+  function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
     for (const record of records) {
+      if (record.type === "attributes" && record.attributeName === "style" && record.target.matches?.("[data-turn-id-container]")) {
+        const before = lastKnownHeightFromStyleDiagnostics(
+          record.oldValue
+        );
+        const after = record.target.style.getPropertyValue(
+          "--last-known-height"
+        );
+        if (before !== after) {
+          probe.renderingChanges.push({
+            delivery,
+            order: ++probe.mutationOrder,
+            clock: performance.now(),
+            phase,
+            change: "last-known-height",
+            before,
+            after,
+            activation: record.target.getAttribute(
+              "data-is-intersecting"
+            ),
+            renderedHeight: record.target.getBoundingClientRect().height,
+            element: mutationElementDiagnostics(record.target)
+          });
+        }
+        continue;
+      }
       if (record.type === "attributes" && record.attributeName === "data-is-intersecting") {
         const before = record.oldValue;
         const after = record.target.getAttribute(
@@ -2742,10 +3332,13 @@ ${fence}
           order: ++probe.mutationOrder,
           clock: performance.now(),
           phase,
+          scrollYAtMutationDeliveryStart: scrollYAtDeliveryStart,
           deck: snapshotElementDiagnostics(record.target),
           before,
           after,
-          predictionElapsedMs: prediction == null ? null : performance.now() - prediction.predictedAt
+          predictionElapsedMs: prediction == null ? null : performance.now() - prediction.predictedAt,
+          predictionJumpLag: prediction == null ? null : movementJumpNumberDiagnostics - prediction.predictedOnJumpNumber,
+          deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction
         });
         continue;
       }
@@ -2805,6 +3398,11 @@ ${fence}
         });
       }
     }
+  }
+  function lastKnownHeightFromStyleDiagnostics(styleText) {
+    const style = document.createElement("div").style;
+    style.cssText = styleText ?? "";
+    return style.getPropertyValue("--last-known-height");
   }
   function mutationElementDiagnostics(element) {
     const deck = element.matches?.("[data-turn-id-container]") ? element : element.closest?.("[data-turn-id-container]");
@@ -2973,14 +3571,14 @@ ${fence}
     return currentAnchor;
   }
 
-  // src/app/getNextDeckIn-dev.js
+  // src/app/getNextDeckIn-diag.js
   function getNextDeckRoomIn(deckRoom2) {
     return selectNextDeckRoom(
       areaAhead(deckRoom2, MAX_DECK_GAP)
     );
   }
 
-  // src/app/waitLayoutStable-dev.js
+  // src/app/waitLayoutStable-diag.js
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false
@@ -3260,7 +3858,7 @@ ${fence}
     };
   }
 
-  // src/app/moveAnchorToBottom-dev.js
+  // src/app/moveAnchorToBottom-diag.js
   async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
     beginJumpDiagnostics({
       kind: "anchor-move"
@@ -3320,7 +3918,14 @@ ${fence}
         calibratedJump,
         viewportHeight: viewportHeight2
       });
-      const deactivationPredicted = await checkUpdateNeededBeforeDeactivation(jump);
+      const pendingPredictionsAtJumpStartDiagnostics = pendingDeactivationPredictionSnapshotDiagnostics();
+      const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
+      const pendingPredictionsBeforeCommandDiagnostics = pendingDeactivationPredictionSnapshotDiagnostics();
+      recordPendingDeactivationPredictionsForJumpDiagnostics({
+        atJumpStart: pendingPredictionsAtJumpStartDiagnostics,
+        beforeCommand: pendingPredictionsBeforeCommandDiagnostics,
+        geometricallyPredictedDeckCount: predictedDeactivationDecks.length
+      });
       await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
@@ -3334,14 +3939,6 @@ ${fence}
         break;
       }
       await waitLayoutStable({ trackAnchor: true });
-      if (deactivationPredicted) {
-        if (typeof globalThis.gc !== "function") {
-          throw new Error(
-            "GC is unavailable. Launch Chromium with --expose-gc."
-          );
-        }
-        globalThis.gc();
-      }
       const obtainedRoom = anchorRoom();
       finishJumpDiagnostics({
         obtainedAnchorRoom: obtainedRoom
@@ -3381,7 +3978,7 @@ ${fence}
     return room >= targetRoom - TOLERATED_ROUNDING;
   }
 
-  // src/app/moveSlabTopToBottom-dev.js
+  // src/app/moveSlabTopToBottom-diag.js
   async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
     let room = initialSlabRoom;
@@ -3401,7 +3998,7 @@ ${fence}
     };
   }
 
-  // src/app/moveViewportToDocumentBottom-dev.js
+  // src/app/moveViewportToDocumentBottom-diag.js
   async function moveViewportToDocumentBottom() {
     const supplier2 = observeSupplier();
     const { supplyArea, workZone } = supplier2;
@@ -3434,12 +4031,13 @@ ${fence}
     );
   }
 
-  // src/app/mainOrchestration-dev.js
+  // src/app/mainOrchestration-diag.js
   async function traverseConversation() {
     resetCycleDiagnostics();
     resetSupplyWorker();
     resetExtraction();
     const initial = await moveViewportToDocumentBottom();
+    startSupplyWorkerDiagnostics();
     let slabRoom2 = null;
     let deckRoom2 = null;
     const initialSlabRoom = initial.room;
@@ -3525,7 +4123,7 @@ ${fence}
     return snapshot;
   }
 
-  // src/app/compatibility-dev.js
+  // src/app/compatibility-diag.js
   var MARKUP_PROMPT = `Create one response containing all of the following:
 1. A level-2 heading named "Compatibility Results".
 2. A sentence containing bold text, italic text, strikethrough text, and inline code.
@@ -3611,7 +4209,7 @@ Do not omit or combine any item.`;
     const conversationHeading = heading("Create a test conversation");
     const instructions = textElement(
       "div",
-      "Start a new conversation and send each copied prompt as a separate user message. Run the dev extractor, reopen this panel, then check the extracted content.",
+      "Start a new conversation and send each copied prompt as a separate user message. Run the diagnostic extractor, reopen this panel, then check the extracted content.",
       { color: "#bac2de", marginBottom: "8px" }
     );
     const prompts = [
@@ -3721,7 +4319,7 @@ Do not omit or combine any item.`;
     target.replaceChildren();
     const state = compatibilityExtraction();
     if (state.count === 0) {
-      addResult(target, null, "Extraction state", "run the dev extractor first");
+      addResult(target, null, "Extraction state", "run the diagnostic extractor first");
       return;
     }
     addResult(
@@ -3815,7 +4413,7 @@ Do not omit or combine any item.`;
     return element;
   }
 
-  // src/app/installExtractorApp-dev.js
+  // src/app/installExtractorApp-diag.js
   function installExtractorApp({
     version,
     runLabel,
@@ -3845,6 +4443,7 @@ Do not omit or combine any item.`;
         console.error(`[${logPrefix}] failed.`, error);
         throw error;
       } finally {
+        stopSupplyWorkerDiagnostics();
         activeRuns--;
       }
     };
@@ -3872,13 +4471,13 @@ Do not omit or combine any item.`;
     }
   }
 
-  // src/bootstrap-dev.js
-  var VERSION = true ? "2.94" : "unbuilt";
+  // src/bootstrap-diag.js
+  var VERSION = true ? "5.44" : "unbuilt";
   installExtractorApp({
     version: VERSION,
-    runLabel: "Run dev extractor",
-    embeddedRunLabel: "Run dev extractor (embedded)",
-    compatibilityLabel: "Dev compatibility check",
-    logPrefix: "dev traversal"
+    runLabel: "Run diagnostic extractor",
+    embeddedRunLabel: "Run diagnostic extractor (embedded)",
+    compatibilityLabel: "Diagnostic compatibility check",
+    logPrefix: "diagnostic traversal"
   });
 })();

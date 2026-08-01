@@ -2,20 +2,20 @@ const fs = require('fs');
 const path = require('path');
 
 const sourceDirectory = path.resolve('src/app');
-const bootstrapSource = path.resolve('src/bootstrap-dev.js');
+const bootstrapSource = path.resolve('src/bootstrap-diag.js');
 const bootstrapOutput = path.resolve('src/bootstrap.js');
 
-function buildProductionSources() {
+function buildNoDiagnosticSources() {
     for (const filename of fs.readdirSync(sourceDirectory)) {
-        if (!filename.endsWith('-dev.js')) continue;
+        if (!filename.endsWith('-diag.js')) continue;
 
         const sourcePath = path.join(sourceDirectory, filename);
         const outputPath = path.join(
             sourceDirectory,
-            filename.replace(/-dev\.js$/, '.js')
+            filename.replace(/-diag\.js$/, '.js')
         );
         const source = fs.readFileSync(sourcePath, 'utf8');
-        const output = filename === 'cycleDiagnostics-dev.js'
+        const output = filename === 'cycleDiagnostics-diag.js'
             ? ''
             : removeDiagnostics(source);
 
@@ -24,13 +24,16 @@ function buildProductionSources() {
 
     writeGeneratedFile(
         bootstrapOutput,
-        productionBootstrap(
+        noDiagnosticBootstrap(
             removeDiagnostics(fs.readFileSync(bootstrapSource, 'utf8'))
         )
     );
 }
 
 function writeGeneratedFile(filename, content) {
+    if (/Diagnostics/.test(content)) {
+        throw new Error(`Diagnostic code remained in ${filename}.`);
+    }
     if (fs.existsSync(filename)) fs.chmodSync(filename, 0o644);
     try {
         fs.writeFileSync(filename, content);
@@ -39,26 +42,23 @@ function writeGeneratedFile(filename, content) {
     }
 }
 
-function productionBootstrap(source) {
+function noDiagnosticBootstrap(source) {
     return source
-        .replace(/__DEV_USERSCRIPT_VERSION__/g, '__PROD_USERSCRIPT_VERSION__')
-        .replaceAll('Run dev extractor', 'Run extractor')
-        .replace('Dev compatibility check', 'Compatibility check')
-        .replace('dev traversal', 'extractor');
+        .replace(/__DIAG_USERSCRIPT_VERSION__/g, '__NO_DIAG_USERSCRIPT_VERSION__')
+        .replaceAll('Run diagnostic extractor', 'Run extractor')
+        .replace('Diagnostic compatibility check', 'Compatibility check')
+        .replace('diagnostic traversal', 'extractor');
 }
 
 function removeDiagnostics(source) {
-    let output = source.replace(
-        /^import\s*\{[^}]*^\}\s*from\s*["']\.\/cycleDiagnostics-dev\.js["'];\s*/gm,
-        ''
-    );
+    let output = removeDiagnosticImports(source);
 
     output = removeGeometryChangePropertiesDiagnostics(output);
     output = removeFunctionsDiagnostics(output);
     output = removeConditionalBlocksDiagnostics(output);
     output = removeStatementsDiagnostics(output);
     output = output.replace(
-        /from\s+(["'])(\.\/[^"']+?)-dev\.js\1/g,
+        /from\s+(["'])(\.\/[^"']+?)-diag\.js\1/g,
         'from $1$2.js$1'
     );
     return output
@@ -66,6 +66,21 @@ function removeDiagnostics(source) {
         .replace(/\s*else\s*\{\s*\}/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trimEnd() + '\n';
+}
+
+function removeDiagnosticImports(source) {
+    return source.replace(
+        /import\s*\{([\s\S]*?)\}\s*from\s*(["'][^"']+["']);/g,
+        (statement, imported, moduleName) => {
+            const retained = imported
+                .split(',')
+                .map(name => name.trim())
+                .filter(Boolean)
+                .filter(name => !/Diagnostics/.test(name));
+            if (retained.length === 0) return '';
+            return `import {\n    ${retained.join(',\n    ')}\n} from ${moduleName};`;
+        }
+    );
 }
 
 function removeConditionalBlocksDiagnostics(source) {
@@ -203,6 +218,6 @@ function findBalancedEnd(source, start, opening, closing) {
     throw new Error(`Could not find balanced diagnostic block end at ${start}.`);
 }
 
-if (require.main === module) buildProductionSources();
+if (require.main === module) buildNoDiagnosticSources();
 
-module.exports = { buildProductionSources };
+module.exports = { buildNoDiagnosticSources };

@@ -3,15 +3,16 @@ import {
     MIN_INTERSECT,
     TOLERATED_ROUNDING,
     CALIBRATED_JUMP
-} from "./constants-dev.js";
+} from "./constants-diag.js";
 import {
     anchorRoom,
     checkUpdateNeededBeforeDeactivation,
     moveWorkZoneBy,
+    pendingDeactivationPredictionSnapshotDiagnostics,
     slabRoom,
     supplyRoom
-} from "./supplyWorker-dev.js";
-import { waitLayoutStable } from "./waitLayoutStable-dev.js";
+} from "./supplyWorker-diag.js";
+import { waitLayoutStable } from "./waitLayoutStable-diag.js";
 import {
     beginJumpDiagnostics,
     beginOrContinueJumpDiagnostics,
@@ -19,8 +20,9 @@ import {
     finishJumpDiagnostics,
     logSlowJumpDiagnosticsIfNeeded,
     logStabilizedJumpDiagnosticsIfNeeded,
-    recordErasedJumpResultDiagnostics
-} from "./cycleDiagnostics-dev.js";
+    recordErasedJumpResultDiagnostics,
+    recordPendingDeactivationPredictionsForJumpDiagnostics
+} from "./cycleDiagnostics-diag.js";
 
 export async function moveAnchorToBottom(
     initialRoom,
@@ -93,8 +95,18 @@ export async function moveAnchorToBottom(
             calibratedJump,
             viewportHeight
         });
-        const deactivationPredicted =
+        const pendingPredictionsAtJumpStartDiagnostics =
+            pendingDeactivationPredictionSnapshotDiagnostics();
+        const predictedDeactivationDecks =
             await checkUpdateNeededBeforeDeactivation(jump);
+        const pendingPredictionsBeforeCommandDiagnostics =
+            pendingDeactivationPredictionSnapshotDiagnostics();
+        recordPendingDeactivationPredictionsForJumpDiagnostics({
+            atJumpStart: pendingPredictionsAtJumpStartDiagnostics,
+            beforeCommand: pendingPredictionsBeforeCommandDiagnostics,
+            geometricallyPredictedDeckCount:
+                predictedDeactivationDecks.length
+        });
         await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
@@ -110,14 +122,6 @@ export async function moveAnchorToBottom(
         }
 
         await waitLayoutStable({ trackAnchor: true });
-        if (deactivationPredicted) {
-            if (typeof globalThis.gc !== "function") {
-                throw new Error(
-                    "GC is unavailable. Launch Chromium with --expose-gc."
-                );
-            }
-            globalThis.gc();
-        }
 
         const obtainedRoom = anchorRoom();
         finishJumpDiagnostics({

@@ -12,7 +12,10 @@
  * @param {number} referenceTop
  * @param {number} maxGap
  */
-export function areaAhead(referenceTop, maxGap) {
+export function areaAhead(
+    referenceTop,
+    maxGap
+) {
 
     return {
         top: referenceTop - maxGap,

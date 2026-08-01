@@ -5,8 +5,12 @@
 // position at the true bottom of the conversation — see
 // ASSUMPTIONS.md A9.
 
-import { waitLayoutStable } from "./waitLayoutStable.js";
-import { getDecks } from "./getNextDeckIn.js";
+import {
+    waitLayoutStable
+} from "./waitLayoutStable.js";
+import {
+    getDecks
+} from "./getNextDeckIn.js";
 import {
     moveWorkZoneToSupplyEnd,
     observeSupplier,

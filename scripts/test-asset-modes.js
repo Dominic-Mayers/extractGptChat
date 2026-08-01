@@ -10,7 +10,7 @@ const output = path.join(
 
 async function testAssetModes() {
     esbuild.buildSync({
-        entryPoints: ['src/app/extraction-dev.js'],
+        entryPoints: ['src/app/extraction-diag.js'],
         bundle: true,
         format: 'cjs',
         platform: 'node',

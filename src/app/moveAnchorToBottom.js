@@ -1,5 +1,4 @@
 import {
-
     MIN_INTERSECT,
     TOLERATED_ROUNDING,
     CALIBRATED_JUMP
@@ -11,7 +10,10 @@ import {
     slabRoom,
     supplyRoom
 } from "./supplyWorker.js";
-import { waitLayoutStable } from "./waitLayoutStable.js";
+import {
+    waitLayoutStable
+} from "./waitLayoutStable.js";
+
 export async function moveAnchorToBottom(
     initialRoom,
     viewportHeight,
@@ -55,7 +57,9 @@ export async function moveAnchorToBottom(
             viewportHeight
         );
 
-        await checkUpdateNeededBeforeDeactivation(jump);
+        const predictedDeactivationDecks =
+            await checkUpdateNeededBeforeDeactivation(jump);
+
         await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
