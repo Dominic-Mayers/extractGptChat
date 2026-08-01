@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.57
+// @version      5.58
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1668,39 +1668,32 @@
         }
       }
     }
-    console.log(
-      "[height update lead]\n" + JSON.stringify(
-        Object.fromEntries(Object.entries({
-          ordinary: output.singleDeactivationJumpByLastKnownHeightLeadMs,
-          retries: output.singleDeactivationRetryByLastKnownHeightLeadMs
-        }).map(([population, buckets]) => [
-          population,
-          Object.fromEntries(Object.entries(buckets).map(
-            ([bucket, value]) => [bucket, {
-              jumpCount: value.jumpCount,
-              erasedJumpCount: value.erasedJumpCount,
-              preservedJumpCount: value.preservedJumpCount,
-              erasurePercentage: value.erasurePercentage,
-              leadMsAverage: value.leadMsAverage,
-              leadMsMinimum: value.leadMsMinimum,
-              leadMsMaximum: value.leadMsMaximum,
-              byPredictionJumpLag: Object.fromEntries(
-                Object.entries(
-                  value.byPredictionJumpLag
-                ).map(([lag, byLag]) => [lag, {
-                  jumpCount: byLag.jumpCount,
-                  erasedJumpCount: byLag.erasedJumpCount,
-                  preservedJumpCount: byLag.preservedJumpCount,
-                  erasurePercentage: byLag.erasurePercentage,
-                  leadMsAverage: byLag.leadMsAverage
-                }])
-              )
-            }]
-          ))
-        ])),
-        null,
-        2
+    const compactLeadPopulation = (buckets) => Object.entries(buckets).map(([bucket, value]) => ({
+      bucket,
+      jumpCount: value.jumpCount,
+      erasedJumpCount: value.erasedJumpCount,
+      preservedJumpCount: value.preservedJumpCount,
+      leadMsMinimum: value.leadMsMinimum,
+      leadMsMaximum: value.leadMsMaximum,
+      byPredictionJumpLag: Object.fromEntries(
+        Object.entries(value.byPredictionJumpLag).map(
+          ([lag, byLag]) => [lag, [
+            byLag.jumpCount,
+            byLag.erasedJumpCount,
+            byLag.preservedJumpCount
+          ]]
+        )
       )
+    }));
+    console.log(
+      "[height update lead ordinary]\n" + JSON.stringify(compactLeadPopulation(
+        output.singleDeactivationJumpByLastKnownHeightLeadMs
+      ))
+    );
+    console.log(
+      "[height update lead retries]\n" + JSON.stringify(compactLeadPopulation(
+        output.singleDeactivationRetryByLastKnownHeightLeadMs
+      ))
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
@@ -4719,7 +4712,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.57" : "unbuilt";
+  var VERSION = true ? "5.58" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
