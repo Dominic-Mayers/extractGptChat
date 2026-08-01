@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.52
+// @version      5.53
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -357,7 +357,8 @@
       matchedDeactivationByJumpLag: {},
       singleDeactivationJumpByPredictionLag: {},
       singleDeactivationJumpByPreCommandLastKnownHeight: {},
-      singleDeactivationJumpByLastKnownHeightLeadMs: {}
+      singleDeactivationJumpByLastKnownHeightLeadMs: {},
+      singleDeactivationRetryByLastKnownHeightLeadMs: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1002,7 +1003,8 @@
         deactivation.lastKnownHeightUpdateClock
       ) && Number.isFinite(probe.commandClock) ? probe.commandClock - deactivation.lastKnownHeightUpdateClock : null;
       const leadBucket = leadMs == null ? "missing" : leadMs < 0 ? "after-jump" : leadMs < 5 ? "0-4" : leadMs < 10 ? "5-9" : leadMs < 20 ? "10-19" : leadMs < 50 ? "20-49" : leadMs < 100 ? "50-99" : leadMs < 250 ? "100-249" : "gte250";
-      const byLead = deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs[leadBucket] ?? {
+      const leadPopulation = outcome === "retry-succeeded" || outcome === "retry-erased" ? deactivationPredictionDiagnostics.singleDeactivationRetryByLastKnownHeightLeadMs : deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs;
+      const byLead = leadPopulation[leadBucket] ?? {
         jumpCount: 0,
         erasedJumpCount: 0,
         preservedJumpCount: 0,
@@ -1055,7 +1057,7 @@
         );
         byLead.byPredictionJumpLag[lag] = byLag;
       }
-      deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs[leadBucket] = byLead;
+      leadPopulation[leadBucket] = byLead;
     }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -1651,47 +1653,59 @@
         }
       }
     }
-    for (const byLead of Object.values(
-      output.singleDeactivationJumpByLastKnownHeightLeadMs
-    )) {
-      byLead.erasurePercentage = byLead.jumpCount === 0 ? null : byLead.erasedJumpCount / byLead.jumpCount * 100;
-      byLead.leadMsAverage = byLead.leadMsCount === 0 ? null : byLead.leadMsSum / byLead.leadMsCount;
-      for (const byLag of Object.values(
-        byLead.byPredictionJumpLag
-      )) {
-        byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
-        byLag.leadMsAverage = byLag.leadMsCount === 0 ? null : byLag.leadMsSum / byLag.leadMsCount;
+    for (const leadPopulation of [
+      output.singleDeactivationJumpByLastKnownHeightLeadMs,
+      output.singleDeactivationRetryByLastKnownHeightLeadMs
+    ]) {
+      for (const byLead of Object.values(leadPopulation)) {
+        byLead.erasurePercentage = byLead.jumpCount === 0 ? null : byLead.erasedJumpCount / byLead.jumpCount * 100;
+        byLead.leadMsAverage = byLead.leadMsCount === 0 ? null : byLead.leadMsSum / byLead.leadMsCount;
+        for (const byLag of Object.values(
+          byLead.byPredictionJumpLag
+        )) {
+          byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
+          byLag.leadMsAverage = byLag.leadMsCount === 0 ? null : byLag.leadMsSum / byLag.leadMsCount;
+        }
       }
     }
     console.log(
       "[height update lead]\n" + JSON.stringify(
-        Object.fromEntries(Object.entries(
-          output.singleDeactivationJumpByLastKnownHeightLeadMs
-        ).map(([bucket, value]) => [bucket, {
-          jumpCount: value.jumpCount,
-          erasedJumpCount: value.erasedJumpCount,
-          preservedJumpCount: value.preservedJumpCount,
-          erasurePercentage: value.erasurePercentage,
-          leadMsAverage: value.leadMsAverage,
-          leadMsMinimum: value.leadMsMinimum,
-          leadMsMaximum: value.leadMsMaximum,
-          byPredictionJumpLag: Object.fromEntries(
-            Object.entries(value.byPredictionJumpLag).map(
-              ([lag, byLag]) => [lag, {
-                jumpCount: byLag.jumpCount,
-                erasedJumpCount: byLag.erasedJumpCount,
-                preservedJumpCount: byLag.preservedJumpCount,
-                erasurePercentage: byLag.erasurePercentage,
-                leadMsAverage: byLag.leadMsAverage
+        Object.fromEntries(Object.entries({
+          ordinary: output.singleDeactivationJumpByLastKnownHeightLeadMs,
+          retries: output.singleDeactivationRetryByLastKnownHeightLeadMs
+        }).map(([population, buckets]) => [
+          population,
+          Object.fromEntries(
+            Object.entries(buckets).map(
+              ([bucket, value]) => [bucket, {
+                jumpCount: value.jumpCount,
+                erasedJumpCount: value.erasedJumpCount,
+                preservedJumpCount: value.preservedJumpCount,
+                erasurePercentage: value.erasurePercentage,
+                leadMsAverage: value.leadMsAverage,
+                leadMsMinimum: value.leadMsMinimum,
+                leadMsMaximum: value.leadMsMaximum,
+                byPredictionJumpLag: Object.fromEntries(
+                  Object.entries(
+                    value.byPredictionJumpLag
+                  ).map(([lag, byLag]) => [lag, {
+                    jumpCount: byLag.jumpCount,
+                    erasedJumpCount: byLag.erasedJumpCount,
+                    preservedJumpCount: byLag.preservedJumpCount,
+                    erasurePercentage: byLag.erasurePercentage,
+                    leadMsAverage: byLag.leadMsAverage
+                  }])
+                )
               }]
             )
           )
-        }])),
+        ])),
         null,
         2
       )
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
+    delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -4707,7 +4721,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.52" : "unbuilt";
+  var VERSION = true ? "5.53" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
