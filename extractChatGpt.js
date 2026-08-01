@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.53
+// @version      5.54
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1928,12 +1928,17 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.53" : "unbuilt";
-  installExtractorApp({
+  var VERSION = true ? "5.54" : "unbuilt";
+  var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",
     embeddedRunLabel: "Run extractor (embedded)",
     compatibilityLabel: "Compatibility check",
     logPrefix: "extractor"
   });
+  if (document.readyState === "complete") {
+    install();
+  } else {
+    window.addEventListener("load", install, { once: true });
+  }
 })();
