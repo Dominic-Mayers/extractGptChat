@@ -757,11 +757,14 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
     }
     if (deactivationCount === 1) {
         const deactivation = deactivations[0];
-        const heightState = probe.renderingChanges.some(change =>
+        const heightChanges = probe.renderingChanges.filter(change =>
             change.change === "last-known-height" &&
             change.element.turnId === deactivation.deck.id &&
             change.phase === "pre-command-frame"
-        ) ? "present" : "absent";
+        );
+        const heightState = heightChanges.length > 0
+            ? "present"
+            : "absent";
         const byHeightState = deactivationPredictionDiagnostics
             .singleDeactivationJumpByPreCommandLastKnownHeight[
                 heightState
@@ -770,7 +773,8 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 erasedJumpCount: 0,
                 preservedJumpCount: 0,
                 byOutcome: {},
-                byPredictionJumpLag: {}
+                byPredictionJumpLag: {},
+                byDelayMs: {}
             };
         byHeightState.jumpCount++;
         if (outcome === "erased" || outcome === "retry-erased") {
@@ -801,6 +805,68 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 outcome
             );
             byHeightState.byPredictionJumpLag[lag] = byLag;
+        }
+        if (heightChanges.length > 0) {
+            const heightClock = Math.max(
+                ...heightChanges.map(change => change.clock)
+            );
+            const delayMs = deactivation.clock - heightClock;
+            const delayBucket = delayMs < 50
+                ? "lt50"
+                : delayMs < 100
+                    ? "50-99"
+                    : delayMs < 150
+                        ? "100-149"
+                        : delayMs < 250
+                            ? "150-249"
+                            : delayMs < 500
+                                ? "250-499"
+                                : "gte500";
+            const byDelay = byHeightState.byDelayMs[delayBucket] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                delayMsSum: 0,
+                byOutcome: {},
+                byPredictionJumpLag: {}
+            };
+            byDelay.jumpCount++;
+            byDelay.delayMsSum += delayMs;
+            if (outcome === "erased" || outcome === "retry-erased") {
+                byDelay.erasedJumpCount++;
+            } else {
+                byDelay.preservedJumpCount++;
+            }
+            incrementJumpPopulationCategoryDiagnostics(
+                byDelay.byOutcome,
+                outcome
+            );
+            if (Number.isInteger(deactivation.predictionJumpLag)) {
+                const lag = deactivation.predictionJumpLag;
+                const byLag = byDelay.byPredictionJumpLag[lag] ?? {
+                    jumpCount: 0,
+                    erasedJumpCount: 0,
+                    preservedJumpCount: 0,
+                    delayMsSum: 0,
+                    byOutcome: {}
+                };
+                byLag.jumpCount++;
+                byLag.delayMsSum += delayMs;
+                if (
+                    outcome === "erased" ||
+                    outcome === "retry-erased"
+                ) {
+                    byLag.erasedJumpCount++;
+                } else {
+                    byLag.preservedJumpCount++;
+                }
+                incrementJumpPopulationCategoryDiagnostics(
+                    byLag.byOutcome,
+                    outcome
+                );
+                byDelay.byPredictionJumpLag[lag] = byLag;
+            }
+            byHeightState.byDelayMs[delayBucket] = byDelay;
         }
         deactivationPredictionDiagnostics
             .singleDeactivationJumpByPreCommandLastKnownHeight[
@@ -1612,6 +1678,24 @@ function emitDeactivationPredictionDiagnostics() {
             byLag.erasurePercentage = byLag.jumpCount === 0
                 ? null
                 : byLag.erasedJumpCount / byLag.jumpCount * 100;
+        }
+        for (const byDelay of Object.values(byHeightState.byDelayMs)) {
+            byDelay.erasurePercentage = byDelay.jumpCount === 0
+                ? null
+                : byDelay.erasedJumpCount / byDelay.jumpCount * 100;
+            byDelay.delayMsAverage = byDelay.jumpCount === 0
+                ? null
+                : byDelay.delayMsSum / byDelay.jumpCount;
+            for (const byLag of Object.values(
+                byDelay.byPredictionJumpLag
+            )) {
+                byLag.erasurePercentage = byLag.jumpCount === 0
+                    ? null
+                    : byLag.erasedJumpCount / byLag.jumpCount * 100;
+                byLag.delayMsAverage = byLag.jumpCount === 0
+                    ? null
+                    : byLag.delayMsSum / byLag.jumpCount;
+            }
         }
     }
     output.deckHeightByJumpLag = Object.fromEntries(
