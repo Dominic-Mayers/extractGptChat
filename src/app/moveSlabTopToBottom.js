@@ -1,7 +1,10 @@
 import {
-    isAtBottom,
+    isAtDestination,
     moveAnchorToBottom
 } from "./moveAnchorToBottom.js";
+import {
+    MIN_INTERSECT
+} from "./constants.js";
 import {
     deckRoom,
     selectAnchor,
@@ -11,9 +14,10 @@ import {
 
 export async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
+    const destination = -MIN_INTERSECT;
     let room = initialSlabRoom;
 
-    while (!isAtBottom(height, room)) {
+    while (!isAtDestination(destination, room)) {
         const previousRoom = room;
         const selectedAnchorRoom = await selectAnchor();
 

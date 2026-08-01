@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.44
+// @version      5.45
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -3859,7 +3859,7 @@ ${fence}
   }
 
   // src/app/moveAnchorToBottom-diag.js
-  async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
+  async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP, slabDestination = -MIN_INTERSECT) {
     beginJumpDiagnostics({
       kind: "anchor-move"
     });
@@ -3878,11 +3878,11 @@ ${fence}
     let currentSlabRoom = slabRoom();
     let retriedErasedJump = false;
     let anchorAtBottom = isAtBottom(viewportHeight2, room);
-    let slabTopAtBottom = isAtBottom(
-      viewportHeight2,
+    let slabAtDestination = isAtDestination(
+      slabDestination,
       currentSlabRoom
     );
-    if (anchorAtBottom || slabTopAtBottom) {
+    if (anchorAtBottom || slabAtDestination) {
       finishJumpDiagnostics({
         anchorRoomBefore: room,
         obtainedAnchorRoom: room,
@@ -3891,7 +3891,7 @@ ${fence}
       logSlowJumpDiagnosticsIfNeeded();
       return room;
     }
-    while (!anchorAtBottom && !slabTopAtBottom) {
+    while (!anchorAtBottom && !slabAtDestination) {
       beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchorRoomBefore: room
@@ -3911,7 +3911,8 @@ ${fence}
         calibratedJump,
         room,
         currentSlabRoom,
-        viewportHeight2
+        viewportHeight2,
+        slabDestination
       );
       beginOrContinueJumpDiagnostics({
         requestedJump: jump,
@@ -3958,31 +3959,35 @@ ${fence}
       room = obtainedRoom;
       currentSlabRoom = slabRoom();
       anchorAtBottom = isAtBottom(viewportHeight2, room);
-      slabTopAtBottom = isAtBottom(
-        viewportHeight2,
+      slabAtDestination = isAtDestination(
+        slabDestination,
         currentSlabRoom
       );
     }
     return room;
   }
-  function clampJump(calibratedJump, anchorRoom2, slabTopRoom, viewportHeight2) {
+  function clampJump(calibratedJump, anchorRoom2, slabTopRoom, viewportHeight2, slabDestination = -MIN_INTERSECT) {
     const targetRoom = viewportHeight2 - MIN_INTERSECT;
     return Math.min(
       calibratedJump,
       targetRoom - anchorRoom2,
-      targetRoom - slabTopRoom
+      slabDestination - slabTopRoom
     );
   }
   function isAtBottom(viewportHeight2, room) {
     const targetRoom = viewportHeight2 - MIN_INTERSECT;
-    return room >= targetRoom - TOLERATED_ROUNDING;
+    return isAtDestination(targetRoom, room);
+  }
+  function isAtDestination(destination, room) {
+    return room >= destination - TOLERATED_ROUNDING;
   }
 
   // src/app/moveSlabTopToBottom-diag.js
   async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
+    const destination = -MIN_INTERSECT;
     let room = initialSlabRoom;
-    while (!isAtBottom(height, room)) {
+    while (!isAtDestination(destination, room)) {
       const previousRoom = room;
       const selectedAnchorRoom = await selectAnchor();
       await moveAnchorToBottom(
@@ -4472,7 +4477,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.44" : "unbuilt";
+  var VERSION = true ? "5.45" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

@@ -17,7 +17,8 @@ import {
 export async function moveAnchorToBottom(
     initialRoom,
     viewportHeight,
-    calibratedJump = CALIBRATED_JUMP
+    calibratedJump = CALIBRATED_JUMP,
+    slabDestination = -MIN_INTERSECT
 ) {
 
     const currentSupplyRoom = supplyRoom();
@@ -32,16 +33,16 @@ export async function moveAnchorToBottom(
     let retriedErasedJump = false;
 
     let anchorAtBottom = isAtBottom(viewportHeight, room);
-    let slabTopAtBottom = isAtBottom(
-        viewportHeight,
+    let slabAtDestination = isAtDestination(
+        slabDestination,
         currentSlabRoom
     );
-    if (anchorAtBottom || slabTopAtBottom) {
+    if (anchorAtBottom || slabAtDestination) {
 
         return room;
     }
 
-    while (!anchorAtBottom && !slabTopAtBottom) {
+    while (!anchorAtBottom && !slabAtDestination) {
 
         const supplyRoomBefore = supplyRoom();
 
@@ -54,7 +55,8 @@ export async function moveAnchorToBottom(
             calibratedJump,
             room,
             currentSlabRoom,
-            viewportHeight
+            viewportHeight,
+            slabDestination
         );
 
         const predictedDeactivationDecks =
@@ -85,8 +87,8 @@ export async function moveAnchorToBottom(
         room = obtainedRoom;
         currentSlabRoom = slabRoom();
         anchorAtBottom = isAtBottom(viewportHeight, room);
-        slabTopAtBottom = isAtBottom(
-            viewportHeight,
+        slabAtDestination = isAtDestination(
+            slabDestination,
             currentSlabRoom
         );
     }
@@ -98,17 +100,22 @@ export function clampJump(
     calibratedJump,
     anchorRoom,
     slabTopRoom,
-    viewportHeight
+    viewportHeight,
+    slabDestination = -MIN_INTERSECT
 ) {
     const targetRoom = viewportHeight - MIN_INTERSECT;
     return Math.min(
         calibratedJump,
         targetRoom - anchorRoom,
-        targetRoom - slabTopRoom
+        slabDestination - slabTopRoom
     );
 }
 
 export function isAtBottom(viewportHeight, room) {
     const targetRoom = viewportHeight - MIN_INTERSECT;
-    return room >= targetRoom - TOLERATED_ROUNDING;
+    return isAtDestination(targetRoom, room);
+}
+
+export function isAtDestination(destination, room) {
+    return room >= destination - TOLERATED_ROUNDING;
 }

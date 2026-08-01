@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.44
+// @version      5.45
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1410,7 +1410,7 @@ ${fence}
   }
 
   // src/app/moveAnchorToBottom.js
-  async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP) {
+  async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP, slabDestination = -MIN_INTERSECT) {
     const currentSupplyRoom = supplyRoom();
     if (currentSupplyRoom <= 0) {
       return initialRoom;
@@ -1419,14 +1419,14 @@ ${fence}
     let currentSlabRoom = slabRoom();
     let retriedErasedJump = false;
     let anchorAtBottom = isAtBottom(viewportHeight2, room);
-    let slabTopAtBottom = isAtBottom(
-      viewportHeight2,
+    let slabAtDestination = isAtDestination(
+      slabDestination,
       currentSlabRoom
     );
-    if (anchorAtBottom || slabTopAtBottom) {
+    if (anchorAtBottom || slabAtDestination) {
       return room;
     }
-    while (!anchorAtBottom && !slabTopAtBottom) {
+    while (!anchorAtBottom && !slabAtDestination) {
       const supplyRoomBefore = supplyRoom();
       if (supplyRoomBefore <= 0) {
         return room;
@@ -1435,7 +1435,8 @@ ${fence}
         calibratedJump,
         room,
         currentSlabRoom,
-        viewportHeight2
+        viewportHeight2,
+        slabDestination
       );
       const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
       await moveWorkZoneBy(jump);
@@ -1455,31 +1456,35 @@ ${fence}
       room = obtainedRoom;
       currentSlabRoom = slabRoom();
       anchorAtBottom = isAtBottom(viewportHeight2, room);
-      slabTopAtBottom = isAtBottom(
-        viewportHeight2,
+      slabAtDestination = isAtDestination(
+        slabDestination,
         currentSlabRoom
       );
     }
     return room;
   }
-  function clampJump(calibratedJump, anchorRoom2, slabTopRoom, viewportHeight2) {
+  function clampJump(calibratedJump, anchorRoom2, slabTopRoom, viewportHeight2, slabDestination = -MIN_INTERSECT) {
     const targetRoom = viewportHeight2 - MIN_INTERSECT;
     return Math.min(
       calibratedJump,
       targetRoom - anchorRoom2,
-      targetRoom - slabTopRoom
+      slabDestination - slabTopRoom
     );
   }
   function isAtBottom(viewportHeight2, room) {
     const targetRoom = viewportHeight2 - MIN_INTERSECT;
-    return room >= targetRoom - TOLERATED_ROUNDING;
+    return isAtDestination(targetRoom, room);
+  }
+  function isAtDestination(destination, room) {
+    return room >= destination - TOLERATED_ROUNDING;
   }
 
   // src/app/moveSlabTopToBottom.js
   async function moveSlabTopToBottom(initialSlabRoom) {
     const height = viewportHeight();
+    const destination = -MIN_INTERSECT;
     let room = initialSlabRoom;
-    while (!isAtBottom(height, room)) {
+    while (!isAtDestination(destination, room)) {
       const previousRoom = room;
       const selectedAnchorRoom = await selectAnchor();
       await moveAnchorToBottom(
@@ -1923,7 +1928,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.44" : "unbuilt";
+  var VERSION = true ? "5.45" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",
