@@ -887,20 +887,40 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
         const leadBucket = leadMs == null
             ? "missing"
             : leadMs < 0
-                ? "after-jump"
+                ? leadMs >= -5
+                    ? "after-0-5"
+                    : leadMs >= -10
+                        ? "after-5-10"
+                        : leadMs >= -15
+                            ? "after-10-15"
+                            : leadMs >= -20
+                                ? "after-15-20"
+                                : leadMs >= -25
+                                    ? "after-20-25"
+                                    : leadMs >= -30
+                                        ? "after-25-30"
+                                        : leadMs >= -35
+                                            ? "after-30-35"
+                                            : leadMs >= -40
+                                                ? "after-35-40"
+                                                : leadMs >= -45
+                                                    ? "after-40-45"
+                                                    : leadMs >= -50
+                                                        ? "after-45-50"
+                                                        : "after-gte50"
                 : leadMs < 5
-                    ? "0-4"
+                    ? "before-0-5"
                     : leadMs < 10
-                        ? "5-9"
+                        ? "before-5-10"
                         : leadMs < 20
-                            ? "10-19"
+                            ? "before-10-20"
                             : leadMs < 50
-                                ? "20-49"
+                                ? "before-20-50"
                                 : leadMs < 100
-                                    ? "50-99"
+                                    ? "before-50-100"
                                     : leadMs < 250
-                                        ? "100-249"
-                                        : "gte250";
+                                        ? "before-100-250"
+                                        : "before-gte250";
         const leadPopulation = outcome === "retry-succeeded" ||
             outcome === "retry-erased"
             ? deactivationPredictionDiagnostics
@@ -1823,8 +1843,46 @@ function emitDeactivationPredictionDiagnostics() {
                 retries:
                     output.singleDeactivationRetryByLastKnownHeightLeadMs
             }).map(([population, buckets]) => [population,
-                Object.fromEntries(Object.entries(buckets).map(
-                    ([bucket, value]) => [bucket, {
+                Object.fromEntries([
+                    "before-gte250",
+                    "before-100-250",
+                    "before-50-100",
+                    "before-20-50",
+                    "before-10-20",
+                    "before-5-10",
+                    "before-0-5",
+                    "after-0-5",
+                    "after-5-10",
+                    "after-10-15",
+                    "after-15-20",
+                    "after-20-25",
+                    "after-25-30",
+                    "after-30-35",
+                    "after-35-40",
+                    "after-40-45",
+                    "after-45-50",
+                    "after-gte50",
+                    "missing"
+                ].filter(
+                    bucket => population === "ordinary" ||
+                        buckets[bucket] != null
+                ).map(bucket => [bucket, buckets[bucket] ?? {
+                    jumpCount: 0,
+                    erasedJumpCount: 0,
+                    preservedJumpCount: 0,
+                    erasurePercentage: null,
+                    leadMsAverage: null,
+                    leadMsMinimum: null,
+                    leadMsMaximum: null,
+                    byPredictionJumpLag: {}
+                }]).map(([bucket, value]) => [bucket,
+                    value.jumpCount === 0
+                        ? {
+                            jumpCount: 0,
+                            erasedJumpCount: 0,
+                            preservedJumpCount: 0
+                        }
+                        : {
                         jumpCount: value.jumpCount,
                         erasedJumpCount: value.erasedJumpCount,
                         preservedJumpCount: value.preservedJumpCount,
@@ -1846,8 +1904,8 @@ function emitDeactivationPredictionDiagnostics() {
                                 leadMsAverage: byLag.leadMsAverage
                             }])
                         )
-                    }]
-                    )
+                        }
+                ])
                 )
             ])),
             null,
