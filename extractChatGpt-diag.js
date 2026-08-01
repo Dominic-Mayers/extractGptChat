@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.49
+// @version      5.50
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1663,6 +1663,14 @@
         byLag.leadMsAverage = byLag.leadMsCount === 0 ? null : byLag.leadMsSum / byLag.leadMsCount;
       }
     }
+    console.log(
+      "[height update lead]\n" + JSON.stringify(
+        output.singleDeactivationJumpByLastKnownHeightLeadMs,
+        null,
+        2
+      )
+    );
+    delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -4678,7 +4686,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.49" : "unbuilt";
+  var VERSION = true ? "5.50" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

@@ -1810,6 +1810,15 @@ function emitDeactivationPredictionDiagnostics() {
                 : byLag.leadMsSum / byLag.leadMsCount;
         }
     }
+    console.log(
+        "[height update lead]\n" +
+        JSON.stringify(
+            output.singleDeactivationJumpByLastKnownHeightLeadMs,
+            null,
+            2
+        )
+    );
+    delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
             .map(([lag, heights]) => [
