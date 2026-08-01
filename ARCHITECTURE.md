@@ -185,12 +185,11 @@ Within this safe part, the workers can
 reliably prepare the detailed structure required by the current and
 upcoming supplies.
 
-The geometric goal of a slab movement is to bring the slab's top to the bottom
-of the work zone. The slab top cannot always be used as the immediate movement
-reference, however. For a long or partially prepared slab, its top may still be
-above the work zone and outside the ready area. Geometry reported for that
-distant boundary may be incomplete, unstable, or derived from content that the
-Supplier's workers have not prepared yet.
+The geometric goal is to bring the current slab's top to the lower boundary of
+the active area above the work zone. This keeps it near the viewport while the
+next deck enters the active area and can render before reaching the work zone.
+The slab top cannot always be the immediate movement reference: a long or
+partially prepared slab may have incomplete or unstable distant geometry.
 
 Anchors solve this by providing a sequence of local movement references near
 the top of the work zone. An anchor can belong to any active rendered deck; it
@@ -202,12 +201,11 @@ anchor should not lie far below the browser's effective anchor, because
 rendering between the two could preserve the browser anchor while displacing
 the extractor's reference.
 
-For each small movement, the worker moves the work zone only until either the
-selected anchor or the current slab top reaches the bottom target. If the
-anchor arrives first while the slab top is still above the target, the worker
-selects another ready anchor near the top of the work zone and continues.
-Keeping anchor selection independent from the slab target avoids forcing a
-distant slab boundary to serve as the local geometric reference.
+For each small movement, the worker stops when either the selected anchor
+reaches its target near the work-zone bottom or the current slab top reaches
+its separate target above the viewport. If the anchor arrives first, the worker
+selects another ready anchor near the work-zone top and continues. Independent
+targets avoid using a distant slab boundary as the local reference.
 
 Consequently, the foreman advances the work zone in small jumps relative to
 the current anchor. After each jump, it waits until the newly reached safe part
@@ -221,7 +219,7 @@ across many successive work zones, so several small jumps may occur while the
 foreman is still working with anchors in the same slab. Small jumps are
 therefore not considered traversal events.
 
-Instead, the foreman groups successive small jumps into a single **large work-zone movement**. A large work-zone movement begins when traversal cannot continue without advancing the work zone. It consists of as many small jumps as needed, each followed by waiting for the newly reached safe part to become ready. The movement ends when the work zone has advanced as far as possible while the current slab still intersects it.
+Instead, the foreman groups successive small jumps into a single **large work-zone movement**. A large work-zone movement begins when traversal cannot continue without advancing the work zone. It consists of as many small jumps as needed, each followed by waiting for the newly reached safe part to become ready. It ends when the current slab top reaches the lower boundary of the active area above the work zone.
 
 Only after the large work-zone movement is complete does normal slab traversal resume. The intermediate jumps are merely the mechanism by which the Supplier's workers progressively prepare the supply area needed for the current and upcoming operations.
 
@@ -271,10 +269,10 @@ front of the accumulated result. This restores chronological reading order
 without changing traversal direction.
 
 On a later cycle, if traversal cannot reach the next slab directly, the current
-slab is moved geometrically through the work zone. A ready anchor near the top
-of the work zone supervises each jump, independently of the current slab top
-that is being brought to the bottom target. Each small work-zone movement is
-followed by layout and anchor stabilization.
+slab is moved geometrically toward the active area above the work zone. A ready
+anchor near the top of the work zone supervises each jump. The anchor moves
+toward the bottom of the work zone while the current slab top moves toward its
+separate boundary above the viewport. Each jump is followed by stabilization.
 
 Traversal ends when no next deck exists above the current boundary and returns
 a neutral extraction snapshot containing prompts, image references, and
@@ -318,8 +316,9 @@ longer ready when the deck is serialized.
 
 The work zone advances through calibrated jumps rather than teleporting into
 unprepared territory. A ready anchor near the top of the viewport supervises
-each jump. The jump is bounded so that neither the anchor nor the current slab
-top can pass the bottom target.
+each jump. Separate clamps prevent the anchor from passing its target near the
+bottom of the viewport and the current slab top from passing its target above
+the viewport.
 
 After each jump, stabilization observes scroll-container height, scroll
 position, deck activation transitions, and the retained anchor across animation
