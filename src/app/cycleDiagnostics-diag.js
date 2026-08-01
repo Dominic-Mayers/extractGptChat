@@ -120,7 +120,8 @@ export function resetCycleDiagnostics() {
         elapsedMsMaximum: null,
         byPhase: {},
         matchedDeactivationByJumpLag: {},
-        singleDeactivationJumpByPredictionLag: {}
+        singleDeactivationJumpByPredictionLag: {},
+        singleDeactivationJumpByPreCommandLastKnownHeight: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -702,12 +703,13 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             change.after != null &&
             change.after !== "false"
     ).length;
-    const deactivationCount = attributeChanges.filter(
+    const deactivations = attributeChanges.filter(
         change =>
             change.before != null &&
             change.before !== "false" &&
             (change.after == null || change.after === "false")
-    ).length;
+    );
+    const deactivationCount = deactivations.length;
 
     const matchedDeactivations = attributeChanges.filter(change =>
         change.before != null &&
@@ -752,6 +754,58 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
         );
         deactivationPredictionDiagnostics
             .singleDeactivationJumpByPredictionLag[lag] = byLag;
+    }
+    if (deactivationCount === 1) {
+        const deactivation = deactivations[0];
+        const heightState = probe.renderingChanges.some(change =>
+            change.change === "last-known-height" &&
+            change.element.turnId === deactivation.deck.id &&
+            change.phase === "pre-command-frame"
+        ) ? "present" : "absent";
+        const byHeightState = deactivationPredictionDiagnostics
+            .singleDeactivationJumpByPreCommandLastKnownHeight[
+                heightState
+            ] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                byOutcome: {},
+                byPredictionJumpLag: {}
+            };
+        byHeightState.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+            byHeightState.erasedJumpCount++;
+        } else {
+            byHeightState.preservedJumpCount++;
+        }
+        incrementJumpPopulationCategoryDiagnostics(
+            byHeightState.byOutcome,
+            outcome
+        );
+        if (Number.isInteger(deactivation.predictionJumpLag)) {
+            const lag = deactivation.predictionJumpLag;
+            const byLag = byHeightState.byPredictionJumpLag[lag] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                byOutcome: {}
+            };
+            byLag.jumpCount++;
+            if (outcome === "erased" || outcome === "retry-erased") {
+                byLag.erasedJumpCount++;
+            } else {
+                byLag.preservedJumpCount++;
+            }
+            incrementJumpPopulationCategoryDiagnostics(
+                byLag.byOutcome,
+                outcome
+            );
+            byHeightState.byPredictionJumpLag[lag] = byLag;
+        }
+        deactivationPredictionDiagnostics
+            .singleDeactivationJumpByPreCommandLastKnownHeight[
+                heightState
+            ] = byHeightState;
     }
 
     jumpPopulationDiagnostics.classifiedJumpCount++;
@@ -1544,6 +1598,21 @@ function emitDeactivationPredictionDiagnostics() {
         byLag.erasurePercentage = byLag.jumpCount === 0
             ? null
             : byLag.erasedJumpCount / byLag.jumpCount * 100;
+    }
+    for (const byHeightState of Object.values(
+        output.singleDeactivationJumpByPreCommandLastKnownHeight
+    )) {
+        byHeightState.erasurePercentage = byHeightState.jumpCount === 0
+            ? null
+            : byHeightState.erasedJumpCount /
+                byHeightState.jumpCount * 100;
+        for (const byLag of Object.values(
+            byHeightState.byPredictionJumpLag
+        )) {
+            byLag.erasurePercentage = byLag.jumpCount === 0
+                ? null
+                : byLag.erasedJumpCount / byLag.jumpCount * 100;
+        }
     }
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)

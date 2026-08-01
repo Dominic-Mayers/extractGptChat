@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.46
+// @version      5.47
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -355,7 +355,8 @@
       elapsedMsMaximum: null,
       byPhase: {},
       matchedDeactivationByJumpLag: {},
-      singleDeactivationJumpByPredictionLag: {}
+      singleDeactivationJumpByPredictionLag: {},
+      singleDeactivationJumpByPreCommandLastKnownHeight: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -862,9 +863,10 @@
     const activationCount = attributeChanges.filter(
       (change) => (change.before == null || change.before === "false") && change.after != null && change.after !== "false"
     ).length;
-    const deactivationCount = attributeChanges.filter(
+    const deactivations = attributeChanges.filter(
       (change) => change.before != null && change.before !== "false" && (change.after == null || change.after === "false")
-    ).length;
+    );
+    const deactivationCount = deactivations.length;
     const matchedDeactivations = attributeChanges.filter(
       (change) => change.before != null && change.before !== "false" && (change.after == null || change.after === "false") && Number.isInteger(change.predictionJumpLag)
     );
@@ -898,6 +900,50 @@
         outcome
       );
       deactivationPredictionDiagnostics.singleDeactivationJumpByPredictionLag[lag] = byLag;
+    }
+    if (deactivationCount === 1) {
+      const deactivation = deactivations[0];
+      const heightState = probe.renderingChanges.some(
+        (change) => change.change === "last-known-height" && change.element.turnId === deactivation.deck.id && change.phase === "pre-command-frame"
+      ) ? "present" : "absent";
+      const byHeightState = deactivationPredictionDiagnostics.singleDeactivationJumpByPreCommandLastKnownHeight[heightState] ?? {
+        jumpCount: 0,
+        erasedJumpCount: 0,
+        preservedJumpCount: 0,
+        byOutcome: {},
+        byPredictionJumpLag: {}
+      };
+      byHeightState.jumpCount++;
+      if (outcome === "erased" || outcome === "retry-erased") {
+        byHeightState.erasedJumpCount++;
+      } else {
+        byHeightState.preservedJumpCount++;
+      }
+      incrementJumpPopulationCategoryDiagnostics(
+        byHeightState.byOutcome,
+        outcome
+      );
+      if (Number.isInteger(deactivation.predictionJumpLag)) {
+        const lag = deactivation.predictionJumpLag;
+        const byLag = byHeightState.byPredictionJumpLag[lag] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0,
+          byOutcome: {}
+        };
+        byLag.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+          byLag.erasedJumpCount++;
+        } else {
+          byLag.preservedJumpCount++;
+        }
+        incrementJumpPopulationCategoryDiagnostics(
+          byLag.byOutcome,
+          outcome
+        );
+        byHeightState.byPredictionJumpLag[lag] = byLag;
+      }
+      deactivationPredictionDiagnostics.singleDeactivationJumpByPreCommandLastKnownHeight[heightState] = byHeightState;
     }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -941,10 +987,10 @@
       const activations = changes.filter(
         (change) => (change.before == null || change.before === "false") && change.after != null && change.after !== "false"
       ).length;
-      const deactivations = changes.filter(
+      const deactivations2 = changes.filter(
         (change) => change.before != null && change.before !== "false" && (change.after == null || change.after === "false")
       ).length;
-      return `${phase}:activation:${activations},deactivation:${deactivations}`;
+      return `${phase}:activation:${activations},deactivation:${deactivations2}`;
     }).join(";");
     const phasePatternOutcomes = jumpPopulationDiagnostics.phasePatterns[phasePattern] ?? {};
     incrementJumpPopulationCategoryDiagnostics(
@@ -1472,6 +1518,16 @@
       output.singleDeactivationJumpByPredictionLag
     )) {
       byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
+    }
+    for (const byHeightState of Object.values(
+      output.singleDeactivationJumpByPreCommandLastKnownHeight
+    )) {
+      byHeightState.erasurePercentage = byHeightState.jumpCount === 0 ? null : byHeightState.erasedJumpCount / byHeightState.jumpCount * 100;
+      for (const byLag of Object.values(
+        byHeightState.byPredictionJumpLag
+      )) {
+        byLag.erasurePercentage = byLag.jumpCount === 0 ? null : byLag.erasedJumpCount / byLag.jumpCount * 100;
+      }
     }
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
@@ -4477,7 +4533,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.46" : "unbuilt";
+  var VERSION = true ? "5.47" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
