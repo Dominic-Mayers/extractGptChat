@@ -886,41 +886,15 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             : null;
         const leadBucket = leadMs == null
             ? "missing"
-            : leadMs < 0
-                ? leadMs >= -5
-                    ? "after-0-5"
-                    : leadMs >= -10
-                        ? "after-5-10"
-                        : leadMs >= -15
-                            ? "after-10-15"
-                            : leadMs >= -20
-                                ? "after-15-20"
-                                : leadMs >= -25
-                                    ? "after-20-25"
-                                    : leadMs >= -30
-                                        ? "after-25-30"
-                                        : leadMs >= -35
-                                            ? "after-30-35"
-                                            : leadMs >= -40
-                                                ? "after-35-40"
-                                                : leadMs >= -45
-                                                    ? "after-40-45"
-                                                    : leadMs >= -50
-                                                        ? "after-45-50"
-                                                        : "after-gte50"
-                : leadMs < 5
-                    ? "before-0-5"
-                    : leadMs < 10
-                        ? "before-5-10"
-                        : leadMs < 20
-                            ? "before-10-20"
-                            : leadMs < 50
-                                ? "before-20-50"
-                                : leadMs < 100
-                                    ? "before-50-100"
-                                    : leadMs < 250
-                                        ? "before-100-250"
-                                        : "before-gte250";
+            : leadMs < -50
+                ? "after-gte50"
+                : leadMs < 50
+                    ? `near-${Math.floor(leadMs)}`
+                    : leadMs < 100
+                        ? "before-50-100"
+                        : leadMs < 250
+                            ? "before-100-250"
+                            : "before-gte250";
         const leadPopulation = outcome === "retry-succeeded" ||
             outcome === "retry-erased"
             ? deactivationPredictionDiagnostics
