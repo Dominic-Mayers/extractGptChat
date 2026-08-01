@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.50
+// @version      5.51
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1001,7 +1001,7 @@
       const leadMs = Number.isFinite(
         deactivation.lastKnownHeightUpdateClock
       ) && Number.isFinite(probe.commandClock) ? probe.commandClock - deactivation.lastKnownHeightUpdateClock : null;
-      const leadBucket = leadMs == null ? "missing" : leadMs < 0 ? "after-jump" : leadMs < 5 ? "0-4" : leadMs < 10 ? "5-9" : leadMs < 20 ? "10-19" : leadMs < 50 ? "20-49" : leadMs < 100 ? "50-99" : leadMs < 250 ? "100-249" : "gte250";
+      const leadBucket = leadMs == null ? "missing" : leadMs < 0 ? "after-jump" : leadMs < 5 ? "0-4" : leadMs < 10 ? "5-9" : leadMs < 20 ? `${Math.floor(leadMs)}-<${Math.floor(leadMs) + 1}` : leadMs < 50 ? "20-49" : leadMs < 100 ? "50-99" : leadMs < 250 ? "100-249" : "gte250";
       const byLead = deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs[leadBucket] ?? {
         jumpCount: 0,
         erasedJumpCount: 0,
@@ -4686,7 +4686,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.50" : "unbuilt";
+  var VERSION = true ? "5.51" : "unbuilt";
   installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

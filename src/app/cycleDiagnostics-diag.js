@@ -892,7 +892,9 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                     : leadMs < 10
                         ? "5-9"
                         : leadMs < 20
-                            ? "10-19"
+                            ? `${Math.floor(leadMs)}-<${
+                                Math.floor(leadMs) + 1
+                            }`
                             : leadMs < 50
                                 ? "20-49"
                                 : leadMs < 100
