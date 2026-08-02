@@ -50,7 +50,7 @@ let deliveredJumpMutationBatchesDiagnostics = [];
 let currentJumpProbeDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
-let lastGeometricActivationJumpNumberDiagnostics = null;
+let geometricActivationJumpNumbersDiagnostics = new Set();
 let pendingDeactivationPredictionsDiagnostics = new Map();
 let deckActivationGeometryDiagnostics = new WeakMap();
 let lastKnownHeightUpdateDiagnostics = new WeakMap();
@@ -997,11 +997,14 @@ export async function moveWorkZoneBy(jump) {
         workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
         movementJumpNumber: movementJumpNumberDiagnostics,
-        previousGeometricActivationJumpLag:
-            lastGeometricActivationJumpNumberDiagnostics == null
-                ? null
-                : movementJumpNumberDiagnostics -
-                    lastGeometricActivationJumpNumberDiagnostics,
+        previousJumpGeometricallyActivated:
+            geometricActivationJumpNumbersDiagnostics.has(
+                movementJumpNumberDiagnostics - 1
+            ),
+        twoJumpsAgoGeometricallyActivated:
+            geometricActivationJumpNumbersDiagnostics.has(
+                movementJumpNumberDiagnostics - 2
+            ),
         jumpTarget: anchorDiagnostics.element === retainedSlab() &&
             anchorDiagnostics.edge === "top"
             ? "slabTop"
@@ -1021,6 +1024,9 @@ export async function moveWorkZoneBy(jump) {
         sectionRemovalBoundaries: [],
         renderingChanges: []
     };
+    geometricActivationJumpNumbersDiagnostics.delete(
+        movementJumpNumberDiagnostics - 3
+    );
     currentJumpProbeDiagnostics = probeDiagnostics;
     beginJumpObserverDiagnostics(
         probeDiagnostics,
@@ -1069,8 +1075,9 @@ export async function moveWorkZoneBy(jump) {
         probeDiagnostics.preCommand,
         probeDiagnostics.afterCommand
     )) {
-        lastGeometricActivationJumpNumberDiagnostics =
-            movementJumpNumberDiagnostics;
+        geometricActivationJumpNumbersDiagnostics.add(
+            movementJumpNumberDiagnostics
+        );
     }
     probeDiagnostics.phase = "post-command";
 
@@ -1148,7 +1155,7 @@ function resetSupplyWorkerDiagnostics() {
     currentJumpProbeDiagnostics = null;
     currentAnchorNumberDiagnostics = 0;
     movementJumpNumberDiagnostics = 0;
-    lastGeometricActivationJumpNumberDiagnostics = null;
+    geometricActivationJumpNumbersDiagnostics = new Set();
     pendingDeactivationPredictionsDiagnostics = new Map();
     deckActivationGeometryDiagnostics = new WeakMap();
     lastKnownHeightUpdateDiagnostics = new WeakMap();

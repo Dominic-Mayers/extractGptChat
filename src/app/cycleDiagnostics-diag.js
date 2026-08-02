@@ -131,7 +131,7 @@ export function resetCycleDiagnostics() {
         singleDeactivationRetryByLastKnownHeightJumpLag: {},
         singleDeactivationJumpByPreviousJumpActivation: {},
         singleDeactivationJumpByPreviousJumpGeometricActivation: {},
-        singleDeactivationJumpByPreviousGeometricActivationJumpLag: {}
+        singleDeactivationJumpByN2GeometricActivations: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1059,52 +1059,38 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
         heightJumpLagPopulation[heightJumpLagBucket] = byHeightJumpLag;
         if (
             outcome !== "retry-succeeded" &&
-            outcome !== "retry-erased"
+            outcome !== "retry-erased" &&
+            deactivation.predictionJumpLag === 2
         ) {
-            const previousGeometricActivationJumpLag =
-                probe.previousGeometricActivationJumpLag;
-            const previousGeometricActivationJumpLagBucket =
-                Number.isInteger(previousGeometricActivationJumpLag)
-                    ? `jump-lag-${previousGeometricActivationJumpLag}`
-                    : "missing";
-            const previousGeometricActivationPopulation =
+            const initialActivation =
+                probe.twoJumpsAgoGeometricallyActivated;
+            const interveningActivation =
+                probe.previousJumpGeometricallyActivated;
+            const activationBucket = initialActivation
+                ? interveningActivation
+                    ? "initial-and-intervening"
+                    : "initial-only"
+                : interveningActivation
+                    ? "intervening-only"
+                    : "neither";
+            const activationPopulation =
                 deactivationPredictionDiagnostics
-                    .singleDeactivationJumpByPreviousGeometricActivationJumpLag;
-            const byPreviousGeometricActivation =
-                previousGeometricActivationPopulation[
-                    previousGeometricActivationJumpLagBucket
-                ] ?? {
-                    jumpCount: 0,
-                    erasedJumpCount: 0,
-                    preservedJumpCount: 0,
-                    byPredictionJumpLag: {}
-                };
-            byPreviousGeometricActivation.jumpCount++;
+                    .singleDeactivationJumpByN2GeometricActivations;
+            const byActivation = activationPopulation[
+                activationBucket
+            ] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                byPredictionJumpLag: {}
+            };
+            byActivation.jumpCount++;
             if (outcome === "erased") {
-                byPreviousGeometricActivation.erasedJumpCount++;
+                byActivation.erasedJumpCount++;
             } else {
-                byPreviousGeometricActivation.preservedJumpCount++;
+                byActivation.preservedJumpCount++;
             }
-            if (Number.isInteger(deactivation.predictionJumpLag)) {
-                const lag = deactivation.predictionJumpLag;
-                const byLag = byPreviousGeometricActivation
-                    .byPredictionJumpLag[lag] ?? {
-                        jumpCount: 0,
-                        erasedJumpCount: 0,
-                        preservedJumpCount: 0
-                    };
-                byLag.jumpCount++;
-                if (outcome === "erased") {
-                    byLag.erasedJumpCount++;
-                } else {
-                    byLag.preservedJumpCount++;
-                }
-                byPreviousGeometricActivation.byPredictionJumpLag[lag] =
-                    byLag;
-            }
-            previousGeometricActivationPopulation[
-                previousGeometricActivationJumpLagBucket
-            ] = byPreviousGeometricActivation;
+            activationPopulation[activationBucket] = byActivation;
         }
         if (
             outcome !== "retry-succeeded" &&
@@ -2171,11 +2157,10 @@ function emitDeactivationPredictionDiagnostics() {
         ))
     );
     console.log(
-        "[previous geometric activation jump lag ordinary]\n" +
+        "[N=2 geometric activations ordinary]\n" +
         JSON.stringify(compactCategorizedPopulation(
-            output
-                .singleDeactivationJumpByPreviousGeometricActivationJumpLag,
-            "previousGeometricActivationJumpLag"
+            output.singleDeactivationJumpByN2GeometricActivations,
+            "geometricActivations"
         ))
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
@@ -2187,8 +2172,7 @@ function emitDeactivationPredictionDiagnostics() {
     delete output.singleDeactivationJumpByPreviousJumpActivation;
     delete output
         .singleDeactivationJumpByPreviousJumpGeometricActivation;
-    delete output
-        .singleDeactivationJumpByPreviousGeometricActivationJumpLag;
+    delete output.singleDeactivationJumpByN2GeometricActivations;
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
             .map(([lag, heights]) => [
