@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.61
+// @version      5.62
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -362,7 +362,8 @@
       singleDeactivationJumpByLastKnownHeightStabilizationRaf: {},
       singleDeactivationRetryByLastKnownHeightStabilizationRaf: {},
       singleDeactivationJumpByLastKnownHeightJumpLag: {},
-      singleDeactivationRetryByLastKnownHeightJumpLag: {}
+      singleDeactivationRetryByLastKnownHeightJumpLag: {},
+      singleDeactivationJumpByPreviousJumpActivation: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -628,6 +629,9 @@
   }
   function recordErasedJumpResultDiagnostics(jumpWasErased, retriedErasedJump) {
     const retryDiagnostics = currentJumpDiagnostics();
+    if (!retriedErasedJump) {
+      retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;
+    }
     if (jumpWasErased && retriedErasedJump) {
       selectJumpDiagnostics("erased-jump-retry-failed");
       retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;
@@ -1127,6 +1131,41 @@
         byHeightJumpLag.byPredictionJumpLag[lag] = byLag;
       }
       heightJumpLagPopulation[heightJumpLagBucket] = byHeightJumpLag;
+      if (outcome !== "retry-succeeded" && outcome !== "retry-erased") {
+        const previousActivationChanges = jump.previousJump?.activationChanges;
+        const previousJumpActivationBucket = previousActivationChanges == null ? "missing" : previousActivationChanges.some(
+          (change) => change.sectionChange === "added" || (change.before == null || change.before === "false") && change.after != null && change.after !== "false"
+        ) ? "activated" : "not-activated";
+        const activationPopulation = deactivationPredictionDiagnostics.singleDeactivationJumpByPreviousJumpActivation;
+        const byActivation = activationPopulation[previousJumpActivationBucket] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0,
+          byPredictionJumpLag: {}
+        };
+        byActivation.jumpCount++;
+        if (outcome === "erased") {
+          byActivation.erasedJumpCount++;
+        } else {
+          byActivation.preservedJumpCount++;
+        }
+        if (Number.isInteger(deactivation.predictionJumpLag)) {
+          const lag = deactivation.predictionJumpLag;
+          const byLag = byActivation.byPredictionJumpLag[lag] ?? {
+            jumpCount: 0,
+            erasedJumpCount: 0,
+            preservedJumpCount: 0
+          };
+          byLag.jumpCount++;
+          if (outcome === "erased") {
+            byLag.erasedJumpCount++;
+          } else {
+            byLag.preservedJumpCount++;
+          }
+          byActivation.byPredictionJumpLag[lag] = byLag;
+        }
+        activationPopulation[previousJumpActivationBucket] = byActivation;
+      }
     }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -1764,8 +1803,8 @@
         output.singleDeactivationRetryByLastKnownHeightLeadMs
       ))
     );
-    const compactStabilizationRafPopulation = (buckets) => Object.entries(buckets).map(([stabilizationRaf, value]) => ({
-      stabilizationRaf,
+    const compactCategorizedPopulation = (buckets, categoryName) => Object.entries(buckets).map(([category, value]) => ({
+      [categoryName]: category,
       jumpCount: value.jumpCount,
       erasedJumpCount: value.erasedJumpCount,
       preservedJumpCount: value.preservedJumpCount,
@@ -1780,23 +1819,33 @@
       )
     }));
     console.log(
-      "[height update stabilization rAF ordinary]\n" + JSON.stringify(compactStabilizationRafPopulation(
-        output.singleDeactivationJumpByLastKnownHeightStabilizationRaf
+      "[height update stabilization rAF ordinary]\n" + JSON.stringify(compactCategorizedPopulation(
+        output.singleDeactivationJumpByLastKnownHeightStabilizationRaf,
+        "stabilizationRaf"
       ))
     );
     console.log(
-      "[height update stabilization rAF retries]\n" + JSON.stringify(compactStabilizationRafPopulation(
-        output.singleDeactivationRetryByLastKnownHeightStabilizationRaf
+      "[height update stabilization rAF retries]\n" + JSON.stringify(compactCategorizedPopulation(
+        output.singleDeactivationRetryByLastKnownHeightStabilizationRaf,
+        "stabilizationRaf"
       ))
     );
     console.log(
-      "[height update jump lag ordinary]\n" + JSON.stringify(compactStabilizationRafPopulation(
-        output.singleDeactivationJumpByLastKnownHeightJumpLag
+      "[height update jump lag ordinary]\n" + JSON.stringify(compactCategorizedPopulation(
+        output.singleDeactivationJumpByLastKnownHeightJumpLag,
+        "heightUpdateJumpLag"
       ))
     );
     console.log(
-      "[height update jump lag retries]\n" + JSON.stringify(compactStabilizationRafPopulation(
-        output.singleDeactivationRetryByLastKnownHeightJumpLag
+      "[height update jump lag retries]\n" + JSON.stringify(compactCategorizedPopulation(
+        output.singleDeactivationRetryByLastKnownHeightJumpLag,
+        "heightUpdateJumpLag"
+      ))
+    );
+    console.log(
+      "[intervening jump activation ordinary]\n" + JSON.stringify(compactCategorizedPopulation(
+        output.singleDeactivationJumpByPreviousJumpActivation,
+        "previousJumpActivation"
       ))
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
@@ -1805,6 +1854,7 @@
     delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationJumpByLastKnownHeightJumpLag;
     delete output.singleDeactivationRetryByLastKnownHeightJumpLag;
+    delete output.singleDeactivationJumpByPreviousJumpActivation;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -4883,7 +4933,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.61" : "unbuilt";
+  var VERSION = true ? "5.62" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
