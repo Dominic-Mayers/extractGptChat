@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.60
+// @version      5.61
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -360,7 +360,9 @@
       singleDeactivationJumpByLastKnownHeightLeadMs: {},
       singleDeactivationRetryByLastKnownHeightLeadMs: {},
       singleDeactivationJumpByLastKnownHeightStabilizationRaf: {},
-      singleDeactivationRetryByLastKnownHeightStabilizationRaf: {}
+      singleDeactivationRetryByLastKnownHeightStabilizationRaf: {},
+      singleDeactivationJumpByLastKnownHeightJumpLag: {},
+      singleDeactivationRetryByLastKnownHeightJumpLag: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1094,6 +1096,37 @@
         byStabilizationRaf.byPredictionJumpLag[lag] = byLag;
       }
       stabilizationRafPopulation[stabilizationRafBucket] = byStabilizationRaf;
+      const heightJumpLag = deactivation.lastKnownHeightUpdateJumpLag;
+      const heightJumpLagBucket = Number.isInteger(heightJumpLag) ? `jump-lag-${heightJumpLag}` : "missing";
+      const heightJumpLagPopulation = outcome === "retry-succeeded" || outcome === "retry-erased" ? deactivationPredictionDiagnostics.singleDeactivationRetryByLastKnownHeightJumpLag : deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightJumpLag;
+      const byHeightJumpLag = heightJumpLagPopulation[heightJumpLagBucket] ?? {
+        jumpCount: 0,
+        erasedJumpCount: 0,
+        preservedJumpCount: 0,
+        byPredictionJumpLag: {}
+      };
+      byHeightJumpLag.jumpCount++;
+      if (outcome === "erased" || outcome === "retry-erased") {
+        byHeightJumpLag.erasedJumpCount++;
+      } else {
+        byHeightJumpLag.preservedJumpCount++;
+      }
+      if (Number.isInteger(deactivation.predictionJumpLag)) {
+        const lag = deactivation.predictionJumpLag;
+        const byLag = byHeightJumpLag.byPredictionJumpLag[lag] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0
+        };
+        byLag.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+          byLag.erasedJumpCount++;
+        } else {
+          byLag.preservedJumpCount++;
+        }
+        byHeightJumpLag.byPredictionJumpLag[lag] = byLag;
+      }
+      heightJumpLagPopulation[heightJumpLagBucket] = byHeightJumpLag;
     }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -1756,10 +1789,22 @@
         output.singleDeactivationRetryByLastKnownHeightStabilizationRaf
       ))
     );
+    console.log(
+      "[height update jump lag ordinary]\n" + JSON.stringify(compactStabilizationRafPopulation(
+        output.singleDeactivationJumpByLastKnownHeightJumpLag
+      ))
+    );
+    console.log(
+      "[height update jump lag retries]\n" + JSON.stringify(compactStabilizationRafPopulation(
+        output.singleDeactivationRetryByLastKnownHeightJumpLag
+      ))
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
+    delete output.singleDeactivationJumpByLastKnownHeightJumpLag;
+    delete output.singleDeactivationRetryByLastKnownHeightJumpLag;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -4838,7 +4883,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.60" : "unbuilt";
+  var VERSION = true ? "5.61" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

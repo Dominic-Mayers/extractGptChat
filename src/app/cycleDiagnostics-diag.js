@@ -125,7 +125,9 @@ export function resetCycleDiagnostics() {
         singleDeactivationJumpByLastKnownHeightLeadMs: {},
         singleDeactivationRetryByLastKnownHeightLeadMs: {},
         singleDeactivationJumpByLastKnownHeightStabilizationRaf: {},
-        singleDeactivationRetryByLastKnownHeightStabilizationRaf: {}
+        singleDeactivationRetryByLastKnownHeightStabilizationRaf: {},
+        singleDeactivationJumpByLastKnownHeightJumpLag: {},
+        singleDeactivationRetryByLastKnownHeightJumpLag: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1007,6 +1009,47 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
         }
         stabilizationRafPopulation[stabilizationRafBucket] =
             byStabilizationRaf;
+        const heightJumpLag =
+            deactivation.lastKnownHeightUpdateJumpLag;
+        const heightJumpLagBucket = Number.isInteger(heightJumpLag)
+            ? `jump-lag-${heightJumpLag}`
+            : "missing";
+        const heightJumpLagPopulation =
+            outcome === "retry-succeeded" || outcome === "retry-erased"
+                ? deactivationPredictionDiagnostics
+                    .singleDeactivationRetryByLastKnownHeightJumpLag
+                : deactivationPredictionDiagnostics
+                    .singleDeactivationJumpByLastKnownHeightJumpLag;
+        const byHeightJumpLag = heightJumpLagPopulation[
+            heightJumpLagBucket
+        ] ?? {
+            jumpCount: 0,
+            erasedJumpCount: 0,
+            preservedJumpCount: 0,
+            byPredictionJumpLag: {}
+        };
+        byHeightJumpLag.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+            byHeightJumpLag.erasedJumpCount++;
+        } else {
+            byHeightJumpLag.preservedJumpCount++;
+        }
+        if (Number.isInteger(deactivation.predictionJumpLag)) {
+            const lag = deactivation.predictionJumpLag;
+            const byLag = byHeightJumpLag.byPredictionJumpLag[lag] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0
+            };
+            byLag.jumpCount++;
+            if (outcome === "erased" || outcome === "retry-erased") {
+                byLag.erasedJumpCount++;
+            } else {
+                byLag.preservedJumpCount++;
+            }
+            byHeightJumpLag.byPredictionJumpLag[lag] = byLag;
+        }
+        heightJumpLagPopulation[heightJumpLagBucket] = byHeightJumpLag;
     }
 
     jumpPopulationDiagnostics.classifiedJumpCount++;
@@ -1916,10 +1959,24 @@ function emitDeactivationPredictionDiagnostics() {
                 .singleDeactivationRetryByLastKnownHeightStabilizationRaf
         ))
     );
+    console.log(
+        "[height update jump lag ordinary]\n" +
+        JSON.stringify(compactStabilizationRafPopulation(
+            output.singleDeactivationJumpByLastKnownHeightJumpLag
+        ))
+    );
+    console.log(
+        "[height update jump lag retries]\n" +
+        JSON.stringify(compactStabilizationRafPopulation(
+            output.singleDeactivationRetryByLastKnownHeightJumpLag
+        ))
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
+    delete output.singleDeactivationJumpByLastKnownHeightJumpLag;
+    delete output.singleDeactivationRetryByLastKnownHeightJumpLag;
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
             .map(([lag, heights]) => [
