@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.58
+// @version      5.59
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -358,7 +358,9 @@
       singleDeactivationJumpByPredictionLag: {},
       singleDeactivationJumpByPreCommandLastKnownHeight: {},
       singleDeactivationJumpByLastKnownHeightLeadMs: {},
-      singleDeactivationRetryByLastKnownHeightLeadMs: {}
+      singleDeactivationRetryByLastKnownHeightLeadMs: {},
+      singleDeactivationJumpByLastKnownHeightStabilizationRaf: {},
+      singleDeactivationRetryByLastKnownHeightStabilizationRaf: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -801,11 +803,13 @@
       delivery: change.delivery ?? null,
       order: change.order ?? null,
       phase: change.phase ?? null,
+      stabilizationRaf: change.stabilizationRaf ?? null,
       scrollYAtMutationDeliveryStart: change.scrollYAtMutationDeliveryStart ?? null,
       predictionElapsedMs: change.predictionElapsedMs ?? null,
       predictionJumpLag: change.predictionJumpLag ?? null,
       lastKnownHeightUpdateClock: change.lastKnownHeightUpdateClock ?? null,
       lastKnownHeightUpdateJumpLag: change.lastKnownHeightUpdateJumpLag ?? null,
+      lastKnownHeightUpdateStabilizationRaf: change.lastKnownHeightUpdateStabilizationRaf ?? null,
       deckHeightAtPrediction: change.deckHeightAtPrediction ?? null,
       deckId: change.deck?.id ?? null,
       before: change.before ?? null,
@@ -820,6 +824,7 @@
         delivery: change.delivery ?? null,
         order: change.order ?? null,
         phase: change.phase ?? null,
+        stabilizationRaf: change.stabilizationRaf ?? null,
         change: change.change,
         tagName: change.element?.tagName ?? null,
         id: change.element?.id ?? null,
@@ -1058,6 +1063,37 @@
         byLead.byPredictionJumpLag[lag] = byLag;
       }
       leadPopulation[leadBucket] = byLead;
+      const stabilizationRaf = deactivation.lastKnownHeightUpdateStabilizationRaf;
+      const stabilizationRafBucket = Number.isInteger(stabilizationRaf) ? `raf-${stabilizationRaf}` : "outside-stabilization-rAF";
+      const stabilizationRafPopulation = outcome === "retry-succeeded" || outcome === "retry-erased" ? deactivationPredictionDiagnostics.singleDeactivationRetryByLastKnownHeightStabilizationRaf : deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
+      const byStabilizationRaf = stabilizationRafPopulation[stabilizationRafBucket] ?? {
+        jumpCount: 0,
+        erasedJumpCount: 0,
+        preservedJumpCount: 0,
+        byPredictionJumpLag: {}
+      };
+      byStabilizationRaf.jumpCount++;
+      if (outcome === "erased" || outcome === "retry-erased") {
+        byStabilizationRaf.erasedJumpCount++;
+      } else {
+        byStabilizationRaf.preservedJumpCount++;
+      }
+      if (Number.isInteger(deactivation.predictionJumpLag)) {
+        const lag = deactivation.predictionJumpLag;
+        const byLag = byStabilizationRaf.byPredictionJumpLag[lag] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0
+        };
+        byLag.jumpCount++;
+        if (outcome === "erased" || outcome === "retry-erased") {
+          byLag.erasedJumpCount++;
+        } else {
+          byLag.preservedJumpCount++;
+        }
+        byStabilizationRaf.byPredictionJumpLag[lag] = byLag;
+      }
+      stabilizationRafPopulation[stabilizationRafBucket] = byStabilizationRaf;
     }
     jumpPopulationDiagnostics.classifiedJumpCount++;
     if (outcome === "erased" || outcome === "retry-erased") {
@@ -1695,8 +1731,35 @@
         output.singleDeactivationRetryByLastKnownHeightLeadMs
       ))
     );
+    const compactStabilizationRafPopulation = (buckets) => Object.entries(buckets).map(([stabilizationRaf, value]) => ({
+      stabilizationRaf,
+      jumpCount: value.jumpCount,
+      erasedJumpCount: value.erasedJumpCount,
+      preservedJumpCount: value.preservedJumpCount,
+      byPredictionJumpLag: Object.fromEntries(
+        Object.entries(value.byPredictionJumpLag).map(
+          ([lag, byLag]) => [lag, [
+            byLag.jumpCount,
+            byLag.erasedJumpCount,
+            byLag.preservedJumpCount
+          ]]
+        )
+      )
+    }));
+    console.log(
+      "[height update stabilization rAF ordinary]\n" + JSON.stringify(compactStabilizationRafPopulation(
+        output.singleDeactivationJumpByLastKnownHeightStabilizationRaf
+      ))
+    );
+    console.log(
+      "[height update stabilization rAF retries]\n" + JSON.stringify(compactStabilizationRafPopulation(
+        output.singleDeactivationRetryByLastKnownHeightStabilizationRaf
+      ))
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
+    delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
+    delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -3333,8 +3396,28 @@ ${fence}
       probe,
       records,
       phase,
-      scrollYAtDeliveryStart
+      scrollYAtDeliveryStart,
+      null
     );
+  }
+  function beginStabilizationRafMutationDiagnostics(frame) {
+    requestAnimationFrame(() => {
+      const probe = currentJumpProbeDiagnostics;
+      if (probe == null) return;
+      const { supplyArea, workZone } = environment();
+      const scrollYAtDeliveryStart = workZonePosition(
+        supplyArea,
+        workZone
+      );
+      const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
+      recordJumpChangesDiagnostics(
+        probe,
+        records,
+        probe.phase,
+        scrollYAtDeliveryStart,
+        frame
+      );
+    });
   }
   function resetSupplyWorkerDiagnostics() {
     installNativeRemovalInstrumentationDiagnostics();
@@ -3435,7 +3518,18 @@ ${fence}
   }
   function captureNextRafJumpProbeDiagnostics(probe, anchor, supplyArea, workZone) {
     requestAnimationFrame(() => {
-      drainJumpObserverDiagnostics(probe, "post-command");
+      const scrollYAtDeliveryStart = workZonePosition(
+        supplyArea,
+        workZone
+      );
+      const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
+      recordJumpChangesDiagnostics(
+        probe,
+        records,
+        "post-command",
+        scrollYAtDeliveryStart,
+        1
+      );
       probe.nextRaf = jumpProbeGeometryDiagnostics(
         anchor,
         supplyArea,
@@ -3511,7 +3605,7 @@ ${fence}
     });
     return observer;
   }
-  function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart) {
+  function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart, stabilizationRaf = null) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
     for (const record of records) {
@@ -3526,13 +3620,15 @@ ${fence}
           const clock = performance.now();
           lastKnownHeightUpdateDiagnostics.set(record.target, {
             clock,
-            movementJumpNumber: movementJumpNumberDiagnostics
+            movementJumpNumber: movementJumpNumberDiagnostics,
+            stabilizationRaf
           });
           probe.renderingChanges.push({
             delivery,
             order: ++probe.mutationOrder,
             clock,
             phase,
+            stabilizationRaf,
             change: "last-known-height",
             before,
             after,
@@ -3565,6 +3661,7 @@ ${fence}
           order: ++probe.mutationOrder,
           clock: performance.now(),
           phase,
+          stabilizationRaf,
           scrollYAtMutationDeliveryStart: scrollYAtDeliveryStart,
           deck: snapshotElementDiagnostics(record.target),
           before,
@@ -3573,6 +3670,7 @@ ${fence}
           predictionJumpLag: prediction == null ? null : movementJumpNumberDiagnostics - prediction.predictedOnJumpNumber,
           lastKnownHeightUpdateClock: lastKnownHeightUpdate?.clock ?? null,
           lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
+          lastKnownHeightUpdateStabilizationRaf: lastKnownHeightUpdate?.stabilizationRaf ?? null,
           deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction
         });
         continue;
@@ -3842,6 +3940,9 @@ ${fence}
     });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
+      beginStabilizationRafMutationDiagnostics(
+        frame + 1
+      );
       await nextAnimationFrame();
       finishRafWaitDiagnostics();
       const currentGeometry = geometrySnapshot();
@@ -4712,7 +4813,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.58" : "unbuilt";
+  var VERSION = true ? "5.59" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

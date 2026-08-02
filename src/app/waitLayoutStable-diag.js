@@ -6,6 +6,7 @@ import {
 } from "./constants-diag.js";
 import {
     anchorRoom,
+    beginStabilizationRafMutationDiagnostics,
     deckActivationTransitions,
     roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
@@ -65,6 +66,9 @@ export async function waitLayoutStable(
 
     for (let frame = 0; frame < maxFrames; frame++) {
         beginRafDiagnostics({ frame: frame + 1 });
+        beginStabilizationRafMutationDiagnostics(
+            frame + 1
+        );
         await nextAnimationFrame();
         finishRafWaitDiagnostics();
 
