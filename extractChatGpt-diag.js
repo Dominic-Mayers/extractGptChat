@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.59
+// @version      5.60
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -2565,6 +2565,7 @@ ${fence}
   var currentAnchor;
   var savedDeckActivationStatus;
   var currentJumpObserverDiagnostics = null;
+  var deliveredJumpMutationBatchesDiagnostics = [];
   var currentJumpProbeDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
   var movementJumpNumberDiagnostics = 0;
@@ -3384,8 +3385,10 @@ ${fence}
   function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
+    deliveredJumpMutationBatchesDiagnostics = [];
   }
   function drainJumpObserverDiagnostics(probe, phase) {
+    flushDeliveredJumpMutationBatchesDiagnostics(probe, null);
     const { supplyArea, workZone } = environment();
     const scrollYAtDeliveryStart = workZonePosition(
       supplyArea,
@@ -3401,23 +3404,30 @@ ${fence}
     );
   }
   function beginStabilizationRafMutationDiagnostics(frame) {
-    requestAnimationFrame(() => {
-      const probe = currentJumpProbeDiagnostics;
-      if (probe == null) return;
-      const { supplyArea, workZone } = environment();
-      const scrollYAtDeliveryStart = workZonePosition(
-        supplyArea,
-        workZone
-      );
-      const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-      recordJumpChangesDiagnostics(
-        probe,
-        records,
-        probe.phase,
-        scrollYAtDeliveryStart,
-        frame
-      );
-    });
+    requestAnimationFrame(
+      () => drainJumpObserverAtStabilizationRafDiagnostics(frame)
+    );
+  }
+  function finishStabilizationRafMutationDiagnostics(frame) {
+    drainJumpObserverAtStabilizationRafDiagnostics(frame);
+  }
+  function drainJumpObserverAtStabilizationRafDiagnostics(frame) {
+    const probe = currentJumpProbeDiagnostics;
+    if (probe == null) return;
+    flushDeliveredJumpMutationBatchesDiagnostics(probe, frame);
+    const { supplyArea, workZone } = environment();
+    const scrollYAtDeliveryStart = workZonePosition(
+      supplyArea,
+      workZone
+    );
+    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
+    recordJumpChangesDiagnostics(
+      probe,
+      records,
+      probe.phase,
+      scrollYAtDeliveryStart,
+      frame
+    );
   }
   function resetSupplyWorkerDiagnostics() {
     installNativeRemovalInstrumentationDiagnostics();
@@ -3518,6 +3528,7 @@ ${fence}
   }
   function captureNextRafJumpProbeDiagnostics(probe, anchor, supplyArea, workZone) {
     requestAnimationFrame(() => {
+      flushDeliveredJumpMutationBatchesDiagnostics(probe, 1);
       const scrollYAtDeliveryStart = workZonePosition(
         supplyArea,
         workZone
@@ -3589,12 +3600,11 @@ ${fence}
         supplyArea,
         workZone
       );
-      recordJumpChangesDiagnostics(
-        probe,
+      deliveredJumpMutationBatchesDiagnostics.push({
         records,
-        probe.phase,
+        phase: probe.phase,
         scrollYAtDeliveryStart
-      );
+      });
     });
     observer.observe(document.body, {
       subtree: true,
@@ -3604,6 +3614,19 @@ ${fence}
       attributeFilter: ["data-is-intersecting", "style"]
     });
     return observer;
+  }
+  function flushDeliveredJumpMutationBatchesDiagnostics(probe, stabilizationRaf) {
+    const batches = deliveredJumpMutationBatchesDiagnostics;
+    deliveredJumpMutationBatchesDiagnostics = [];
+    for (const batch of batches) {
+      recordJumpChangesDiagnostics(
+        probe,
+        batch.records,
+        batch.phase,
+        batch.scrollYAtDeliveryStart,
+        stabilizationRaf
+      );
+    }
   }
   function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart, stabilizationRaf = null) {
     if (records.length === 0) return;
@@ -3994,6 +4017,7 @@ ${fence}
         acceptedScrollYChange: scrollYChange
       };
       previousRafGeometry = currentGeometry;
+      finishStabilizationRafMutationDiagnostics(frame + 1);
       if (shouldIgnoreRaf(deckTransitions)) {
         warnIgnoredDeckTransitions(
           deckTransitions,
@@ -4015,6 +4039,7 @@ ${fence}
         trackAnchor,
         positionAtFrame
       );
+      finishStabilizationRafMutationDiagnostics(frame + 1);
       const positionNowDiagnostics = trackAnchor ? anchorRoom() : null;
       if (!anchorStable) {
         finishRafDiagnostics({ status: "anchor-changed" });
@@ -4813,7 +4838,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.59" : "unbuilt";
+  var VERSION = true ? "5.60" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

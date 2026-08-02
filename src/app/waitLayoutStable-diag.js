@@ -8,6 +8,7 @@ import {
     anchorRoom,
     beginStabilizationRafMutationDiagnostics,
     deckActivationTransitions,
+    finishStabilizationRafMutationDiagnostics,
     roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
@@ -129,6 +130,7 @@ export async function waitLayoutStable(
             acceptedScrollYChange: scrollYChange
         };
         previousRafGeometry = currentGeometry;
+        finishStabilizationRafMutationDiagnostics(frame + 1);
 
         if (shouldIgnoreRaf(deckTransitions)) {
             warnIgnoredDeckTransitions(
@@ -153,6 +155,7 @@ export async function waitLayoutStable(
             trackAnchor,
             positionAtFrame
         );
+        finishStabilizationRafMutationDiagnostics(frame + 1);
         const positionNowDiagnostics = trackAnchor
             ? anchorRoom()
             : null;

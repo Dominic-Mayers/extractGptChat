@@ -46,6 +46,7 @@ let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
 let currentJumpObserverDiagnostics = null;
+let deliveredJumpMutationBatchesDiagnostics = [];
 let currentJumpProbeDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
@@ -1079,9 +1080,11 @@ export async function moveWorkZoneBy(jump) {
 function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
+    deliveredJumpMutationBatchesDiagnostics = [];
 }
 
 function drainJumpObserverDiagnostics(probe, phase) {
+    flushDeliveredJumpMutationBatchesDiagnostics(probe, null);
     const { supplyArea, workZone } = environment();
     const scrollYAtDeliveryStart = workZonePosition(
         supplyArea,
@@ -1098,23 +1101,32 @@ function drainJumpObserverDiagnostics(probe, phase) {
 }
 
 export function beginStabilizationRafMutationDiagnostics(frame) {
-    requestAnimationFrame(() => {
-        const probe = currentJumpProbeDiagnostics;
-        if (probe == null) return;
-        const { supplyArea, workZone } = environment();
-        const scrollYAtDeliveryStart = workZonePosition(
-            supplyArea,
-            workZone
-        );
-        const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-        recordJumpChangesDiagnostics(
-            probe,
-            records,
-            probe.phase,
-            scrollYAtDeliveryStart,
-            frame
-        );
-    });
+    requestAnimationFrame(() =>
+        drainJumpObserverAtStabilizationRafDiagnostics(frame)
+    );
+}
+
+export function finishStabilizationRafMutationDiagnostics(frame) {
+    drainJumpObserverAtStabilizationRafDiagnostics(frame);
+}
+
+function drainJumpObserverAtStabilizationRafDiagnostics(frame) {
+    const probe = currentJumpProbeDiagnostics;
+    if (probe == null) return;
+    flushDeliveredJumpMutationBatchesDiagnostics(probe, frame);
+    const { supplyArea, workZone } = environment();
+    const scrollYAtDeliveryStart = workZonePosition(
+        supplyArea,
+        workZone
+    );
+    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
+    recordJumpChangesDiagnostics(
+        probe,
+        records,
+        probe.phase,
+        scrollYAtDeliveryStart,
+        frame
+    );
 }
 
 function resetSupplyWorkerDiagnostics() {
@@ -1241,6 +1253,7 @@ function captureNextRafJumpProbeDiagnostics(
     workZone
 ) {
     requestAnimationFrame(() => {
+        flushDeliveredJumpMutationBatchesDiagnostics(probe, 1);
         const scrollYAtDeliveryStart = workZonePosition(
             supplyArea,
             workZone
@@ -1323,12 +1336,11 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
             supplyArea,
             workZone
         );
-        recordJumpChangesDiagnostics(
-            probe,
+        deliveredJumpMutationBatchesDiagnostics.push({
             records,
-            probe.phase,
+            phase: probe.phase,
             scrollYAtDeliveryStart
-        );
+        });
     });
 
     observer.observe(document.body, {
@@ -1339,6 +1351,23 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
         attributeFilter: ["data-is-intersecting", "style"]
     });
     return observer;
+}
+
+function flushDeliveredJumpMutationBatchesDiagnostics(
+    probe,
+    stabilizationRaf
+) {
+    const batches = deliveredJumpMutationBatchesDiagnostics;
+    deliveredJumpMutationBatchesDiagnostics = [];
+    for (const batch of batches) {
+        recordJumpChangesDiagnostics(
+            probe,
+            batch.records,
+            batch.phase,
+            batch.scrollYAtDeliveryStart,
+            stabilizationRaf
+        );
+    }
 }
 
 function recordJumpChangesDiagnostics(
