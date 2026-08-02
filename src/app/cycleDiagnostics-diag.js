@@ -3,6 +3,7 @@ import {
     supplyHeight,
     workZonePosition
 } from "./scrollContainer-diag.js";
+import { MIN_ACTIVATION_DISTANCE } from "./constants-diag.js";
 
 let previousCycle = null;
 let currentCycle = null;
@@ -128,7 +129,8 @@ export function resetCycleDiagnostics() {
         singleDeactivationRetryByLastKnownHeightStabilizationRaf: {},
         singleDeactivationJumpByLastKnownHeightJumpLag: {},
         singleDeactivationRetryByLastKnownHeightJumpLag: {},
-        singleDeactivationJumpByPreviousJumpActivation: {}
+        singleDeactivationJumpByPreviousJumpActivation: {},
+        singleDeactivationJumpByPreviousJumpGeometricActivation: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1108,6 +1110,75 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             }
             activationPopulation[previousJumpActivationBucket] =
                 byActivation;
+            const previousBefore = jump.previousJump?.beforeJump;
+            const previousAfter = jump.previousJump?.afterCommand;
+            const scrollDelta =
+                Number.isFinite(previousBefore?.scrollY) &&
+                Number.isFinite(previousAfter?.scrollY)
+                    ? previousAfter.scrollY - previousBefore.scrollY
+                    : null;
+            const geometricallyActivated = scrollDelta == null
+                ? null
+                : (
+                    scrollDelta < 0 &&
+                    Number.isFinite(
+                        previousBefore.activationDistanceAbove
+                    ) &&
+                    previousBefore.activationDistanceAbove >=
+                        MIN_ACTIVATION_DISTANCE &&
+                    previousBefore.activationDistanceAbove + scrollDelta <
+                        MIN_ACTIVATION_DISTANCE
+                ) || (
+                    scrollDelta > 0 &&
+                    Number.isFinite(
+                        previousBefore.activationDistanceBelow
+                    ) &&
+                    previousBefore.activationDistanceBelow >=
+                        MIN_ACTIVATION_DISTANCE &&
+                    previousBefore.activationDistanceBelow - scrollDelta <
+                        MIN_ACTIVATION_DISTANCE
+                );
+            const geometricActivationBucket =
+                geometricallyActivated == null
+                    ? "missing"
+                    : geometricallyActivated
+                        ? "activated"
+                        : "not-activated";
+            const geometricActivationPopulation =
+                deactivationPredictionDiagnostics
+                    .singleDeactivationJumpByPreviousJumpGeometricActivation;
+            const byGeometricActivation = geometricActivationPopulation[
+                geometricActivationBucket
+            ] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                byPredictionJumpLag: {}
+            };
+            byGeometricActivation.jumpCount++;
+            if (outcome === "erased") {
+                byGeometricActivation.erasedJumpCount++;
+            } else {
+                byGeometricActivation.preservedJumpCount++;
+            }
+            if (Number.isInteger(deactivation.predictionJumpLag)) {
+                const lag = deactivation.predictionJumpLag;
+                const byLag = byGeometricActivation
+                    .byPredictionJumpLag[lag] ?? {
+                        jumpCount: 0,
+                        erasedJumpCount: 0,
+                        preservedJumpCount: 0
+                    };
+                byLag.jumpCount++;
+                if (outcome === "erased") {
+                    byLag.erasedJumpCount++;
+                } else {
+                    byLag.preservedJumpCount++;
+                }
+                byGeometricActivation.byPredictionJumpLag[lag] = byLag;
+            }
+            geometricActivationPopulation[geometricActivationBucket] =
+                byGeometricActivation;
         }
     }
 
@@ -2041,6 +2112,14 @@ function emitDeactivationPredictionDiagnostics() {
             "previousJumpActivation"
         ))
     );
+    console.log(
+        "[intervening jump geometric activation ordinary]\n" +
+        JSON.stringify(compactCategorizedPopulation(
+            output
+                .singleDeactivationJumpByPreviousJumpGeometricActivation,
+            "previousJumpGeometricActivation"
+        ))
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
@@ -2048,6 +2127,8 @@ function emitDeactivationPredictionDiagnostics() {
     delete output.singleDeactivationJumpByLastKnownHeightJumpLag;
     delete output.singleDeactivationRetryByLastKnownHeightJumpLag;
     delete output.singleDeactivationJumpByPreviousJumpActivation;
+    delete output
+        .singleDeactivationJumpByPreviousJumpGeometricActivation;
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
             .map(([lag, heights]) => [
