@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.63
+// @version      5.64
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -364,7 +364,8 @@
       singleDeactivationJumpByLastKnownHeightJumpLag: {},
       singleDeactivationRetryByLastKnownHeightJumpLag: {},
       singleDeactivationJumpByPreviousJumpActivation: {},
-      singleDeactivationJumpByPreviousJumpGeometricActivation: {}
+      singleDeactivationJumpByPreviousJumpGeometricActivation: {},
+      singleDeactivationJumpByPreviousGeometricActivationJumpLag: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1133,6 +1134,39 @@
       }
       heightJumpLagPopulation[heightJumpLagBucket] = byHeightJumpLag;
       if (outcome !== "retry-succeeded" && outcome !== "retry-erased") {
+        const previousGeometricActivationJumpLag = probe.previousGeometricActivationJumpLag;
+        const previousGeometricActivationJumpLagBucket = Number.isInteger(previousGeometricActivationJumpLag) ? `jump-lag-${previousGeometricActivationJumpLag}` : "missing";
+        const previousGeometricActivationPopulation = deactivationPredictionDiagnostics.singleDeactivationJumpByPreviousGeometricActivationJumpLag;
+        const byPreviousGeometricActivation = previousGeometricActivationPopulation[previousGeometricActivationJumpLagBucket] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0,
+          byPredictionJumpLag: {}
+        };
+        byPreviousGeometricActivation.jumpCount++;
+        if (outcome === "erased") {
+          byPreviousGeometricActivation.erasedJumpCount++;
+        } else {
+          byPreviousGeometricActivation.preservedJumpCount++;
+        }
+        if (Number.isInteger(deactivation.predictionJumpLag)) {
+          const lag = deactivation.predictionJumpLag;
+          const byLag = byPreviousGeometricActivation.byPredictionJumpLag[lag] ?? {
+            jumpCount: 0,
+            erasedJumpCount: 0,
+            preservedJumpCount: 0
+          };
+          byLag.jumpCount++;
+          if (outcome === "erased") {
+            byLag.erasedJumpCount++;
+          } else {
+            byLag.preservedJumpCount++;
+          }
+          byPreviousGeometricActivation.byPredictionJumpLag[lag] = byLag;
+        }
+        previousGeometricActivationPopulation[previousGeometricActivationJumpLagBucket] = byPreviousGeometricActivation;
+      }
+      if (outcome !== "retry-succeeded" && outcome !== "retry-erased") {
         const previousActivationChanges = jump.previousJump?.activationChanges;
         const previousJumpActivationBucket = previousActivationChanges == null ? "missing" : previousActivationChanges.some(
           (change) => change.sectionChange === "added" || (change.before == null || change.before === "false") && change.after != null && change.after !== "false"
@@ -1893,6 +1927,12 @@
         "previousJumpGeometricActivation"
       ))
     );
+    console.log(
+      "[previous geometric activation jump lag ordinary]\n" + JSON.stringify(compactCategorizedPopulation(
+        output.singleDeactivationJumpByPreviousGeometricActivationJumpLag,
+        "previousGeometricActivationJumpLag"
+      ))
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
@@ -1901,6 +1941,7 @@
     delete output.singleDeactivationRetryByLastKnownHeightJumpLag;
     delete output.singleDeactivationJumpByPreviousJumpActivation;
     delete output.singleDeactivationJumpByPreviousJumpGeometricActivation;
+    delete output.singleDeactivationJumpByPreviousGeometricActivationJumpLag;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -2710,6 +2751,7 @@ ${fence}
   var currentJumpProbeDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
   var movementJumpNumberDiagnostics = 0;
+  var lastGeometricActivationJumpNumberDiagnostics = null;
   var pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
   var deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
   var lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
@@ -3454,6 +3496,7 @@ ${fence}
     const supplyRoomBeforeDiagnostics = workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
       movementJumpNumber: movementJumpNumberDiagnostics,
+      previousGeometricActivationJumpLag: lastGeometricActivationJumpNumberDiagnostics == null ? null : movementJumpNumberDiagnostics - lastGeometricActivationJumpNumberDiagnostics,
       jumpTarget: anchorDiagnostics.element === retainedSlab() && anchorDiagnostics.edge === "top" ? "slabTop" : "ordinaryAnchor",
       phase: "pre-command-frame",
       beforeFrame: jumpProbeGeometryDiagnostics(
@@ -3510,6 +3553,12 @@ ${fence}
       supplyArea,
       workZone
     );
+    if (geometricallyActivatesDeckDiagnostics(
+      probeDiagnostics.preCommand,
+      probeDiagnostics.afterCommand
+    )) {
+      lastGeometricActivationJumpNumberDiagnostics = movementJumpNumberDiagnostics;
+    }
     probeDiagnostics.phase = "post-command";
     const supplyRoomAfterDiagnostics = workZonePosition(supplyArea, workZone);
     updateJumpDiagnostics({
@@ -3576,9 +3625,14 @@ ${fence}
     currentJumpProbeDiagnostics = null;
     currentAnchorNumberDiagnostics = 0;
     movementJumpNumberDiagnostics = 0;
+    lastGeometricActivationJumpNumberDiagnostics = null;
     pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
     deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
     lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
+  }
+  function geometricallyActivatesDeckDiagnostics(before, after) {
+    const scrollDelta = after.scrollY - before.scrollY;
+    return scrollDelta < 0 && Number.isFinite(before.activationDistanceAbove) && before.activationDistanceAbove >= MIN_ACTIVATION_DISTANCE && before.activationDistanceAbove + scrollDelta < MIN_ACTIVATION_DISTANCE || scrollDelta > 0 && Number.isFinite(before.activationDistanceBelow) && before.activationDistanceBelow >= MIN_ACTIVATION_DISTANCE && before.activationDistanceBelow - scrollDelta < MIN_ACTIVATION_DISTANCE;
   }
   function installNativeRemovalInstrumentationDiagnostics() {
     if (nativeRemovalInstrumentationInstalledDiagnostics) return;
@@ -4979,7 +5033,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.63" : "unbuilt";
+  var VERSION = true ? "5.64" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

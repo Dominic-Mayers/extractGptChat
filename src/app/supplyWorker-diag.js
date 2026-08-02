@@ -50,6 +50,7 @@ let deliveredJumpMutationBatchesDiagnostics = [];
 let currentJumpProbeDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
+let lastGeometricActivationJumpNumberDiagnostics = null;
 let pendingDeactivationPredictionsDiagnostics = new Map();
 let deckActivationGeometryDiagnostics = new WeakMap();
 let lastKnownHeightUpdateDiagnostics = new WeakMap();
@@ -996,6 +997,11 @@ export async function moveWorkZoneBy(jump) {
         workZonePosition(supplyArea, workZone);
     const probeDiagnostics = {
         movementJumpNumber: movementJumpNumberDiagnostics,
+        previousGeometricActivationJumpLag:
+            lastGeometricActivationJumpNumberDiagnostics == null
+                ? null
+                : movementJumpNumberDiagnostics -
+                    lastGeometricActivationJumpNumberDiagnostics,
         jumpTarget: anchorDiagnostics.element === retainedSlab() &&
             anchorDiagnostics.edge === "top"
             ? "slabTop"
@@ -1059,6 +1065,13 @@ export async function moveWorkZoneBy(jump) {
         supplyArea,
         workZone
     );
+    if (geometricallyActivatesDeckDiagnostics(
+        probeDiagnostics.preCommand,
+        probeDiagnostics.afterCommand
+    )) {
+        lastGeometricActivationJumpNumberDiagnostics =
+            movementJumpNumberDiagnostics;
+    }
     probeDiagnostics.phase = "post-command";
 
     const supplyRoomAfterDiagnostics =
@@ -1135,9 +1148,27 @@ function resetSupplyWorkerDiagnostics() {
     currentJumpProbeDiagnostics = null;
     currentAnchorNumberDiagnostics = 0;
     movementJumpNumberDiagnostics = 0;
+    lastGeometricActivationJumpNumberDiagnostics = null;
     pendingDeactivationPredictionsDiagnostics = new Map();
     deckActivationGeometryDiagnostics = new WeakMap();
     lastKnownHeightUpdateDiagnostics = new WeakMap();
+}
+
+function geometricallyActivatesDeckDiagnostics(before, after) {
+    const scrollDelta = after.scrollY - before.scrollY;
+    return (
+        scrollDelta < 0 &&
+        Number.isFinite(before.activationDistanceAbove) &&
+        before.activationDistanceAbove >= MIN_ACTIVATION_DISTANCE &&
+        before.activationDistanceAbove + scrollDelta <
+            MIN_ACTIVATION_DISTANCE
+    ) || (
+        scrollDelta > 0 &&
+        Number.isFinite(before.activationDistanceBelow) &&
+        before.activationDistanceBelow >= MIN_ACTIVATION_DISTANCE &&
+        before.activationDistanceBelow - scrollDelta <
+            MIN_ACTIVATION_DISTANCE
+    );
 }
 
 function installNativeRemovalInstrumentationDiagnostics() {

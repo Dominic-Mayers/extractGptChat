@@ -130,7 +130,8 @@ export function resetCycleDiagnostics() {
         singleDeactivationJumpByLastKnownHeightJumpLag: {},
         singleDeactivationRetryByLastKnownHeightJumpLag: {},
         singleDeactivationJumpByPreviousJumpActivation: {},
-        singleDeactivationJumpByPreviousJumpGeometricActivation: {}
+        singleDeactivationJumpByPreviousJumpGeometricActivation: {},
+        singleDeactivationJumpByPreviousGeometricActivationJumpLag: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1056,6 +1057,55 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             byHeightJumpLag.byPredictionJumpLag[lag] = byLag;
         }
         heightJumpLagPopulation[heightJumpLagBucket] = byHeightJumpLag;
+        if (
+            outcome !== "retry-succeeded" &&
+            outcome !== "retry-erased"
+        ) {
+            const previousGeometricActivationJumpLag =
+                probe.previousGeometricActivationJumpLag;
+            const previousGeometricActivationJumpLagBucket =
+                Number.isInteger(previousGeometricActivationJumpLag)
+                    ? `jump-lag-${previousGeometricActivationJumpLag}`
+                    : "missing";
+            const previousGeometricActivationPopulation =
+                deactivationPredictionDiagnostics
+                    .singleDeactivationJumpByPreviousGeometricActivationJumpLag;
+            const byPreviousGeometricActivation =
+                previousGeometricActivationPopulation[
+                    previousGeometricActivationJumpLagBucket
+                ] ?? {
+                    jumpCount: 0,
+                    erasedJumpCount: 0,
+                    preservedJumpCount: 0,
+                    byPredictionJumpLag: {}
+                };
+            byPreviousGeometricActivation.jumpCount++;
+            if (outcome === "erased") {
+                byPreviousGeometricActivation.erasedJumpCount++;
+            } else {
+                byPreviousGeometricActivation.preservedJumpCount++;
+            }
+            if (Number.isInteger(deactivation.predictionJumpLag)) {
+                const lag = deactivation.predictionJumpLag;
+                const byLag = byPreviousGeometricActivation
+                    .byPredictionJumpLag[lag] ?? {
+                        jumpCount: 0,
+                        erasedJumpCount: 0,
+                        preservedJumpCount: 0
+                    };
+                byLag.jumpCount++;
+                if (outcome === "erased") {
+                    byLag.erasedJumpCount++;
+                } else {
+                    byLag.preservedJumpCount++;
+                }
+                byPreviousGeometricActivation.byPredictionJumpLag[lag] =
+                    byLag;
+            }
+            previousGeometricActivationPopulation[
+                previousGeometricActivationJumpLagBucket
+            ] = byPreviousGeometricActivation;
+        }
         if (
             outcome !== "retry-succeeded" &&
             outcome !== "retry-erased"
@@ -2120,6 +2170,14 @@ function emitDeactivationPredictionDiagnostics() {
             "previousJumpGeometricActivation"
         ))
     );
+    console.log(
+        "[previous geometric activation jump lag ordinary]\n" +
+        JSON.stringify(compactCategorizedPopulation(
+            output
+                .singleDeactivationJumpByPreviousGeometricActivationJumpLag,
+            "previousGeometricActivationJumpLag"
+        ))
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
@@ -2129,6 +2187,8 @@ function emitDeactivationPredictionDiagnostics() {
     delete output.singleDeactivationJumpByPreviousJumpActivation;
     delete output
         .singleDeactivationJumpByPreviousJumpGeometricActivation;
+    delete output
+        .singleDeactivationJumpByPreviousGeometricActivationJumpLag;
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
             .map(([lag, heights]) => [
