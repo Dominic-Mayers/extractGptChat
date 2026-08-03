@@ -29,9 +29,6 @@ import {
     recordDeckSectionEnumerationDiagnostics,
     recordDeckUpdateDiagnostics,
     recordDeactivationPredictionDiagnostics,
-    recordSplitTotalOnlyPredictionOutcomeDiagnostics,
-    recordSplitTotalOnlyMatchedDeactivationDiagnostics,
-    recordSplitJumpOutcomeDiagnostics,
     recordCanvasGeometryDiagnostics,
     snapshotElementDiagnostics
 } from "./cycleDiagnostics-diag.js";
@@ -62,7 +59,6 @@ let viewportOscillationRafDiagnostics = null;
 let viewportOscillationFrameDiagnostics = 0;
 let previousViewportSampleDiagnostics = null;
 let previousAnchorMovementDiagnostics = null;
-let splitJumpExperimentDiagnostics = null;
 
 // TEMPORARY DIAGNOSTIC (v3.15): remove after the viewport-oscillation study.
 const VIEWPORT_OSCILLATION_MINIMUM_MOVEMENT = 40;
@@ -370,28 +366,12 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
 
         predictedDecks.push(deck);
         if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
-            const predictionDiagnostics = {
+            pendingDeactivationPredictionsDiagnostics.set(deck, {
                 predictedAt: performance.now(),
                 predictedOnJumpNumber:
                     movementJumpNumberDiagnostics + 1,
-                deckHeightAtPrediction: rect.height,
-                splitTotalOnly:
-                    splitJumpExperimentDiagnostics != null &&
-                    rect.top +
-                        splitJumpExperimentDiagnostics.initialJump <
-                        deactivationBoundary - TOLERATED_ROUNDING,
-                splitOutcome: null,
-                matchedDeactivation: false
-            };
-            pendingDeactivationPredictionsDiagnostics.set(
-                deck,
-                predictionDiagnostics
-            );
-            if (predictionDiagnostics.splitTotalOnly) {
-                splitJumpExperimentDiagnostics.predictions.push(
-                    predictionDiagnostics
-                );
-            }
+                deckHeightAtPrediction: rect.height
+            });
             recordDeactivationPredictionDiagnostics();
         }
 
@@ -1117,102 +1097,6 @@ export async function moveWorkZoneBy(jump) {
     );
 }
 
-export function beginSplitJumpExperimentDiagnostics(totalJump) {
-    const initialJump = totalJump * 0.6;
-    splitJumpExperimentDiagnostics = {
-        totalJump,
-        initialJump,
-        extraJump: totalJump - initialJump,
-        extraJumpPerformed: false,
-        predictions: []
-    };
-    return initialJump;
-}
-
-export function performSplitExtraJumpDiagnostics(frame) {
-    if (
-        frame !== 1 ||
-        splitJumpExperimentDiagnostics == null ||
-        splitJumpExperimentDiagnostics.extraJumpPerformed
-    ) {
-        return;
-    }
-    const experiment = splitJumpExperimentDiagnostics;
-    const { supplyArea, workZone } = environment();
-    const before = jumpProbeGeometryDiagnostics(
-        retainedAnchor(),
-        supplyArea,
-        workZone
-    );
-    movementJumpNumberDiagnostics++;
-    for (const prediction of experiment.predictions) {
-        prediction.predictedOnJumpNumber =
-            movementJumpNumberDiagnostics;
-    }
-    moveWorkZone(experiment.extraJump, supplyArea, workZone);
-    const after = jumpProbeGeometryDiagnostics(
-        retainedAnchor(),
-        supplyArea,
-        workZone
-    );
-    if (geometricallyActivatesDeckDiagnostics(before, after)) {
-        geometricActivationJumpNumbersDiagnostics.add(
-            movementJumpNumberDiagnostics
-        );
-    }
-    experiment.extraJumpPerformed = true;
-    currentJumpProbeDiagnostics.splitJump = {
-        totalJump: experiment.totalJump,
-        initialJump: experiment.initialJump,
-        extraJump: experiment.extraJump,
-        beforeExtra: before,
-        afterExtra: after
-    };
-}
-
-export function finishSplitJumpExperimentDiagnostics(
-    roomBefore,
-    roomAfter
-) {
-    const experiment = splitJumpExperimentDiagnostics;
-    if (experiment == null) return null;
-    const displacement = roomAfter - roomBefore;
-    const candidates = [
-        ["both-erased", 0],
-        ["initial-erased", experiment.extraJump],
-        ["extra-erased", experiment.initialJump],
-        ["neither-erased", experiment.totalJump]
-    ];
-    let outcome = "unexpected";
-    let minimumDifference = Infinity;
-    for (const [candidateOutcome, expected] of candidates) {
-        const difference = Math.abs(displacement - expected);
-        if (difference < minimumDifference) {
-            minimumDifference = difference;
-            outcome = candidateOutcome;
-        }
-    }
-    if (minimumDifference > TOLERATED_ROUNDING) {
-        outcome = "unexpected";
-    }
-    for (const prediction of experiment.predictions) {
-        prediction.splitOutcome = outcome;
-        recordSplitTotalOnlyPredictionOutcomeDiagnostics(
-            outcome,
-            prediction.matchedDeactivation
-        );
-    }
-    recordSplitJumpOutcomeDiagnostics(outcome);
-    currentJumpProbeDiagnostics.splitJump.outcome = outcome;
-    currentJumpProbeDiagnostics.splitJump.displacement = displacement;
-    splitJumpExperimentDiagnostics = null;
-    return outcome;
-}
-
-export function cancelSplitJumpExperimentDiagnostics() {
-    splitJumpExperimentDiagnostics = null;
-}
-
 function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
@@ -1275,7 +1159,6 @@ function resetSupplyWorkerDiagnostics() {
     pendingDeactivationPredictionsDiagnostics = new Map();
     deckActivationGeometryDiagnostics = new WeakMap();
     lastKnownHeightUpdateDiagnostics = new WeakMap();
-    splitJumpExperimentDiagnostics = null;
 }
 
 function geometricallyActivatesDeckDiagnostics(before, after) {
@@ -1596,15 +1479,6 @@ function recordJumpChangesDiagnostics(
                 pendingDeactivationPredictionsDiagnostics.delete(
                     record.target
                 );
-                prediction.matchedDeactivation = true;
-                if (
-                    prediction.splitTotalOnly &&
-                    prediction.splitOutcome != null
-                ) {
-                    recordSplitTotalOnlyMatchedDeactivationDiagnostics(
-                        prediction.splitOutcome
-                    );
-                }
             }
             probe.activationChanges.push({
                 delivery,
@@ -1635,9 +1509,7 @@ function recordJumpChangesDiagnostics(
                     lastKnownHeightUpdate?.stabilizationRaf ?? null,
                 deckHeightAtPrediction: prediction == null
                     ? null
-                    : prediction.deckHeightAtPrediction,
-                splitTotalOnly: prediction?.splitTotalOnly ?? false,
-                splitOutcome: prediction?.splitOutcome ?? null
+                    : prediction.deckHeightAtPrediction
             });
             continue;
         }
