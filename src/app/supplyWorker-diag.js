@@ -1045,10 +1045,6 @@ export async function moveWorkZoneBy(jump) {
 
     await nextAnimationFrame();
 
-    drainJumpObserverDiagnostics(
-        probeDiagnostics,
-        "pre-command-frame"
-    );
     probeDiagnostics.preCommand = jumpProbeGeometryDiagnostics(
         anchorDiagnostics,
         supplyArea,
@@ -1065,7 +1061,6 @@ export async function moveWorkZoneBy(jump) {
                 workZonePosition(supplyArea, workZone)
         };
     }
-    drainJumpObserverDiagnostics(probeDiagnostics, "command");
     probeDiagnostics.afterCommand = jumpProbeGeometryDiagnostics(
         anchorDiagnostics,
         supplyArea,
