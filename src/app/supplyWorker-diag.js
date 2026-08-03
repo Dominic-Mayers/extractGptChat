@@ -1149,6 +1149,7 @@ export function performSplitExtraJumpDiagnostics(frame) {
         prediction.predictedOnJumpNumber =
             movementJumpNumberDiagnostics;
     }
+    const extraCommandClock = performance.now();
     moveWorkZone(experiment.extraJump, supplyArea, workZone);
     const after = jumpProbeGeometryDiagnostics(
         retainedAnchor(),
@@ -1165,6 +1166,7 @@ export function performSplitExtraJumpDiagnostics(frame) {
         totalJump: experiment.totalJump,
         initialJump: experiment.initialJump,
         extraJump: experiment.extraJump,
+        extraCommandClock,
         beforeExtra: before,
         afterExtra: after
     };

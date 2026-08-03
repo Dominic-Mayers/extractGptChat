@@ -133,7 +133,9 @@ export function resetCycleDiagnostics() {
         singleDeactivationJumpByPreviousJumpGeometricActivation: {},
         singleDeactivationJumpByN2GeometricActivations: {},
         splitTotalOnlyPredictionsByOutcome: {},
-        splitJumpOutcomes: {}
+        splitJumpOutcomes: {},
+        splitExtraJumpByLastKnownHeightLeadMs: {},
+        splitExtraRetryByLastKnownHeightLeadMs: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1014,6 +1016,110 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             byLead.byPredictionJumpLag[lag] = byLag;
         }
         leadPopulation[leadBucket] = byLead;
+        const splitOutcome = probe.splitJump?.outcome;
+        const extraCommandClock =
+            probe.splitJump?.extraCommandClock;
+        if (
+            splitOutcome != null &&
+            Number.isFinite(extraCommandClock)
+        ) {
+            const extraLeadMs = Number.isFinite(
+                deactivation.lastKnownHeightUpdateClock
+            )
+                ? extraCommandClock -
+                    deactivation.lastKnownHeightUpdateClock
+                : null;
+            const extraLeadBucket = extraLeadMs == null
+                ? "missing"
+                : extraLeadMs < -50
+                    ? "after-gte50"
+                    : extraLeadMs < 50
+                        ? `near-${Math.floor(extraLeadMs)}`
+                        : extraLeadMs < 100
+                            ? "before-50-100"
+                            : extraLeadMs < 250
+                                ? "before-100-250"
+                                : "before-gte250";
+            const extraLeadPopulation =
+                outcome === "retry-succeeded" ||
+                outcome === "retry-erased"
+                    ? deactivationPredictionDiagnostics
+                        .splitExtraRetryByLastKnownHeightLeadMs
+                    : deactivationPredictionDiagnostics
+                        .splitExtraJumpByLastKnownHeightLeadMs;
+            const byExtraLead = extraLeadPopulation[
+                extraLeadBucket
+            ] ?? {
+                jumpCount: 0,
+                erasedJumpCount: 0,
+                preservedJumpCount: 0,
+                leadMsCount: 0,
+                leadMsSum: 0,
+                leadMsMinimum: null,
+                leadMsMaximum: null,
+                byOutcome: {},
+                byPredictionJumpLag: {}
+            };
+            const extraErased =
+                splitOutcome === "extra-erased" ||
+                splitOutcome === "both-erased";
+            byExtraLead.jumpCount++;
+            if (extraErased) {
+                byExtraLead.erasedJumpCount++;
+            } else {
+                byExtraLead.preservedJumpCount++;
+            }
+            if (extraLeadMs != null) {
+                byExtraLead.leadMsCount++;
+                byExtraLead.leadMsSum += extraLeadMs;
+                byExtraLead.leadMsMinimum =
+                    byExtraLead.leadMsMinimum == null
+                        ? extraLeadMs
+                        : Math.min(
+                            byExtraLead.leadMsMinimum,
+                            extraLeadMs
+                        );
+                byExtraLead.leadMsMaximum =
+                    byExtraLead.leadMsMaximum == null
+                        ? extraLeadMs
+                        : Math.max(
+                            byExtraLead.leadMsMaximum,
+                            extraLeadMs
+                        );
+            }
+            incrementJumpPopulationCategoryDiagnostics(
+                byExtraLead.byOutcome,
+                splitOutcome
+            );
+            if (Number.isInteger(deactivation.predictionJumpLag)) {
+                const lag = deactivation.predictionJumpLag;
+                const byLag =
+                    byExtraLead.byPredictionJumpLag[lag] ?? {
+                        jumpCount: 0,
+                        erasedJumpCount: 0,
+                        preservedJumpCount: 0,
+                        leadMsCount: 0,
+                        leadMsSum: 0,
+                        byOutcome: {}
+                    };
+                byLag.jumpCount++;
+                if (extraErased) {
+                    byLag.erasedJumpCount++;
+                } else {
+                    byLag.preservedJumpCount++;
+                }
+                if (extraLeadMs != null) {
+                    byLag.leadMsCount++;
+                    byLag.leadMsSum += extraLeadMs;
+                }
+                incrementJumpPopulationCategoryDiagnostics(
+                    byLag.byOutcome,
+                    splitOutcome
+                );
+                byExtraLead.byPredictionJumpLag[lag] = byLag;
+            }
+            extraLeadPopulation[extraLeadBucket] = byExtraLead;
+        }
         const stabilizationRaf =
             deactivation.lastKnownHeightUpdateStabilizationRaf;
         const stabilizationRafBucket = Number.isInteger(stabilizationRaf)
@@ -2135,6 +2241,18 @@ function emitDeactivationPredictionDiagnostics() {
             output.singleDeactivationRetryByLastKnownHeightLeadMs
         ))
     );
+    console.log(
+        "[split extra height update lead ordinary]\n" +
+        JSON.stringify(compactLeadPopulation(
+            output.splitExtraJumpByLastKnownHeightLeadMs
+        ))
+    );
+    console.log(
+        "[split extra height update lead retries]\n" +
+        JSON.stringify(compactLeadPopulation(
+            output.splitExtraRetryByLastKnownHeightLeadMs
+        ))
+    );
     const compactCategorizedPopulation = (buckets, categoryName) =>
         Object.entries(buckets).map(([category, value]) => ({
             [categoryName]: category,
@@ -2213,6 +2331,8 @@ function emitDeactivationPredictionDiagnostics() {
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
+    delete output.splitExtraJumpByLastKnownHeightLeadMs;
+    delete output.splitExtraRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationJumpByLastKnownHeightJumpLag;

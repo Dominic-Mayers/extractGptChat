@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.66
+// @version      5.67
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -367,7 +367,9 @@
       singleDeactivationJumpByPreviousJumpGeometricActivation: {},
       singleDeactivationJumpByN2GeometricActivations: {},
       splitTotalOnlyPredictionsByOutcome: {},
-      splitJumpOutcomes: {}
+      splitJumpOutcomes: {},
+      splitExtraJumpByLastKnownHeightLeadMs: {},
+      splitExtraRetryByLastKnownHeightLeadMs: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -1097,6 +1099,76 @@
         byLead.byPredictionJumpLag[lag] = byLag;
       }
       leadPopulation[leadBucket] = byLead;
+      const splitOutcome = probe.splitJump?.outcome;
+      const extraCommandClock = probe.splitJump?.extraCommandClock;
+      if (splitOutcome != null && Number.isFinite(extraCommandClock)) {
+        const extraLeadMs = Number.isFinite(
+          deactivation.lastKnownHeightUpdateClock
+        ) ? extraCommandClock - deactivation.lastKnownHeightUpdateClock : null;
+        const extraLeadBucket = extraLeadMs == null ? "missing" : extraLeadMs < -50 ? "after-gte50" : extraLeadMs < 50 ? `near-${Math.floor(extraLeadMs)}` : extraLeadMs < 100 ? "before-50-100" : extraLeadMs < 250 ? "before-100-250" : "before-gte250";
+        const extraLeadPopulation = outcome === "retry-succeeded" || outcome === "retry-erased" ? deactivationPredictionDiagnostics.splitExtraRetryByLastKnownHeightLeadMs : deactivationPredictionDiagnostics.splitExtraJumpByLastKnownHeightLeadMs;
+        const byExtraLead = extraLeadPopulation[extraLeadBucket] ?? {
+          jumpCount: 0,
+          erasedJumpCount: 0,
+          preservedJumpCount: 0,
+          leadMsCount: 0,
+          leadMsSum: 0,
+          leadMsMinimum: null,
+          leadMsMaximum: null,
+          byOutcome: {},
+          byPredictionJumpLag: {}
+        };
+        const extraErased = splitOutcome === "extra-erased" || splitOutcome === "both-erased";
+        byExtraLead.jumpCount++;
+        if (extraErased) {
+          byExtraLead.erasedJumpCount++;
+        } else {
+          byExtraLead.preservedJumpCount++;
+        }
+        if (extraLeadMs != null) {
+          byExtraLead.leadMsCount++;
+          byExtraLead.leadMsSum += extraLeadMs;
+          byExtraLead.leadMsMinimum = byExtraLead.leadMsMinimum == null ? extraLeadMs : Math.min(
+            byExtraLead.leadMsMinimum,
+            extraLeadMs
+          );
+          byExtraLead.leadMsMaximum = byExtraLead.leadMsMaximum == null ? extraLeadMs : Math.max(
+            byExtraLead.leadMsMaximum,
+            extraLeadMs
+          );
+        }
+        incrementJumpPopulationCategoryDiagnostics(
+          byExtraLead.byOutcome,
+          splitOutcome
+        );
+        if (Number.isInteger(deactivation.predictionJumpLag)) {
+          const lag = deactivation.predictionJumpLag;
+          const byLag = byExtraLead.byPredictionJumpLag[lag] ?? {
+            jumpCount: 0,
+            erasedJumpCount: 0,
+            preservedJumpCount: 0,
+            leadMsCount: 0,
+            leadMsSum: 0,
+            byOutcome: {}
+          };
+          byLag.jumpCount++;
+          if (extraErased) {
+            byLag.erasedJumpCount++;
+          } else {
+            byLag.preservedJumpCount++;
+          }
+          if (extraLeadMs != null) {
+            byLag.leadMsCount++;
+            byLag.leadMsSum += extraLeadMs;
+          }
+          incrementJumpPopulationCategoryDiagnostics(
+            byLag.byOutcome,
+            splitOutcome
+          );
+          byExtraLead.byPredictionJumpLag[lag] = byLag;
+        }
+        extraLeadPopulation[extraLeadBucket] = byExtraLead;
+      }
       const stabilizationRaf = deactivation.lastKnownHeightUpdateStabilizationRaf;
       const stabilizationRafBucket = Number.isInteger(stabilizationRaf) ? `raf-${stabilizationRaf}` : "outside-stabilization-rAF";
       const stabilizationRafPopulation = outcome === "retry-succeeded" || outcome === "retry-erased" ? deactivationPredictionDiagnostics.singleDeactivationRetryByLastKnownHeightStabilizationRaf : deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
@@ -1888,6 +1960,16 @@
         output.singleDeactivationRetryByLastKnownHeightLeadMs
       ))
     );
+    console.log(
+      "[split extra height update lead ordinary]\n" + JSON.stringify(compactLeadPopulation(
+        output.splitExtraJumpByLastKnownHeightLeadMs
+      ))
+    );
+    console.log(
+      "[split extra height update lead retries]\n" + JSON.stringify(compactLeadPopulation(
+        output.splitExtraRetryByLastKnownHeightLeadMs
+      ))
+    );
     const compactCategorizedPopulation = (buckets, categoryName) => Object.entries(buckets).map(([category, value]) => ({
       [categoryName]: category,
       jumpCount: value.jumpCount,
@@ -1953,6 +2035,8 @@
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
+    delete output.splitExtraJumpByLastKnownHeightLeadMs;
+    delete output.splitExtraRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationJumpByLastKnownHeightJumpLag;
@@ -3641,6 +3725,7 @@ ${fence}
     for (const prediction of experiment.predictions) {
       prediction.predictedOnJumpNumber = movementJumpNumberDiagnostics;
     }
+    const extraCommandClock = performance.now();
     moveWorkZone(experiment.extraJump, supplyArea, workZone);
     const after = jumpProbeGeometryDiagnostics(
       retainedAnchor(),
@@ -3657,6 +3742,7 @@ ${fence}
       totalJump: experiment.totalJump,
       initialJump: experiment.initialJump,
       extraJump: experiment.extraJump,
+      extraCommandClock,
       beforeExtra: before,
       afterExtra: after
     };
@@ -5180,7 +5266,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.66" : "unbuilt";
+  var VERSION = true ? "5.67" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
