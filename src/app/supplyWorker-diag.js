@@ -366,11 +366,18 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
 
         predictedDecks.push(deck);
         if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
+            const section = Array.from(deck.children).find(child =>
+                child.matches("section")
+            );
             pendingDeactivationPredictionsDiagnostics.set(deck, {
                 predictedAt: performance.now(),
                 predictedOnJumpNumber:
                     movementJumpNumberDiagnostics + 1,
-                deckHeightAtPrediction: rect.height
+                deckHeightAtPrediction: rect.height,
+                sectionHeightAtPrediction:
+                    section?.getBoundingClientRect().height ?? null,
+                lastKnownHeightAtPrediction:
+                    deck.style.getPropertyValue("--last-known-height")
             });
             recordDeactivationPredictionDiagnostics();
         }
@@ -1395,11 +1402,22 @@ function recordJumpChangesDiagnostics(
             );
             if (before !== after) {
                 const clock = performance.now();
+                const renderedHeight =
+                    record.target.getBoundingClientRect().height;
+                const section = Array.from(record.target.children).find(
+                    child => child.matches("section")
+                );
+                const sectionHeight =
+                    section?.getBoundingClientRect().height ?? null;
                 lastKnownHeightUpdateDiagnostics.set(record.target, {
                     clock,
                     movementJumpNumber: movementJumpNumberDiagnostics,
                     jumpRaf,
-                    stabilizationRaf
+                    stabilizationRaf,
+                    before,
+                    after,
+                    renderedHeight,
+                    sectionHeight
                 });
                 probe.renderingChanges.push({
                     delivery,
@@ -1414,8 +1432,8 @@ function recordJumpChangesDiagnostics(
                     activation: record.target.getAttribute(
                         "data-is-intersecting"
                     ),
-                    renderedHeight:
-                        record.target.getBoundingClientRect().height,
+                    renderedHeight,
+                    sectionHeight,
                     element: mutationElementDiagnostics(record.target)
                 });
             }
@@ -1474,11 +1492,25 @@ function recordJumpChangesDiagnostics(
                     lastKnownHeightUpdate?.jumpRaf ?? false,
                 lastKnownHeightUpdateStabilizationRaf:
                     lastKnownHeightUpdate?.stabilizationRaf ?? null,
+                lastKnownHeightBeforeUpdate:
+                    lastKnownHeightUpdate?.before ?? null,
+                lastKnownHeightAfterUpdate:
+                    lastKnownHeightUpdate?.after ?? null,
+                deckHeightAtHeightUpdate:
+                    lastKnownHeightUpdate?.renderedHeight ?? null,
+                sectionHeightAtHeightUpdate:
+                    lastKnownHeightUpdate?.sectionHeight ?? null,
                 jumpRaf,
                 stabilizationRaf,
                 deckHeightAtPrediction: prediction == null
                     ? null
-                    : prediction.deckHeightAtPrediction
+                    : prediction.deckHeightAtPrediction,
+                sectionHeightAtPrediction: prediction == null
+                    ? null
+                    : prediction.sectionHeightAtPrediction,
+                lastKnownHeightAtPrediction: prediction == null
+                    ? null
+                    : prediction.lastKnownHeightAtPrediction
             });
             continue;
         }

@@ -923,6 +923,20 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                     deactivation.lastKnownHeightUpdateJumpRaf,
                 heightUpdateStabilizationRaf:
                     deactivation.lastKnownHeightUpdateStabilizationRaf,
+                lastKnownHeightBeforeUpdate:
+                    deactivation.lastKnownHeightBeforeUpdate,
+                lastKnownHeightAfterUpdate:
+                    deactivation.lastKnownHeightAfterUpdate,
+                deckHeightAtHeightUpdate:
+                    deactivation.deckHeightAtHeightUpdate,
+                sectionHeightAtHeightUpdate:
+                    deactivation.sectionHeightAtHeightUpdate,
+                deckHeightAtPrediction:
+                    deactivation.deckHeightAtPrediction,
+                sectionHeightAtPrediction:
+                    deactivation.sectionHeightAtPrediction,
+                lastKnownHeightAtPrediction:
+                    deactivation.lastKnownHeightAtPrediction,
                 deactivationJumpRaf: deactivation.jumpRaf,
                 deactivationStabilizationRaf:
                     deactivation.stabilizationRaf,

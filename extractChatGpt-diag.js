@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.77
+// @version      5.78
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1034,6 +1034,13 @@
           heightUpdateJumpLag: deactivation.lastKnownHeightUpdateJumpLag,
           heightUpdateJumpRaf: deactivation.lastKnownHeightUpdateJumpRaf,
           heightUpdateStabilizationRaf: deactivation.lastKnownHeightUpdateStabilizationRaf,
+          lastKnownHeightBeforeUpdate: deactivation.lastKnownHeightBeforeUpdate,
+          lastKnownHeightAfterUpdate: deactivation.lastKnownHeightAfterUpdate,
+          deckHeightAtHeightUpdate: deactivation.deckHeightAtHeightUpdate,
+          sectionHeightAtHeightUpdate: deactivation.sectionHeightAtHeightUpdate,
+          deckHeightAtPrediction: deactivation.deckHeightAtPrediction,
+          sectionHeightAtPrediction: deactivation.sectionHeightAtPrediction,
+          lastKnownHeightAtPrediction: deactivation.lastKnownHeightAtPrediction,
           deactivationJumpRaf: deactivation.jumpRaf,
           deactivationStabilizationRaf: deactivation.stabilizationRaf,
           deactivationPhase: deactivation.phase,
@@ -2971,10 +2978,15 @@ ${fence}
       }
       predictedDecks.push(deck);
       if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
+        const section = Array.from(deck.children).find(
+          (child) => child.matches("section")
+        );
         pendingDeactivationPredictionsDiagnostics.set(deck, {
           predictedAt: performance.now(),
           predictedOnJumpNumber: movementJumpNumberDiagnostics + 1,
-          deckHeightAtPrediction: rect.height
+          deckHeightAtPrediction: rect.height,
+          sectionHeightAtPrediction: section?.getBoundingClientRect().height ?? null,
+          lastKnownHeightAtPrediction: deck.style.getPropertyValue("--last-known-height")
         });
         recordDeactivationPredictionDiagnostics();
       }
@@ -3782,11 +3794,20 @@ ${fence}
         );
         if (before !== after) {
           const clock = performance.now();
+          const renderedHeight = record.target.getBoundingClientRect().height;
+          const section = Array.from(record.target.children).find(
+            (child) => child.matches("section")
+          );
+          const sectionHeight = section?.getBoundingClientRect().height ?? null;
           lastKnownHeightUpdateDiagnostics.set(record.target, {
             clock,
             movementJumpNumber: movementJumpNumberDiagnostics,
             jumpRaf,
-            stabilizationRaf
+            stabilizationRaf,
+            before,
+            after,
+            renderedHeight,
+            sectionHeight
           });
           probe.renderingChanges.push({
             delivery,
@@ -3801,7 +3822,8 @@ ${fence}
             activation: record.target.getAttribute(
               "data-is-intersecting"
             ),
-            renderedHeight: record.target.getBoundingClientRect().height,
+            renderedHeight,
+            sectionHeight,
             element: mutationElementDiagnostics(record.target)
           });
         }
@@ -3837,9 +3859,15 @@ ${fence}
           lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
           lastKnownHeightUpdateJumpRaf: lastKnownHeightUpdate?.jumpRaf ?? false,
           lastKnownHeightUpdateStabilizationRaf: lastKnownHeightUpdate?.stabilizationRaf ?? null,
+          lastKnownHeightBeforeUpdate: lastKnownHeightUpdate?.before ?? null,
+          lastKnownHeightAfterUpdate: lastKnownHeightUpdate?.after ?? null,
+          deckHeightAtHeightUpdate: lastKnownHeightUpdate?.renderedHeight ?? null,
+          sectionHeightAtHeightUpdate: lastKnownHeightUpdate?.sectionHeight ?? null,
           jumpRaf,
           stabilizationRaf,
-          deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction
+          deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction,
+          sectionHeightAtPrediction: prediction == null ? null : prediction.sectionHeightAtPrediction,
+          lastKnownHeightAtPrediction: prediction == null ? null : prediction.lastKnownHeightAtPrediction
         });
         continue;
       }
@@ -5100,7 +5128,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.77" : "unbuilt";
+  var VERSION = true ? "5.78" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
