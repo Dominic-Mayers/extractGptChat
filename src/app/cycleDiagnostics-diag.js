@@ -687,6 +687,8 @@ function compactActivationChangesDiagnostics(changes) {
             change.lastKnownHeightUpdateJumpLag ?? null,
         lastKnownHeightUpdateStabilizationRaf:
             change.lastKnownHeightUpdateStabilizationRaf ?? null,
+        lastKnownHeightUpdateProcessingFinishedClock:
+            change.lastKnownHeightUpdateProcessingFinishedClock ?? null,
         deckHeightAtPrediction:
             change.deckHeightAtPrediction ?? null,
         splitTotalOnly: change.splitTotalOnly ?? false,
@@ -891,7 +893,11 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 preservedJumpCount: 0,
                 delayMsSum: 0,
                 byOutcome: {},
-                byPredictionJumpLag: {}
+                byPredictionJumpLag: {},
+                decompositionCount: 0,
+                mutationRemainderMsSum: 0,
+                betweenCallbacksMsSum: 0,
+                preparationMsSum: 0
             };
             byDelay.jumpCount++;
             byDelay.delayMsSum += delayMs;
@@ -1086,6 +1092,29 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                             byExtraLead.leadMsMaximum,
                             extraLeadMs
                         );
+            }
+            const mutationDrainFinishedClock =
+                probe.splitJump.mutationDrainFinishedClock;
+            const rafContinuationClock =
+                probe.splitJump.rafContinuationClock;
+            const updateClock =
+                deactivation.lastKnownHeightUpdateClock;
+            if (
+                deactivation.lastKnownHeightUpdateStabilizationRaf === 1 &&
+                Number.isFinite(updateClock) &&
+                Number.isFinite(mutationDrainFinishedClock) &&
+                Number.isFinite(rafContinuationClock) &&
+                updateClock <= mutationDrainFinishedClock &&
+                mutationDrainFinishedClock <= rafContinuationClock &&
+                rafContinuationClock <= extraCommandClock
+            ) {
+                byExtraLead.decompositionCount++;
+                byExtraLead.mutationRemainderMsSum +=
+                    mutationDrainFinishedClock - updateClock;
+                byExtraLead.betweenCallbacksMsSum +=
+                    rafContinuationClock - mutationDrainFinishedClock;
+                byExtraLead.preparationMsSum +=
+                    extraCommandClock - rafContinuationClock;
             }
             incrementJumpPopulationCategoryDiagnostics(
                 byExtraLead.byOutcome,
@@ -2229,6 +2258,23 @@ function emitDeactivationPredictionDiagnostics() {
                 )
             )
         }));
+    const compactExtraLeadDecomposition = buckets =>
+        Object.entries(buckets).map(([bucket, value]) => ({
+            bucket,
+            decompositionCount: value.decompositionCount,
+            mutationRemainderMsAverage: value.decompositionCount === 0
+                ? null
+                : value.mutationRemainderMsSum /
+                    value.decompositionCount,
+            betweenCallbacksMsAverage: value.decompositionCount === 0
+                ? null
+                : value.betweenCallbacksMsSum /
+                    value.decompositionCount,
+            preparationMsAverage: value.decompositionCount === 0
+                ? null
+                : value.preparationMsSum /
+                    value.decompositionCount
+        }));
     console.log(
         "[height update lead ordinary]\n" +
         JSON.stringify(compactLeadPopulation(
@@ -2251,6 +2297,12 @@ function emitDeactivationPredictionDiagnostics() {
         "[split extra height update lead retries]\n" +
         JSON.stringify(compactLeadPopulation(
             output.splitExtraRetryByLastKnownHeightLeadMs
+        ))
+    );
+    console.log(
+        "[split extra lead decomposition ordinary]\n" +
+        JSON.stringify(compactExtraLeadDecomposition(
+            output.splitExtraJumpByLastKnownHeightLeadMs
         ))
     );
     const compactCategorizedPopulation = (buckets, categoryName) =>

@@ -1129,7 +1129,10 @@ export function beginSplitJumpExperimentDiagnostics(totalJump) {
     return initialJump;
 }
 
-export function performSplitExtraJumpDiagnostics(frame) {
+export function performSplitExtraJumpDiagnostics(
+    frame,
+    rafContinuationClock
+) {
     if (
         frame !== 1 ||
         splitJumpExperimentDiagnostics == null ||
@@ -1167,6 +1170,10 @@ export function performSplitExtraJumpDiagnostics(frame) {
         initialJump: experiment.initialJump,
         extraJump: experiment.extraJump,
         extraCommandClock,
+        mutationDrainFinishedClock:
+            currentJumpProbeDiagnostics
+                .stabilizationRafDrainFinishedClocks?.[frame] ?? null,
+        rafContinuationClock,
         beforeExtra: before,
         afterExtra: after
     };
@@ -1265,6 +1272,9 @@ function drainJumpObserverAtStabilizationRafDiagnostics(frame) {
         scrollYAtDeliveryStart,
         frame
     );
+    probe.stabilizationRafDrainFinishedClocks ??= {};
+    probe.stabilizationRafDrainFinishedClocks[frame] =
+        performance.now();
 }
 
 function resetSupplyWorkerDiagnostics() {
@@ -1536,6 +1546,7 @@ function recordJumpChangesDiagnostics(
 ) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
+    const heightUpdates = [];
     for (const record of records) {
         if (
             record.type === "attributes" &&
@@ -1550,11 +1561,16 @@ function recordJumpChangesDiagnostics(
             );
             if (before !== after) {
                 const clock = performance.now();
-                lastKnownHeightUpdateDiagnostics.set(record.target, {
+                const heightUpdate = {
                     clock,
                     movementJumpNumber: movementJumpNumberDiagnostics,
                     stabilizationRaf
-                });
+                };
+                lastKnownHeightUpdateDiagnostics.set(
+                    record.target,
+                    heightUpdate
+                );
+                heightUpdates.push(heightUpdate);
                 probe.renderingChanges.push({
                     delivery,
                     order: ++probe.mutationOrder,
@@ -1635,6 +1651,8 @@ function recordJumpChangesDiagnostics(
                             lastKnownHeightUpdate.movementJumpNumber,
                 lastKnownHeightUpdateStabilizationRaf:
                     lastKnownHeightUpdate?.stabilizationRaf ?? null,
+                lastKnownHeightUpdateProcessingFinishedClock:
+                    lastKnownHeightUpdate?.processingFinishedClock ?? null,
                 deckHeightAtPrediction: prediction == null
                     ? null
                     : prediction.deckHeightAtPrediction,
@@ -1699,6 +1717,10 @@ function recordJumpChangesDiagnostics(
                 element: mutationElementDiagnostics(element)
             });
         }
+    }
+    const processingFinishedClock = performance.now();
+    for (const heightUpdate of heightUpdates) {
+        heightUpdate.processingFinishedClock = processingFinishedClock;
     }
 }
 
