@@ -26,6 +26,7 @@ let pendingPredictionJumpDiagnostics = null;
 let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
 let canvasGeometryDiagnostics = null;
+let fixedDeckOutcomesDiagnostics = [];
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -145,6 +146,7 @@ export function resetCycleDiagnostics() {
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     canvasGeometryDiagnostics = [];
+    fixedDeckOutcomesDiagnostics = [];
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
@@ -899,6 +901,29 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             ? probe.commandClock -
                 deactivation.lastKnownHeightUpdateClock
             : null;
+        if (
+            outcome !== "retry-succeeded" &&
+            outcome !== "retry-erased"
+        ) {
+            fixedDeckOutcomesDiagnostics.push({
+                deckId: deactivation.deck.id,
+                behavior: outcome === "erased"
+                    ? "erasing"
+                    : "non-erasing",
+                predictionJumpLag:
+                    deactivation.predictionJumpLag,
+                heightUpdateLeadMs: leadMs,
+                heightUpdateJumpLag:
+                    deactivation.lastKnownHeightUpdateJumpLag,
+                heightUpdateStabilizationRaf:
+                    deactivation
+                        .lastKnownHeightUpdateStabilizationRaf,
+                deactivationPhase: deactivation.phase,
+                deactivationStabilizationRaf:
+                    deactivation.stabilizationRaf,
+                movementJumpNumber: probe.movementJumpNumber
+            });
+        }
         const leadBucket = leadMs == null
             ? "missing"
             : leadMs < -50
@@ -1989,6 +2014,11 @@ function emitDeckLifecycleDiagnostics() {
 
 function emitDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
+    for (const outcome of fixedDeckOutcomesDiagnostics) {
+        console.log(
+            "[fixed deck outcome] " + JSON.stringify(outcome)
+        );
+    }
     const count = deactivationPredictionDiagnostics.elapsedMsCount;
     const sortedElapsed = [
         ...deactivationPredictionElapsedValuesDiagnostics

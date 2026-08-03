@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.65
+// @version      5.71
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -263,6 +263,7 @@
   var erasedJumpStructureDiagnostics = null;
   var currentErasedJumpEntryDiagnostics = null;
   var canvasGeometryDiagnostics = null;
+  var fixedDeckOutcomesDiagnostics = [];
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -379,6 +380,7 @@
     erasedJumpStructureDiagnostics = [];
     currentErasedJumpEntryDiagnostics = null;
     canvasGeometryDiagnostics = [];
+    fixedDeckOutcomesDiagnostics = [];
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
@@ -1015,6 +1017,19 @@
       const leadMs = Number.isFinite(
         deactivation.lastKnownHeightUpdateClock
       ) && Number.isFinite(probe.commandClock) ? probe.commandClock - deactivation.lastKnownHeightUpdateClock : null;
+      if (outcome !== "retry-succeeded" && outcome !== "retry-erased") {
+        fixedDeckOutcomesDiagnostics.push({
+          deckId: deactivation.deck.id,
+          behavior: outcome === "erased" ? "erasing" : "non-erasing",
+          predictionJumpLag: deactivation.predictionJumpLag,
+          heightUpdateLeadMs: leadMs,
+          heightUpdateJumpLag: deactivation.lastKnownHeightUpdateJumpLag,
+          heightUpdateStabilizationRaf: deactivation.lastKnownHeightUpdateStabilizationRaf,
+          deactivationPhase: deactivation.phase,
+          deactivationStabilizationRaf: deactivation.stabilizationRaf,
+          movementJumpNumber: probe.movementJumpNumber
+        });
+      }
       const leadBucket = leadMs == null ? "missing" : leadMs < -50 ? "after-gte50" : leadMs < 50 ? `near-${Math.floor(leadMs)}` : leadMs < 100 ? "before-50-100" : leadMs < 250 ? "before-100-250" : "before-gte250";
       const leadPopulation = outcome === "retry-succeeded" || outcome === "retry-erased" ? deactivationPredictionDiagnostics.singleDeactivationRetryByLastKnownHeightLeadMs : deactivationPredictionDiagnostics.singleDeactivationJumpByLastKnownHeightLeadMs;
       const byLead = leadPopulation[leadBucket] ?? {
@@ -1786,6 +1801,11 @@
   }
   function emitDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
+    for (const outcome of fixedDeckOutcomesDiagnostics) {
+      console.log(
+        "[fixed deck outcome] " + JSON.stringify(outcome)
+      );
+    }
     const count = deactivationPredictionDiagnostics.elapsedMsCount;
     const sortedElapsed = [
       ...deactivationPredictionElapsedValuesDiagnostics
@@ -5029,7 +5049,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.65" : "unbuilt";
+  var VERSION = true ? "5.71" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
