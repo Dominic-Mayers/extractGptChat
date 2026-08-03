@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.66
+// @version      5.65
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -365,9 +365,7 @@
       singleDeactivationRetryByLastKnownHeightJumpLag: {},
       singleDeactivationJumpByPreviousJumpActivation: {},
       singleDeactivationJumpByPreviousJumpGeometricActivation: {},
-      singleDeactivationJumpByN2GeometricActivations: {},
-      splitTotalOnlyPredictionsByOutcome: {},
-      splitJumpOutcomes: {}
+      singleDeactivationJumpByN2GeometricActivations: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -456,28 +454,6 @@
   function recordDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
     deactivationPredictionDiagnostics.predictionCount++;
-  }
-  function recordSplitTotalOnlyPredictionOutcomeDiagnostics(outcome, matched) {
-    if (deactivationPredictionDiagnostics == null) return;
-    const population = deactivationPredictionDiagnostics.splitTotalOnlyPredictionsByOutcome;
-    const byOutcome = population[outcome] ?? {
-      predictionCount: 0,
-      matchedDeactivationCount: 0
-    };
-    byOutcome.predictionCount++;
-    if (matched) byOutcome.matchedDeactivationCount++;
-    population[outcome] = byOutcome;
-  }
-  function recordSplitTotalOnlyMatchedDeactivationDiagnostics(outcome) {
-    if (deactivationPredictionDiagnostics == null) return;
-    const population = deactivationPredictionDiagnostics.splitTotalOnlyPredictionsByOutcome;
-    const byOutcome = population[outcome];
-    if (byOutcome == null) return;
-    byOutcome.matchedDeactivationCount++;
-  }
-  function recordSplitJumpOutcomeDiagnostics(outcome) {
-    if (deactivationPredictionDiagnostics == null) return;
-    deactivationPredictionDiagnostics.splitJumpOutcomes[outcome] = (deactivationPredictionDiagnostics.splitJumpOutcomes[outcome] ?? 0) + 1;
   }
   function recordPendingDeactivationPredictionsForJumpDiagnostics({
     atJumpStart,
@@ -843,8 +819,6 @@
       lastKnownHeightUpdateJumpLag: change.lastKnownHeightUpdateJumpLag ?? null,
       lastKnownHeightUpdateStabilizationRaf: change.lastKnownHeightUpdateStabilizationRaf ?? null,
       deckHeightAtPrediction: change.deckHeightAtPrediction ?? null,
-      splitTotalOnly: change.splitTotalOnly ?? false,
-      splitOutcome: change.splitOutcome ?? null,
       deckId: change.deck?.id ?? null,
       before: change.before ?? null,
       after: change.after ?? null,
@@ -1945,12 +1919,6 @@
         "geometricActivations"
       ))
     );
-    console.log(
-      "[split jump total-only deactivation]\n" + JSON.stringify(output.splitTotalOnlyPredictionsByOutcome)
-    );
-    console.log(
-      "[split jump outcomes]\n" + JSON.stringify(output.splitJumpOutcomes)
-    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
@@ -1960,8 +1928,6 @@
     delete output.singleDeactivationJumpByPreviousJumpActivation;
     delete output.singleDeactivationJumpByPreviousJumpGeometricActivation;
     delete output.singleDeactivationJumpByN2GeometricActivations;
-    delete output.splitTotalOnlyPredictionsByOutcome;
-    delete output.splitJumpOutcomes;
     output.deckHeightByJumpLag = Object.fromEntries(
       Object.entries(predictionDeckHeightsByJumpLagDiagnostics).map(([lag, heights]) => [
         lag,
@@ -2780,7 +2746,6 @@ ${fence}
   var viewportOscillationFrameDiagnostics = 0;
   var previousViewportSampleDiagnostics = null;
   var previousAnchorMovementDiagnostics = null;
-  var splitJumpExperimentDiagnostics = null;
   var VIEWPORT_OSCILLATION_MINIMUM_MOVEMENT = 40;
   var VIEWPORT_OSCILLATION_MAXIMUM_FRAME_GAP = 2;
   var VIEWPORT_OSCILLATION_MAXIMUM_NET_RATIO = 0.25;
@@ -3020,23 +2985,11 @@ ${fence}
       }
       predictedDecks.push(deck);
       if (!pendingDeactivationPredictionsDiagnostics.has(deck)) {
-        const predictionDiagnostics = {
+        pendingDeactivationPredictionsDiagnostics.set(deck, {
           predictedAt: performance.now(),
           predictedOnJumpNumber: movementJumpNumberDiagnostics + 1,
-          deckHeightAtPrediction: rect.height,
-          splitTotalOnly: splitJumpExperimentDiagnostics != null && rect.top + splitJumpExperimentDiagnostics.initialJump < deactivationBoundary - TOLERATED_ROUNDING,
-          splitOutcome: null,
-          matchedDeactivation: false
-        };
-        pendingDeactivationPredictionsDiagnostics.set(
-          deck,
-          predictionDiagnostics
-        );
-        if (predictionDiagnostics.splitTotalOnly) {
-          splitJumpExperimentDiagnostics.predictions.push(
-            predictionDiagnostics
-          );
-        }
+          deckHeightAtPrediction: rect.height
+        });
         recordDeactivationPredictionDiagnostics();
       }
       const turnIdDiagnostics = deck.getAttribute("data-turn-id-container");
@@ -3615,90 +3568,6 @@ ${fence}
       workZone
     );
   }
-  function beginSplitJumpExperimentDiagnostics(totalJump) {
-    const initialJump = totalJump * 0.6;
-    splitJumpExperimentDiagnostics = {
-      totalJump,
-      initialJump,
-      extraJump: totalJump - initialJump,
-      extraJumpPerformed: false,
-      predictions: []
-    };
-    return initialJump;
-  }
-  function performSplitExtraJumpDiagnostics(frame) {
-    if (frame !== 1 || splitJumpExperimentDiagnostics == null || splitJumpExperimentDiagnostics.extraJumpPerformed) {
-      return;
-    }
-    const experiment = splitJumpExperimentDiagnostics;
-    const { supplyArea, workZone } = environment();
-    const before = jumpProbeGeometryDiagnostics(
-      retainedAnchor(),
-      supplyArea,
-      workZone
-    );
-    movementJumpNumberDiagnostics++;
-    for (const prediction of experiment.predictions) {
-      prediction.predictedOnJumpNumber = movementJumpNumberDiagnostics;
-    }
-    moveWorkZone(experiment.extraJump, supplyArea, workZone);
-    const after = jumpProbeGeometryDiagnostics(
-      retainedAnchor(),
-      supplyArea,
-      workZone
-    );
-    if (geometricallyActivatesDeckDiagnostics(before, after)) {
-      geometricActivationJumpNumbersDiagnostics.add(
-        movementJumpNumberDiagnostics
-      );
-    }
-    experiment.extraJumpPerformed = true;
-    currentJumpProbeDiagnostics.splitJump = {
-      totalJump: experiment.totalJump,
-      initialJump: experiment.initialJump,
-      extraJump: experiment.extraJump,
-      beforeExtra: before,
-      afterExtra: after
-    };
-  }
-  function finishSplitJumpExperimentDiagnostics(roomBefore, roomAfter) {
-    const experiment = splitJumpExperimentDiagnostics;
-    if (experiment == null) return null;
-    const displacement = roomAfter - roomBefore;
-    const candidates = [
-      ["both-erased", 0],
-      ["initial-erased", experiment.extraJump],
-      ["extra-erased", experiment.initialJump],
-      ["neither-erased", experiment.totalJump]
-    ];
-    let outcome = "unexpected";
-    let minimumDifference = Infinity;
-    for (const [candidateOutcome, expected] of candidates) {
-      const difference = Math.abs(displacement - expected);
-      if (difference < minimumDifference) {
-        minimumDifference = difference;
-        outcome = candidateOutcome;
-      }
-    }
-    if (minimumDifference > TOLERATED_ROUNDING) {
-      outcome = "unexpected";
-    }
-    for (const prediction of experiment.predictions) {
-      prediction.splitOutcome = outcome;
-      recordSplitTotalOnlyPredictionOutcomeDiagnostics(
-        outcome,
-        prediction.matchedDeactivation
-      );
-    }
-    recordSplitJumpOutcomeDiagnostics(outcome);
-    currentJumpProbeDiagnostics.splitJump.outcome = outcome;
-    currentJumpProbeDiagnostics.splitJump.displacement = displacement;
-    splitJumpExperimentDiagnostics = null;
-    return outcome;
-  }
-  function cancelSplitJumpExperimentDiagnostics() {
-    splitJumpExperimentDiagnostics = null;
-  }
   function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
@@ -3756,7 +3625,6 @@ ${fence}
     pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
     deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
     lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
-    splitJumpExperimentDiagnostics = null;
   }
   function geometricallyActivatesDeckDiagnostics(before, after) {
     const scrollDelta = after.scrollY - before.scrollY;
@@ -4001,12 +3869,6 @@ ${fence}
           pendingDeactivationPredictionsDiagnostics.delete(
             record.target
           );
-          prediction.matchedDeactivation = true;
-          if (prediction.splitTotalOnly && prediction.splitOutcome != null) {
-            recordSplitTotalOnlyMatchedDeactivationDiagnostics(
-              prediction.splitOutcome
-            );
-          }
         }
         probe.activationChanges.push({
           delivery,
@@ -4023,9 +3885,7 @@ ${fence}
           lastKnownHeightUpdateClock: lastKnownHeightUpdate?.clock ?? null,
           lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
           lastKnownHeightUpdateStabilizationRaf: lastKnownHeightUpdate?.stabilizationRaf ?? null,
-          deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction,
-          splitTotalOnly: prediction?.splitTotalOnly ?? false,
-          splitOutcome: prediction?.splitOutcome ?? null
+          deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction
         });
         continue;
       }
@@ -4299,7 +4159,6 @@ ${fence}
       );
       await nextAnimationFrame();
       finishRafWaitDiagnostics();
-      performSplitExtraJumpDiagnostics(frame + 1);
       const currentGeometry = geometrySnapshot();
       const deckStatus = thresholdDeckSnapshot();
       const deckTransitions = deckActivationTransitions(deckStatus);
@@ -4552,7 +4411,6 @@ ${fence}
   }
 
   // src/app/moveAnchorToBottom-diag.js
-  var splitJumpExperimentEnabledDiagnostics = true;
   async function moveAnchorToBottom(initialRoom, viewportHeight2, calibratedJump = CALIBRATED_JUMP, slabDestination = -MIN_INTERSECT) {
     beginJumpDiagnostics({
       kind: "anchor-move"
@@ -4613,10 +4471,6 @@ ${fence}
         calibratedJump,
         viewportHeight: viewportHeight2
       });
-      let commandedJump = jump;
-      if (splitJumpExperimentEnabledDiagnostics) {
-        commandedJump = beginSplitJumpExperimentDiagnostics(jump);
-      }
       const pendingPredictionsAtJumpStartDiagnostics = pendingDeactivationPredictionSnapshotDiagnostics();
       const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
       const pendingPredictionsBeforeCommandDiagnostics = pendingDeactivationPredictionSnapshotDiagnostics();
@@ -4625,10 +4479,9 @@ ${fence}
         beforeCommand: pendingPredictionsBeforeCommandDiagnostics,
         geometricallyPredictedDeckCount: predictedDeactivationDecks.length
       });
-      await moveWorkZoneBy(commandedJump);
+      await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
-        cancelSplitJumpExperimentDiagnostics();
         finishJumpDiagnostics({
           scrollYAfter: supplyRoomAfter,
           obtainedAnchorRoom: anchorRoom(),
@@ -4644,11 +4497,7 @@ ${fence}
         obtainedAnchorRoom: obtainedRoom
       });
       logStabilizedJumpDiagnosticsIfNeeded();
-      let jumpWasErased = obtainedRoom === room;
-      const splitOutcomeDiagnostics = finishSplitJumpExperimentDiagnostics(room, obtainedRoom);
-      if (splitOutcomeDiagnostics != null) {
-        jumpWasErased = splitOutcomeDiagnostics === "both-erased";
-      }
+      const jumpWasErased = obtainedRoom === room;
       recordErasedJumpResultDiagnostics(
         jumpWasErased,
         retriedErasedJump
@@ -5180,7 +5029,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.66" : "unbuilt";
+  var VERSION = true ? "5.65" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
