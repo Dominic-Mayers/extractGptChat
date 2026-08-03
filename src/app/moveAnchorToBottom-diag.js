@@ -7,6 +7,9 @@ import {
 import {
     anchorRoom,
     checkUpdateNeededBeforeDeactivation,
+    beginSplitJumpExperimentDiagnostics,
+    cancelSplitJumpExperimentDiagnostics,
+    finishSplitJumpExperimentDiagnostics,
     moveWorkZoneBy,
     pendingDeactivationPredictionSnapshotDiagnostics,
     slabRoom,
@@ -23,6 +26,8 @@ import {
     recordErasedJumpResultDiagnostics,
     recordPendingDeactivationPredictionsForJumpDiagnostics
 } from "./cycleDiagnostics-diag.js";
+
+const splitJumpExperimentEnabledDiagnostics = true;
 
 export async function moveAnchorToBottom(
     initialRoom,
@@ -97,6 +102,10 @@ export async function moveAnchorToBottom(
             calibratedJump,
             viewportHeight
         });
+        let commandedJump = jump;
+        if (splitJumpExperimentEnabledDiagnostics) {
+            commandedJump = beginSplitJumpExperimentDiagnostics(jump);
+        }
         const pendingPredictionsAtJumpStartDiagnostics =
             pendingDeactivationPredictionSnapshotDiagnostics();
         const predictedDeactivationDecks =
@@ -109,10 +118,11 @@ export async function moveAnchorToBottom(
             geometricallyPredictedDeckCount:
                 predictedDeactivationDecks.length
         });
-        await moveWorkZoneBy(jump);
+        await moveWorkZoneBy(commandedJump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
+            cancelSplitJumpExperimentDiagnostics();
             finishJumpDiagnostics({
                 scrollYAfter: supplyRoomAfter,
                 obtainedAnchorRoom: anchorRoom(),
@@ -131,7 +141,12 @@ export async function moveAnchorToBottom(
         });
         logStabilizedJumpDiagnosticsIfNeeded();
 
-        const jumpWasErased = obtainedRoom === room;
+        let jumpWasErased = obtainedRoom === room;
+        const splitOutcomeDiagnostics =
+            finishSplitJumpExperimentDiagnostics(room, obtainedRoom);
+        if (splitOutcomeDiagnostics != null) {
+            jumpWasErased = splitOutcomeDiagnostics === "both-erased";
+        }
 
         recordErasedJumpResultDiagnostics(
             jumpWasErased,

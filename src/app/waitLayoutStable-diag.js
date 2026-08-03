@@ -9,6 +9,7 @@ import {
     beginStabilizationRafMutationDiagnostics,
     deckActivationTransitions,
     finishStabilizationRafMutationDiagnostics,
+    performSplitExtraJumpDiagnostics,
     roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
@@ -72,6 +73,7 @@ export async function waitLayoutStable(
         );
         await nextAnimationFrame();
         finishRafWaitDiagnostics();
+        performSplitExtraJumpDiagnostics(frame + 1);
 
         const currentGeometry = geometrySnapshot();
         const deckStatus = thresholdDeckSnapshot();
