@@ -127,8 +127,6 @@ export function resetCycleDiagnostics() {
         singleDeactivationJumpByPreCommandLastKnownHeight: {},
         singleDeactivationJumpByLastKnownHeightLeadMs: {},
         singleDeactivationRetryByLastKnownHeightLeadMs: {},
-        singleDeactivationJumpByLastKnownHeightStabilizationRaf: {},
-        singleDeactivationRetryByLastKnownHeightStabilizationRaf: {},
         singleDeactivationJumpByLastKnownHeightJumpLag: {},
         singleDeactivationRetryByLastKnownHeightJumpLag: {},
         singleDeactivationJumpByPreviousJumpActivation: {},
@@ -648,7 +646,6 @@ function compactActivationChangesDiagnostics(changes) {
         delivery: change.delivery ?? null,
         order: change.order ?? null,
         phase: change.phase ?? null,
-        stabilizationRaf: change.stabilizationRaf ?? null,
         scrollYAtMutationDeliveryStart:
             change.scrollYAtMutationDeliveryStart ?? null,
         predictionElapsedMs: change.predictionElapsedMs ?? null,
@@ -657,8 +654,6 @@ function compactActivationChangesDiagnostics(changes) {
             change.lastKnownHeightUpdateClock ?? null,
         lastKnownHeightUpdateJumpLag:
             change.lastKnownHeightUpdateJumpLag ?? null,
-        lastKnownHeightUpdateStabilizationRaf:
-            change.lastKnownHeightUpdateStabilizationRaf ?? null,
         deckHeightAtPrediction:
             change.deckHeightAtPrediction ?? null,
         deckId: change.deck?.id ?? null,
@@ -675,7 +670,6 @@ function compactRenderingChangesDiagnostics(changes) {
             delivery: change.delivery ?? null,
             order: change.order ?? null,
             phase: change.phase ?? null,
-            stabilizationRaf: change.stabilizationRaf ?? null,
             change: change.change,
             tagName: change.element?.tagName ?? null,
             id: change.element?.id ?? null,
@@ -925,12 +919,7 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 heightUpdateLeadMs: leadMs,
                 heightUpdateJumpLag:
                     deactivation.lastKnownHeightUpdateJumpLag,
-                heightUpdateStabilizationRaf:
-                    deactivation
-                        .lastKnownHeightUpdateStabilizationRaf,
                 deactivationPhase: deactivation.phase,
-                deactivationStabilizationRaf:
-                    deactivation.stabilizationRaf,
                 movementJumpNumber: probe.movementJumpNumber
             });
         }
@@ -1009,48 +998,6 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             byLead.byPredictionJumpLag[lag] = byLag;
         }
         leadPopulation[leadBucket] = byLead;
-        const stabilizationRaf =
-            deactivation.lastKnownHeightUpdateStabilizationRaf;
-        const stabilizationRafBucket = Number.isInteger(stabilizationRaf)
-            ? `raf-${stabilizationRaf}`
-            : "outside-stabilization-rAF";
-        const stabilizationRafPopulation =
-            outcome === "retry-succeeded" || outcome === "retry-erased"
-                ? deactivationPredictionDiagnostics
-                    .singleDeactivationRetryByLastKnownHeightStabilizationRaf
-                : deactivationPredictionDiagnostics
-                    .singleDeactivationJumpByLastKnownHeightStabilizationRaf;
-        const byStabilizationRaf = stabilizationRafPopulation[
-            stabilizationRafBucket
-        ] ?? {
-            jumpCount: 0,
-            erasedJumpCount: 0,
-            preservedJumpCount: 0,
-            byPredictionJumpLag: {}
-        };
-        byStabilizationRaf.jumpCount++;
-        if (outcome === "erased" || outcome === "retry-erased") {
-            byStabilizationRaf.erasedJumpCount++;
-        } else {
-            byStabilizationRaf.preservedJumpCount++;
-        }
-        if (Number.isInteger(deactivation.predictionJumpLag)) {
-            const lag = deactivation.predictionJumpLag;
-            const byLag = byStabilizationRaf.byPredictionJumpLag[lag] ?? {
-                jumpCount: 0,
-                erasedJumpCount: 0,
-                preservedJumpCount: 0
-            };
-            byLag.jumpCount++;
-            if (outcome === "erased" || outcome === "retry-erased") {
-                byLag.erasedJumpCount++;
-            } else {
-                byLag.preservedJumpCount++;
-            }
-            byStabilizationRaf.byPredictionJumpLag[lag] = byLag;
-        }
-        stabilizationRafPopulation[stabilizationRafBucket] =
-            byStabilizationRaf;
         const heightJumpLag =
             deactivation.lastKnownHeightUpdateJumpLag;
         const heightJumpLagBucket = Number.isInteger(heightJumpLag)
@@ -2153,22 +2100,6 @@ function emitDeactivationPredictionDiagnostics() {
             )
         }));
     console.log(
-        "[height update stabilization rAF ordinary]\n" +
-        JSON.stringify(compactCategorizedPopulation(
-            output
-                .singleDeactivationJumpByLastKnownHeightStabilizationRaf,
-            "stabilizationRaf"
-        ))
-    );
-    console.log(
-        "[height update stabilization rAF retries]\n" +
-        JSON.stringify(compactCategorizedPopulation(
-            output
-                .singleDeactivationRetryByLastKnownHeightStabilizationRaf,
-            "stabilizationRaf"
-        ))
-    );
-    console.log(
         "[height update jump lag ordinary]\n" +
         JSON.stringify(compactCategorizedPopulation(
             output.singleDeactivationJumpByLastKnownHeightJumpLag,
@@ -2206,8 +2137,6 @@ function emitDeactivationPredictionDiagnostics() {
     );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
-    delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
-    delete output.singleDeactivationRetryByLastKnownHeightStabilizationRaf;
     delete output.singleDeactivationJumpByLastKnownHeightJumpLag;
     delete output.singleDeactivationRetryByLastKnownHeightJumpLag;
     delete output.singleDeactivationJumpByPreviousJumpActivation;

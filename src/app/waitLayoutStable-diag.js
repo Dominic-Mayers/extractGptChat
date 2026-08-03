@@ -6,9 +6,7 @@ import {
 } from "./constants-diag.js";
 import {
     anchorRoom,
-    beginStabilizationRafMutationDiagnostics,
     deckActivationTransitions,
-    finishStabilizationRafMutationDiagnostics,
     roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
@@ -67,9 +65,6 @@ export async function waitLayoutStable(
 
     for (let frame = 0; frame < maxFrames; frame++) {
         beginRafDiagnostics({ frame: frame + 1 });
-        beginStabilizationRafMutationDiagnostics(
-            frame + 1
-        );
         await nextAnimationFrame();
         finishRafWaitDiagnostics();
 
@@ -130,8 +125,6 @@ export async function waitLayoutStable(
             acceptedScrollYChange: scrollYChange
         };
         previousRafGeometry = currentGeometry;
-        finishStabilizationRafMutationDiagnostics(frame + 1);
-
         if (shouldIgnoreRaf(deckTransitions)) {
             warnIgnoredDeckTransitions(
                 deckTransitions,
@@ -155,7 +148,6 @@ export async function waitLayoutStable(
             trackAnchor,
             positionAtFrame
         );
-        finishStabilizationRafMutationDiagnostics(frame + 1);
         const positionNowDiagnostics = trackAnchor
             ? anchorRoom()
             : null;

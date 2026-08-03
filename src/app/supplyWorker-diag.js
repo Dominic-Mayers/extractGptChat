@@ -46,7 +46,6 @@ let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
 let currentJumpObserverDiagnostics = null;
-let deliveredJumpMutationBatchesDiagnostics = [];
 let currentJumpProbeDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
@@ -1100,11 +1099,9 @@ export async function moveWorkZoneBy(jump) {
 function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
-    deliveredJumpMutationBatchesDiagnostics = [];
 }
 
 function drainJumpObserverDiagnostics(probe, phase) {
-    flushDeliveredJumpMutationBatchesDiagnostics(probe, null);
     const { supplyArea, workZone } = environment();
     const scrollYAtDeliveryStart = workZonePosition(
         supplyArea,
@@ -1115,37 +1112,7 @@ function drainJumpObserverDiagnostics(probe, phase) {
         probe,
         records,
         phase,
-        scrollYAtDeliveryStart,
-        null
-    );
-}
-
-export function beginStabilizationRafMutationDiagnostics(frame) {
-    requestAnimationFrame(() =>
-        drainJumpObserverAtStabilizationRafDiagnostics(frame)
-    );
-}
-
-export function finishStabilizationRafMutationDiagnostics(frame) {
-    drainJumpObserverAtStabilizationRafDiagnostics(frame);
-}
-
-function drainJumpObserverAtStabilizationRafDiagnostics(frame) {
-    const probe = currentJumpProbeDiagnostics;
-    if (probe == null) return;
-    flushDeliveredJumpMutationBatchesDiagnostics(probe, frame);
-    const { supplyArea, workZone } = environment();
-    const scrollYAtDeliveryStart = workZonePosition(
-        supplyArea,
-        workZone
-    );
-    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-    recordJumpChangesDiagnostics(
-        probe,
-        records,
-        probe.phase,
-        scrollYAtDeliveryStart,
-        frame
+        scrollYAtDeliveryStart
     );
 }
 
@@ -1291,19 +1258,7 @@ function captureNextRafJumpProbeDiagnostics(
     workZone
 ) {
     requestAnimationFrame(() => {
-        flushDeliveredJumpMutationBatchesDiagnostics(probe, 1);
-        const scrollYAtDeliveryStart = workZonePosition(
-            supplyArea,
-            workZone
-        );
-        const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-        recordJumpChangesDiagnostics(
-            probe,
-            records,
-            "post-command",
-            scrollYAtDeliveryStart,
-            1
-        );
+        drainJumpObserverDiagnostics(probe, "post-command");
         probe.nextRaf = jumpProbeGeometryDiagnostics(
             anchor,
             supplyArea,
@@ -1374,11 +1329,12 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
             supplyArea,
             workZone
         );
-        deliveredJumpMutationBatchesDiagnostics.push({
+        recordJumpChangesDiagnostics(
+            probe,
             records,
-            phase: probe.phase,
+            probe.phase,
             scrollYAtDeliveryStart
-        });
+        );
     });
 
     observer.observe(document.body, {
@@ -1391,29 +1347,11 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
     return observer;
 }
 
-function flushDeliveredJumpMutationBatchesDiagnostics(
-    probe,
-    stabilizationRaf
-) {
-    const batches = deliveredJumpMutationBatchesDiagnostics;
-    deliveredJumpMutationBatchesDiagnostics = [];
-    for (const batch of batches) {
-        recordJumpChangesDiagnostics(
-            probe,
-            batch.records,
-            batch.phase,
-            batch.scrollYAtDeliveryStart,
-            stabilizationRaf
-        );
-    }
-}
-
 function recordJumpChangesDiagnostics(
     probe,
     records,
     phase,
-    scrollYAtDeliveryStart,
-    stabilizationRaf = null
+    scrollYAtDeliveryStart
 ) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
@@ -1433,15 +1371,13 @@ function recordJumpChangesDiagnostics(
                 const clock = performance.now();
                 lastKnownHeightUpdateDiagnostics.set(record.target, {
                     clock,
-                    movementJumpNumber: movementJumpNumberDiagnostics,
-                    stabilizationRaf
+                    movementJumpNumber: movementJumpNumberDiagnostics
                 });
                 probe.renderingChanges.push({
                     delivery,
                     order: ++probe.mutationOrder,
                     clock,
                     phase,
-                    stabilizationRaf,
                     change: "last-known-height",
                     before,
                     after,
@@ -1485,7 +1421,6 @@ function recordJumpChangesDiagnostics(
                 order: ++probe.mutationOrder,
                 clock: performance.now(),
                 phase,
-                stabilizationRaf,
                 scrollYAtMutationDeliveryStart:
                     scrollYAtDeliveryStart,
                 deck: snapshotElementDiagnostics(record.target),
@@ -1505,8 +1440,6 @@ function recordJumpChangesDiagnostics(
                         ? null
                         : movementJumpNumberDiagnostics -
                             lastKnownHeightUpdate.movementJumpNumber,
-                lastKnownHeightUpdateStabilizationRaf:
-                    lastKnownHeightUpdate?.stabilizationRaf ?? null,
                 deckHeightAtPrediction: prediction == null
                     ? null
                     : prediction.deckHeightAtPrediction

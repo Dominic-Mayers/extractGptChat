@@ -86,7 +86,6 @@ export async function waitLayoutStable(
             acceptedScrollYChange: scrollYChange
         };
         previousRafGeometry = currentGeometry;
-
         if (shouldIgnoreRaf(deckTransitions)) {
             warnIgnoredDeckTransitions(
                 deckTransitions,
