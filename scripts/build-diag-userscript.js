@@ -19,6 +19,8 @@ const userscriptHeader = `// ==UserScript==
 // @match        https://chat.openai.com/*
 // @noframes
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
 // ==/UserScript==`;
 
 if (fs.existsSync(output)) fs.chmodSync(output, 0o644);

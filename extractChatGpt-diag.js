@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.71
+// @version      5.72
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -10,6 +10,8 @@
 // @match        https://chat.openai.com/*
 // @noframes
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
 // ==/UserScript==
 (() => {
   // src/app/constants-diag.js
@@ -383,6 +385,9 @@
     fixedDeckOutcomesDiagnostics = [];
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
+  }
+  function fixedDeckOutcomesSnapshotDiagnostics() {
+    return structuredClone(fixedDeckOutcomesDiagnostics);
   }
   function beginCycleDiagnostics(data) {
     finishCycleTimingDiagnostics(currentCycle);
@@ -4278,17 +4283,17 @@ ${fence}
     );
   }
   function shouldIgnoreRaf({ activations, deactivations }) {
-    return activations.some(({ location }) => location === "below") || deactivations.some(({ location }) => location === "above");
+    return activations.some(({ location: location2 }) => location2 === "below") || deactivations.some(({ location: location2 }) => location2 === "above");
   }
   function warnIgnoredDeckTransitions({ activations, deactivations }, frame, geometry) {
     const ignoredTransitions = [
-      ...activations.filter(({ location }) => location === "below").map((transition) => ({
+      ...activations.filter(({ location: location2 }) => location2 === "below").map((transition) => ({
         turnId: transition.turnId,
         transition: "activation-below",
         previous: transitionGeometry(transition.previous),
         current: transitionGeometry(transition.current)
       })),
-      ...deactivations.filter(({ location }) => location === "above").map((transition) => ({
+      ...deactivations.filter(({ location: location2 }) => location2 === "above").map((transition) => ({
         turnId: transition.turnId,
         transition: "deactivation-above",
         previous: transitionGeometry(transition.previous),
@@ -5024,6 +5029,104 @@ Do not omit or combine any item.`;
         activeRuns--;
       }
     };
+    const batchConfigurationDiagnostics = (() => {
+      const parameters = new URLSearchParams(location.search);
+      if (parameters.get("_extract_gpt_batch") !== "1") return null;
+      const port = Number(parameters.get("_extract_gpt_port"));
+      const cycle = Number(parameters.get("_extract_gpt_cycle"));
+      const token = parameters.get("_extract_gpt_token");
+      if (!Number.isInteger(port) || !Number.isInteger(cycle) || !token) {
+        return null;
+      }
+      return { port, cycle, token };
+    })();
+    function sendBatchResultDiagnostics(configuration, result) {
+      return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+          method: "POST",
+          url: `http://127.0.0.1:${configuration.port}/result`,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Extract-Gpt-Token": configuration.token
+          },
+          data: JSON.stringify(result),
+          onload: (response) => response.status >= 200 && response.status < 300 ? resolve() : reject(new Error(
+            `Batch collector returned ${response.status}.`
+          )),
+          onerror: () => reject(new Error(
+            "Could not contact the batch collector."
+          ))
+        });
+      });
+    }
+    function batchConversationUrlDiagnostics() {
+      const url = new URL(location.href);
+      for (const name of [
+        "_extract_gpt_batch",
+        "_extract_gpt_port",
+        "_extract_gpt_token",
+        "_extract_gpt_cycle"
+      ]) {
+        url.searchParams.delete(name);
+      }
+      return url.href;
+    }
+    async function waitBatchConversationDiagnostics() {
+      const deadline = Date.now() + 12e4;
+      while (document.querySelector("[data-turn-id-container]") == null) {
+        if (Date.now() >= deadline) {
+          throw new Error("Timed out waiting for the conversation.");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2e3));
+    }
+    async function traverseBatchConversationDiagnostics() {
+      if (activeRuns > 0) {
+        throw new Error("A traversal is already in progress.");
+      }
+      activeRuns++;
+      console.log(`[${logPrefix}] started.`);
+      try {
+        await traverseConversation();
+        console.log(`[${logPrefix}] finished.`);
+      } catch (error) {
+        recordCycleStageDiagnostics("error", { error });
+        selectCurrentJumpDiagnostics("error");
+        logCycleContextDiagnostics();
+        console.error(`[${logPrefix}] failed.`, error);
+        throw error;
+      } finally {
+        stopSupplyWorkerDiagnostics();
+        activeRuns--;
+      }
+    }
+    async function runBatchTraversalDiagnostics(configuration) {
+      try {
+        await waitBatchConversationDiagnostics();
+        await traverseBatchConversationDiagnostics();
+        await sendBatchResultDiagnostics(configuration, {
+          cycle: configuration.cycle,
+          version: VERSION2,
+          conversationUrl: batchConversationUrlDiagnostics(),
+          status: "complete",
+          fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+        });
+      } catch (error) {
+        await sendBatchResultDiagnostics(configuration, {
+          cycle: configuration.cycle,
+          version: VERSION2,
+          conversationUrl: batchConversationUrlDiagnostics(),
+          status: "failed",
+          error: {
+            name: error?.name ?? null,
+            message: error?.message ?? String(error),
+            stack: error?.stack ?? null
+          },
+          fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+        });
+      }
+    }
     const menuLabel = `${runLabel} v${VERSION2}`;
     const embeddedMenuLabel = `${embeddedRunLabel} v${VERSION2}`;
     const registerMenuCommand = typeof GM_registerMenuCommand === "function" ? GM_registerMenuCommand : typeof GM !== "undefined" && typeof GM.registerMenuCommand === "function" ? GM.registerMenuCommand.bind(GM) : null;
@@ -5046,10 +5149,18 @@ Do not omit or combine any item.`;
         `[${logPrefix}] cannot register menu command: neither GM_registerMenuCommand nor GM.registerMenuCommand is available.`
       );
     }
+    if (batchConfigurationDiagnostics != null) {
+      setTimeout(
+        () => runBatchTraversalDiagnostics(
+          batchConfigurationDiagnostics
+        ),
+        1e3
+      );
+    }
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.71" : "unbuilt";
+  var VERSION = true ? "5.72" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

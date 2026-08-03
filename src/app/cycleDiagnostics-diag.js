@@ -151,6 +151,10 @@ export function resetCycleDiagnostics() {
     emittedCyclesDiagnostics = new WeakSet();
 }
 
+export function fixedDeckOutcomesSnapshotDiagnostics() {
+    return structuredClone(fixedDeckOutcomesDiagnostics);
+}
+
 export function beginCycleDiagnostics(data) {
     finishCycleTimingDiagnostics(currentCycle);
     emitCompletedSelectionDiagnostics();

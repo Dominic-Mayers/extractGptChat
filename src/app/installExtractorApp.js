@@ -74,4 +74,5 @@ if (registerMenuCommand) {
         'GM_registerMenuCommand nor GM.registerMenuCommand is available.'
     );
 }
+
 }

@@ -9,7 +9,8 @@ import {
     logActiveTraversalDiagnostics,
     logCycleContextDiagnostics,
     recordCycleStageDiagnostics,
-    selectCurrentJumpDiagnostics
+    selectCurrentJumpDiagnostics,
+    fixedDeckOutcomesSnapshotDiagnostics
 } from './cycleDiagnostics-diag.js';
 import { stopSupplyWorkerDiagnostics } from './supplyWorker-diag.js';
 
@@ -51,6 +52,115 @@ const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
     }
 };
 
+const batchConfigurationDiagnostics = (() => {
+    const parameters = new URLSearchParams(location.search);
+    if (parameters.get('_extract_gpt_batch') !== '1') return null;
+    const port = Number(parameters.get('_extract_gpt_port'));
+    const cycle = Number(parameters.get('_extract_gpt_cycle'));
+    const token = parameters.get('_extract_gpt_token');
+    if (!Number.isInteger(port) || !Number.isInteger(cycle) || !token) {
+        return null;
+    }
+    return { port, cycle, token };
+})();
+
+function sendBatchResultDiagnostics(configuration, result) {
+    return new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: `http://127.0.0.1:${configuration.port}/result`,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Extract-Gpt-Token': configuration.token
+            },
+            data: JSON.stringify(result),
+            onload: response => response.status >= 200 &&
+                response.status < 300
+                ? resolve()
+                : reject(new Error(
+                    `Batch collector returned ${response.status}.`
+                )),
+            onerror: () => reject(new Error(
+                'Could not contact the batch collector.'
+            ))
+        });
+    });
+}
+
+function batchConversationUrlDiagnostics() {
+    const url = new URL(location.href);
+    for (const name of [
+        '_extract_gpt_batch',
+        '_extract_gpt_port',
+        '_extract_gpt_token',
+        '_extract_gpt_cycle'
+    ]) {
+        url.searchParams.delete(name);
+    }
+    return url.href;
+}
+
+async function waitBatchConversationDiagnostics() {
+    const deadline = Date.now() + 120000;
+    while (
+        document.querySelector('[data-turn-id-container]') == null
+    ) {
+        if (Date.now() >= deadline) {
+            throw new Error('Timed out waiting for the conversation.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+}
+
+async function traverseBatchConversationDiagnostics() {
+    if (activeRuns > 0) {
+        throw new Error('A traversal is already in progress.');
+    }
+    activeRuns++;
+    console.log(`[${logPrefix}] started.`);
+    try {
+        await traverseConversation();
+        console.log(`[${logPrefix}] finished.`);
+    } catch (error) {
+        recordCycleStageDiagnostics("error", { error });
+        selectCurrentJumpDiagnostics("error");
+        logCycleContextDiagnostics();
+        console.error(`[${logPrefix}] failed.`, error);
+        throw error;
+    } finally {
+        stopSupplyWorkerDiagnostics();
+        activeRuns--;
+    }
+}
+
+async function runBatchTraversalDiagnostics(configuration) {
+    try {
+        await waitBatchConversationDiagnostics();
+        await traverseBatchConversationDiagnostics();
+        await sendBatchResultDiagnostics(configuration, {
+            cycle: configuration.cycle,
+            version: VERSION,
+            conversationUrl: batchConversationUrlDiagnostics(),
+            status: 'complete',
+            fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+        });
+    } catch (error) {
+        await sendBatchResultDiagnostics(configuration, {
+            cycle: configuration.cycle,
+            version: VERSION,
+            conversationUrl: batchConversationUrlDiagnostics(),
+            status: 'failed',
+            error: {
+                name: error?.name ?? null,
+                message: error?.message ?? String(error),
+                stack: error?.stack ?? null
+            },
+            fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+        });
+    }
+}
+
 const menuLabel = `${runLabel} v${VERSION}`;
 const embeddedMenuLabel = `${embeddedRunLabel} v${VERSION}`;
 const registerMenuCommand = typeof GM_registerMenuCommand === 'function'
@@ -77,6 +187,15 @@ if (registerMenuCommand) {
     console.log(
         `[${logPrefix}] cannot register menu command: neither ` +
         'GM_registerMenuCommand nor GM.registerMenuCommand is available.'
+    );
+}
+
+if (batchConfigurationDiagnostics != null) {
+    setTimeout(
+        () => runBatchTraversalDiagnostics(
+            batchConfigurationDiagnostics
+        ),
+        1000
     );
 }
 }
