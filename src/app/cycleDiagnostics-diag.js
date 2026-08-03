@@ -919,6 +919,13 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 heightUpdateLeadMs: leadMs,
                 heightUpdateJumpLag:
                     deactivation.lastKnownHeightUpdateJumpLag,
+                heightUpdateJumpRaf:
+                    deactivation.lastKnownHeightUpdateJumpRaf,
+                heightUpdateStabilizationRaf:
+                    deactivation.lastKnownHeightUpdateStabilizationRaf,
+                deactivationJumpRaf: deactivation.jumpRaf,
+                deactivationStabilizationRaf:
+                    deactivation.stabilizationRaf,
                 deactivationPhase: deactivation.phase,
                 movementJumpNumber: probe.movementJumpNumber
             });

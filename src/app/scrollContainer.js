@@ -81,9 +81,12 @@ export function moveWorkZone(distance, supplyArea, workZone) {
     scrollBy(container, -distance);
 }
 
-export function nextAnimationFrame() {
+export function nextAnimationFrame(onFrame = null) {
     return new Promise(resolve =>
-        requestAnimationFrame(resolve)
+        requestAnimationFrame(timestamp => {
+            onFrame?.(timestamp);
+            resolve(timestamp);
+        })
     );
 }
 

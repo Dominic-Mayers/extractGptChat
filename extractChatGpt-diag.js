@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.75
+// @version      5.76
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -89,9 +89,12 @@
     const container = commonContainer(supplyArea, workZone);
     scrollBy(container, -distance);
   }
-  function nextAnimationFrame() {
+  function nextAnimationFrame(onFrame = null) {
     return new Promise(
-      (resolve) => requestAnimationFrame(resolve)
+      (resolve) => requestAnimationFrame((timestamp) => {
+        onFrame?.(timestamp);
+        resolve(timestamp);
+      })
     );
   }
   function moveWorkZoneToSupplyEnd(supplyArea, workZone) {
@@ -1029,6 +1032,10 @@
           predictionJumpLag: deactivation.predictionJumpLag,
           heightUpdateLeadMs: leadMs,
           heightUpdateJumpLag: deactivation.lastKnownHeightUpdateJumpLag,
+          heightUpdateJumpRaf: deactivation.lastKnownHeightUpdateJumpRaf,
+          heightUpdateStabilizationRaf: deactivation.lastKnownHeightUpdateStabilizationRaf,
+          deactivationJumpRaf: deactivation.jumpRaf,
+          deactivationStabilizationRaf: deactivation.stabilizationRaf,
           deactivationPhase: deactivation.phase,
           movementJumpNumber: probe.movementJumpNumber
         });
@@ -2712,6 +2719,7 @@ ${fence}
   var currentAnchor;
   var savedDeckActivationStatus;
   var currentJumpObserverDiagnostics = null;
+  var deliveredJumpMutationBatchesDiagnostics = [];
   var currentJumpProbeDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
   var movementJumpNumberDiagnostics = 0;
@@ -3549,8 +3557,20 @@ ${fence}
   function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
+    deliveredJumpMutationBatchesDiagnostics = [];
   }
-  function drainJumpObserverDiagnostics(probe, phase) {
+  function drainJumpObserverDiagnostics(probe, phase, jumpRaf = false, stabilizationRaf = null) {
+    for (const batch of deliveredJumpMutationBatchesDiagnostics) {
+      recordJumpChangesDiagnostics(
+        probe,
+        batch.records,
+        batch.phase,
+        batch.scrollYAtDeliveryStart,
+        jumpRaf,
+        stabilizationRaf
+      );
+    }
+    deliveredJumpMutationBatchesDiagnostics = [];
     const { supplyArea, workZone } = environment();
     const scrollYAtDeliveryStart = workZonePosition(
       supplyArea,
@@ -3561,7 +3581,18 @@ ${fence}
       probe,
       records,
       phase,
-      scrollYAtDeliveryStart
+      scrollYAtDeliveryStart,
+      jumpRaf,
+      stabilizationRaf
+    );
+  }
+  function collectStabilizationRafMutationsDiagnostics(frame) {
+    if (currentJumpProbeDiagnostics == null) return;
+    drainJumpObserverDiagnostics(
+      currentJumpProbeDiagnostics,
+      currentJumpProbeDiagnostics.phase,
+      false,
+      frame
     );
   }
   function resetSupplyWorkerDiagnostics() {
@@ -3668,7 +3699,7 @@ ${fence}
   }
   function captureNextRafJumpProbeDiagnostics(probe, anchor, supplyArea, workZone) {
     requestAnimationFrame(() => {
-      drainJumpObserverDiagnostics(probe, "post-command");
+      drainJumpObserverDiagnostics(probe, "post-command", true);
       probe.nextRaf = jumpProbeGeometryDiagnostics(
         anchor,
         supplyArea,
@@ -3728,12 +3759,11 @@ ${fence}
         supplyArea,
         workZone
       );
-      recordJumpChangesDiagnostics(
-        probe,
+      deliveredJumpMutationBatchesDiagnostics.push({
         records,
-        probe.phase,
+        phase: probe.phase,
         scrollYAtDeliveryStart
-      );
+      });
     });
     observer.observe(document.body, {
       subtree: true,
@@ -3744,7 +3774,7 @@ ${fence}
     });
     return observer;
   }
-  function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart) {
+  function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart, jumpRaf = false, stabilizationRaf = null) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
     for (const record of records) {
@@ -3759,13 +3789,17 @@ ${fence}
           const clock = performance.now();
           lastKnownHeightUpdateDiagnostics.set(record.target, {
             clock,
-            movementJumpNumber: movementJumpNumberDiagnostics
+            movementJumpNumber: movementJumpNumberDiagnostics,
+            jumpRaf,
+            stabilizationRaf
           });
           probe.renderingChanges.push({
             delivery,
             order: ++probe.mutationOrder,
             clock,
             phase,
+            jumpRaf,
+            stabilizationRaf,
             change: "last-known-height",
             before,
             after,
@@ -3806,6 +3840,10 @@ ${fence}
           predictionJumpLag: prediction == null ? null : movementJumpNumberDiagnostics - prediction.predictedOnJumpNumber,
           lastKnownHeightUpdateClock: lastKnownHeightUpdate?.clock ?? null,
           lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
+          lastKnownHeightUpdateJumpRaf: lastKnownHeightUpdate?.jumpRaf ?? false,
+          lastKnownHeightUpdateStabilizationRaf: lastKnownHeightUpdate?.stabilizationRaf ?? null,
+          jumpRaf,
+          stabilizationRaf,
           deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction
         });
         continue;
@@ -4075,7 +4113,11 @@ ${fence}
     });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
-      await nextAnimationFrame();
+      await nextAnimationFrame(() => {
+        if (collectStabilizationRafMutationsDiagnostics) {
+          collectStabilizationRafMutationsDiagnostics(frame + 1);
+        }
+      });
       finishRafWaitDiagnostics();
       const currentGeometry = geometrySnapshot();
       const deckStatus = thresholdDeckSnapshot();
@@ -5063,7 +5105,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.75" : "unbuilt";
+  var VERSION = true ? "5.76" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

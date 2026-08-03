@@ -46,6 +46,7 @@ let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
 let currentJumpObserverDiagnostics = null;
+let deliveredJumpMutationBatchesDiagnostics = [];
 let currentJumpProbeDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
@@ -1099,9 +1100,26 @@ export async function moveWorkZoneBy(jump) {
 function resetJumpObserverDiagnostics() {
     currentJumpObserverDiagnostics?.disconnect();
     currentJumpObserverDiagnostics = null;
+    deliveredJumpMutationBatchesDiagnostics = [];
 }
 
-function drainJumpObserverDiagnostics(probe, phase) {
+function drainJumpObserverDiagnostics(
+    probe,
+    phase,
+    jumpRaf = false,
+    stabilizationRaf = null
+) {
+    for (const batch of deliveredJumpMutationBatchesDiagnostics) {
+        recordJumpChangesDiagnostics(
+            probe,
+            batch.records,
+            batch.phase,
+            batch.scrollYAtDeliveryStart,
+            jumpRaf,
+            stabilizationRaf
+        );
+    }
+    deliveredJumpMutationBatchesDiagnostics = [];
     const { supplyArea, workZone } = environment();
     const scrollYAtDeliveryStart = workZonePosition(
         supplyArea,
@@ -1112,7 +1130,19 @@ function drainJumpObserverDiagnostics(probe, phase) {
         probe,
         records,
         phase,
-        scrollYAtDeliveryStart
+        scrollYAtDeliveryStart,
+        jumpRaf,
+        stabilizationRaf
+    );
+}
+
+export function collectStabilizationRafMutationsDiagnostics(frame) {
+    if (currentJumpProbeDiagnostics == null) return;
+    drainJumpObserverDiagnostics(
+        currentJumpProbeDiagnostics,
+        currentJumpProbeDiagnostics.phase,
+        false,
+        frame
     );
 }
 
@@ -1258,7 +1288,7 @@ function captureNextRafJumpProbeDiagnostics(
     workZone
 ) {
     requestAnimationFrame(() => {
-        drainJumpObserverDiagnostics(probe, "post-command");
+        drainJumpObserverDiagnostics(probe, "post-command", true);
         probe.nextRaf = jumpProbeGeometryDiagnostics(
             anchor,
             supplyArea,
@@ -1329,12 +1359,11 @@ function observeJumpChangesDiagnostics(probe, supplyArea) {
             supplyArea,
             workZone
         );
-        recordJumpChangesDiagnostics(
-            probe,
+        deliveredJumpMutationBatchesDiagnostics.push({
             records,
-            probe.phase,
+            phase: probe.phase,
             scrollYAtDeliveryStart
-        );
+        });
     });
 
     observer.observe(document.body, {
@@ -1351,7 +1380,9 @@ function recordJumpChangesDiagnostics(
     probe,
     records,
     phase,
-    scrollYAtDeliveryStart
+    scrollYAtDeliveryStart,
+    jumpRaf = false,
+    stabilizationRaf = null
 ) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
@@ -1371,13 +1402,17 @@ function recordJumpChangesDiagnostics(
                 const clock = performance.now();
                 lastKnownHeightUpdateDiagnostics.set(record.target, {
                     clock,
-                    movementJumpNumber: movementJumpNumberDiagnostics
+                    movementJumpNumber: movementJumpNumberDiagnostics,
+                    jumpRaf,
+                    stabilizationRaf
                 });
                 probe.renderingChanges.push({
                     delivery,
                     order: ++probe.mutationOrder,
                     clock,
                     phase,
+                    jumpRaf,
+                    stabilizationRaf,
                     change: "last-known-height",
                     before,
                     after,
@@ -1440,6 +1475,12 @@ function recordJumpChangesDiagnostics(
                         ? null
                         : movementJumpNumberDiagnostics -
                             lastKnownHeightUpdate.movementJumpNumber,
+                lastKnownHeightUpdateJumpRaf:
+                    lastKnownHeightUpdate?.jumpRaf ?? false,
+                lastKnownHeightUpdateStabilizationRaf:
+                    lastKnownHeightUpdate?.stabilizationRaf ?? null,
+                jumpRaf,
+                stabilizationRaf,
                 deckHeightAtPrediction: prediction == null
                     ? null
                     : prediction.deckHeightAtPrediction

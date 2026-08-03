@@ -62,6 +62,10 @@ function removeDiagnostics(source) {
         'from $1$2.js$1'
     );
     return output
+        .replace(
+            /nextAnimationFrame\(\(\) => \{\s*\}\)/g,
+            'nextAnimationFrame()'
+        )
         .replace(/\s*if\s*\([^)]*\)\s*\{\s*\}/g, '')
         .replace(/\s*else\s*\{\s*\}/g, '')
         .replace(/\n{3,}/g, '\n\n')
