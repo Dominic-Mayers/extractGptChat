@@ -27,6 +27,7 @@ let erasedJumpStructureDiagnostics = null;
 let currentErasedJumpEntryDiagnostics = null;
 let canvasGeometryDiagnostics = null;
 let fixedDeckOutcomesDiagnostics = [];
+let deactivatedDeckIdsDiagnostics = new Set();
 
 const SLOW_JUMP_MS = 1000;
 const SLOW_AWAIT_MS = 1000;
@@ -147,12 +148,17 @@ export function resetCycleDiagnostics() {
     currentErasedJumpEntryDiagnostics = null;
     canvasGeometryDiagnostics = [];
     fixedDeckOutcomesDiagnostics = [];
+    deactivatedDeckIdsDiagnostics = new Set();
     selectedJumpReasonsDiagnostics = new WeakMap();
     emittedCyclesDiagnostics = new WeakSet();
 }
 
 export function fixedDeckOutcomesSnapshotDiagnostics() {
     return structuredClone(fixedDeckOutcomesDiagnostics);
+}
+
+export function deactivatedDeckIdsSnapshotDiagnostics() {
+    return [...deactivatedDeckIdsDiagnostics].sort();
 }
 
 export function beginCycleDiagnostics(data) {
@@ -1428,6 +1434,7 @@ function recordDeckLifecycleDiagnostics(probe, outcome) {
         );
 
         if (deactivated) {
+            deactivatedDeckIdsDiagnostics.add(event.deck.id);
             deckLifecycleDiagnostics.deactivationCount++;
             recordMatchedDeactivationPredictionDiagnostics(event);
             if (priorSection == null) {

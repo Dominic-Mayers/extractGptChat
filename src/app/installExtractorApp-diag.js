@@ -10,7 +10,8 @@ import {
     logCycleContextDiagnostics,
     recordCycleStageDiagnostics,
     selectCurrentJumpDiagnostics,
-    fixedDeckOutcomesSnapshotDiagnostics
+    fixedDeckOutcomesSnapshotDiagnostics,
+    deactivatedDeckIdsSnapshotDiagnostics
 } from './cycleDiagnostics-diag.js';
 import { stopSupplyWorkerDiagnostics } from './supplyWorker-diag.js';
 
@@ -134,16 +135,29 @@ async function traverseBatchConversationDiagnostics() {
     }
 }
 
+function batchDeckIdsDiagnostics() {
+    return [...new Set(
+        [...document.querySelectorAll('[data-turn-id-container]')]
+            .map(deck => deck.getAttribute('data-turn-id-container'))
+            .filter(deckId => deckId != null)
+    )].sort();
+}
+
 async function runBatchTraversalDiagnostics(configuration) {
+    let deckIds = [];
     try {
         await sendBatchRequestDiagnostics(configuration, '/ready', {});
         await waitBatchConversationDiagnostics();
+        deckIds = batchDeckIdsDiagnostics();
         await traverseBatchConversationDiagnostics();
         await sendBatchRequestDiagnostics(configuration, '/result', {
             cycle: configuration.cycle,
             version: VERSION,
             conversationUrl: batchConversationUrlDiagnostics(),
             status: 'complete',
+            deckIds,
+            deactivatedDeckIds:
+                deactivatedDeckIdsSnapshotDiagnostics(),
             fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
         });
     } catch (error) {
@@ -157,6 +171,9 @@ async function runBatchTraversalDiagnostics(configuration) {
                 message: error?.message ?? String(error),
                 stack: error?.stack ?? null
             },
+            deckIds,
+            deactivatedDeckIds:
+                deactivatedDeckIdsSnapshotDiagnostics(),
             fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
         });
     }

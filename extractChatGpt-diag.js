@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.73
+// @version      5.74
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -266,6 +266,7 @@
   var currentErasedJumpEntryDiagnostics = null;
   var canvasGeometryDiagnostics = null;
   var fixedDeckOutcomesDiagnostics = [];
+  var deactivatedDeckIdsDiagnostics = /* @__PURE__ */ new Set();
   var SLOW_JUMP_MS = 1e3;
   var SLOW_AWAIT_MS = 1e3;
   var SLOW_SLAB_MS = 2e3;
@@ -383,11 +384,15 @@
     currentErasedJumpEntryDiagnostics = null;
     canvasGeometryDiagnostics = [];
     fixedDeckOutcomesDiagnostics = [];
+    deactivatedDeckIdsDiagnostics = /* @__PURE__ */ new Set();
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
   }
   function fixedDeckOutcomesSnapshotDiagnostics() {
     return structuredClone(fixedDeckOutcomesDiagnostics);
+  }
+  function deactivatedDeckIdsSnapshotDiagnostics() {
+    return [...deactivatedDeckIdsDiagnostics].sort();
   }
   function beginCycleDiagnostics(data) {
     finishCycleTimingDiagnostics(currentCycle);
@@ -1371,6 +1376,7 @@
         (candidate) => candidate.order > event.order && (candidate.deck?.id === event.deck?.id || candidate.element?.turnId === event.deck?.id)
       );
       if (deactivated) {
+        deactivatedDeckIdsDiagnostics.add(event.deck.id);
         deckLifecycleDiagnostics.deactivationCount++;
         recordMatchedDeactivationPredictionDiagnostics(event);
         if (priorSection == null) {
@@ -5101,16 +5107,25 @@ Do not omit or combine any item.`;
         activeRuns--;
       }
     }
+    function batchDeckIdsDiagnostics() {
+      return [...new Set(
+        [...document.querySelectorAll("[data-turn-id-container]")].map((deck) => deck.getAttribute("data-turn-id-container")).filter((deckId) => deckId != null)
+      )].sort();
+    }
     async function runBatchTraversalDiagnostics(configuration) {
+      let deckIds = [];
       try {
         await sendBatchRequestDiagnostics(configuration, "/ready", {});
         await waitBatchConversationDiagnostics();
+        deckIds = batchDeckIdsDiagnostics();
         await traverseBatchConversationDiagnostics();
         await sendBatchRequestDiagnostics(configuration, "/result", {
           cycle: configuration.cycle,
           version: VERSION2,
           conversationUrl: batchConversationUrlDiagnostics(),
           status: "complete",
+          deckIds,
+          deactivatedDeckIds: deactivatedDeckIdsSnapshotDiagnostics(),
           fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
         });
       } catch (error) {
@@ -5124,6 +5139,8 @@ Do not omit or combine any item.`;
             message: error?.message ?? String(error),
             stack: error?.stack ?? null
           },
+          deckIds,
+          deactivatedDeckIds: deactivatedDeckIdsSnapshotDiagnostics(),
           fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
         });
       }
@@ -5161,7 +5178,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.73" : "unbuilt";
+  var VERSION = true ? "5.74" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
