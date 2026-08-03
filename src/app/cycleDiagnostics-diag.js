@@ -961,20 +961,16 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
             : deactivationPredictionDiagnostics
                 .singleDeactivationJumpByLastKnownHeightLeadMs;
         const byLead = leadPopulation[leadBucket] ?? {
-                jumpCount: 0,
-                erasedJumpCount: 0,
-                preservedJumpCount: 0,
-                leadMsCount: 0,
-                leadMsSum: 0,
-                leadMsMinimum: null,
-                leadMsMaximum: null,
-                byOutcome: {},
-                byPredictionJumpLag: {},
-                decompositionCount: 0,
-                mutationRemainderMsSum: 0,
-                betweenCallbacksMsSum: 0,
-                preparationMsSum: 0
-            };
+            jumpCount: 0,
+            erasedJumpCount: 0,
+            preservedJumpCount: 0,
+            leadMsCount: 0,
+            leadMsSum: 0,
+            leadMsMinimum: null,
+            leadMsMaximum: null,
+            byOutcome: {},
+            byPredictionJumpLag: {}
+        };
         byLead.jumpCount++;
         if (outcome === "erased" || outcome === "retry-erased") {
             byLead.erasedJumpCount++;
@@ -1064,7 +1060,11 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 leadMsMinimum: null,
                 leadMsMaximum: null,
                 byOutcome: {},
-                byPredictionJumpLag: {}
+                byPredictionJumpLag: {},
+                decompositionCount: 0,
+                mutationRemainderMsSum: 0,
+                betweenCallbacksMsSum: 0,
+                preparationMsSum: 0
             };
             const extraErased =
                 splitOutcome === "extra-erased" ||
