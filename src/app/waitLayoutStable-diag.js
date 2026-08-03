@@ -72,13 +72,8 @@ export async function waitLayoutStable(
             frame + 1
         );
         await nextAnimationFrame();
-        const splitExtraRafContinuationClockDiagnostics =
-            performance.now();
         finishRafWaitDiagnostics();
-        performSplitExtraJumpDiagnostics(
-            frame + 1,
-            splitExtraRafContinuationClockDiagnostics
-        );
+        performSplitExtraJumpDiagnostics(frame + 1);
 
         const currentGeometry = geometrySnapshot();
         const deckStatus = thresholdDeckSnapshot();

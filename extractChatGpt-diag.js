@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.68
+// @version      5.67
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -844,7 +844,6 @@
       lastKnownHeightUpdateClock: change.lastKnownHeightUpdateClock ?? null,
       lastKnownHeightUpdateJumpLag: change.lastKnownHeightUpdateJumpLag ?? null,
       lastKnownHeightUpdateStabilizationRaf: change.lastKnownHeightUpdateStabilizationRaf ?? null,
-      lastKnownHeightUpdateProcessingFinishedClock: change.lastKnownHeightUpdateProcessingFinishedClock ?? null,
       deckHeightAtPrediction: change.deckHeightAtPrediction ?? null,
       splitTotalOnly: change.splitTotalOnly ?? false,
       splitOutcome: change.splitOutcome ?? null,
@@ -1003,11 +1002,7 @@
           preservedJumpCount: 0,
           delayMsSum: 0,
           byOutcome: {},
-          byPredictionJumpLag: {},
-          decompositionCount: 0,
-          mutationRemainderMsSum: 0,
-          betweenCallbacksMsSum: 0,
-          preparationMsSum: 0
+          byPredictionJumpLag: {}
         };
         byDelay.jumpCount++;
         byDelay.delayMsSum += delayMs;
@@ -1141,15 +1136,6 @@
             byExtraLead.leadMsMaximum,
             extraLeadMs
           );
-        }
-        const mutationDrainFinishedClock = probe.splitJump.mutationDrainFinishedClock;
-        const rafContinuationClock = probe.splitJump.rafContinuationClock;
-        const updateClock = deactivation.lastKnownHeightUpdateClock;
-        if (deactivation.lastKnownHeightUpdateStabilizationRaf === 1 && Number.isFinite(updateClock) && Number.isFinite(mutationDrainFinishedClock) && Number.isFinite(rafContinuationClock) && updateClock <= mutationDrainFinishedClock && mutationDrainFinishedClock <= rafContinuationClock && rafContinuationClock <= extraCommandClock) {
-          byExtraLead.decompositionCount++;
-          byExtraLead.mutationRemainderMsSum += mutationDrainFinishedClock - updateClock;
-          byExtraLead.betweenCallbacksMsSum += rafContinuationClock - mutationDrainFinishedClock;
-          byExtraLead.preparationMsSum += extraCommandClock - rafContinuationClock;
         }
         incrementJumpPopulationCategoryDiagnostics(
           byExtraLead.byOutcome,
@@ -1964,13 +1950,6 @@
         )
       )
     }));
-    const compactExtraLeadDecomposition = (buckets) => Object.entries(buckets).map(([bucket, value]) => ({
-      bucket,
-      decompositionCount: value.decompositionCount,
-      mutationRemainderMsAverage: value.decompositionCount === 0 ? null : value.mutationRemainderMsSum / value.decompositionCount,
-      betweenCallbacksMsAverage: value.decompositionCount === 0 ? null : value.betweenCallbacksMsSum / value.decompositionCount,
-      preparationMsAverage: value.decompositionCount === 0 ? null : value.preparationMsSum / value.decompositionCount
-    }));
     console.log(
       "[height update lead ordinary]\n" + JSON.stringify(compactLeadPopulation(
         output.singleDeactivationJumpByLastKnownHeightLeadMs
@@ -1989,11 +1968,6 @@
     console.log(
       "[split extra height update lead retries]\n" + JSON.stringify(compactLeadPopulation(
         output.splitExtraRetryByLastKnownHeightLeadMs
-      ))
-    );
-    console.log(
-      "[split extra lead decomposition ordinary]\n" + JSON.stringify(compactExtraLeadDecomposition(
-        output.splitExtraJumpByLastKnownHeightLeadMs
       ))
     );
     const compactCategorizedPopulation = (buckets, categoryName) => Object.entries(buckets).map(([category, value]) => ({
@@ -3736,7 +3710,7 @@ ${fence}
     };
     return initialJump;
   }
-  function performSplitExtraJumpDiagnostics(frame, rafContinuationClock) {
+  function performSplitExtraJumpDiagnostics(frame) {
     if (frame !== 1 || splitJumpExperimentDiagnostics == null || splitJumpExperimentDiagnostics.extraJumpPerformed) {
       return;
     }
@@ -3769,8 +3743,6 @@ ${fence}
       initialJump: experiment.initialJump,
       extraJump: experiment.extraJump,
       extraCommandClock,
-      mutationDrainFinishedClock: currentJumpProbeDiagnostics.stabilizationRafDrainFinishedClocks?.[frame] ?? null,
-      rafContinuationClock,
       beforeExtra: before,
       afterExtra: after
     };
@@ -3859,8 +3831,6 @@ ${fence}
       scrollYAtDeliveryStart,
       frame
     );
-    probe.stabilizationRafDrainFinishedClocks ?? (probe.stabilizationRafDrainFinishedClocks = {});
-    probe.stabilizationRafDrainFinishedClocks[frame] = performance.now();
   }
   function resetSupplyWorkerDiagnostics() {
     installNativeRemovalInstrumentationDiagnostics();
@@ -4070,7 +4040,6 @@ ${fence}
   function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart, stabilizationRaf = null) {
     if (records.length === 0) return;
     const delivery = ++probe.mutationDeliveryNumber;
-    const heightUpdates = [];
     for (const record of records) {
       if (record.type === "attributes" && record.attributeName === "style" && record.target.matches?.("[data-turn-id-container]")) {
         const before = lastKnownHeightFromStyleDiagnostics(
@@ -4081,16 +4050,11 @@ ${fence}
         );
         if (before !== after) {
           const clock = performance.now();
-          const heightUpdate = {
+          lastKnownHeightUpdateDiagnostics.set(record.target, {
             clock,
             movementJumpNumber: movementJumpNumberDiagnostics,
             stabilizationRaf
-          };
-          lastKnownHeightUpdateDiagnostics.set(
-            record.target,
-            heightUpdate
-          );
-          heightUpdates.push(heightUpdate);
+          });
           probe.renderingChanges.push({
             delivery,
             order: ++probe.mutationOrder,
@@ -4145,7 +4109,6 @@ ${fence}
           lastKnownHeightUpdateClock: lastKnownHeightUpdate?.clock ?? null,
           lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
           lastKnownHeightUpdateStabilizationRaf: lastKnownHeightUpdate?.stabilizationRaf ?? null,
-          lastKnownHeightUpdateProcessingFinishedClock: lastKnownHeightUpdate?.processingFinishedClock ?? null,
           deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction,
           splitTotalOnly: prediction?.splitTotalOnly ?? false,
           splitOutcome: prediction?.splitOutcome ?? null
@@ -4207,10 +4170,6 @@ ${fence}
           element: mutationElementDiagnostics(element)
         });
       }
-    }
-    const processingFinishedClock = performance.now();
-    for (const heightUpdate of heightUpdates) {
-      heightUpdate.processingFinishedClock = processingFinishedClock;
     }
   }
   function lastKnownHeightFromStyleDiagnostics(styleText) {
@@ -4425,12 +4384,8 @@ ${fence}
         frame + 1
       );
       await nextAnimationFrame();
-      const splitExtraRafContinuationClockDiagnostics = performance.now();
       finishRafWaitDiagnostics();
-      performSplitExtraJumpDiagnostics(
-        frame + 1,
-        splitExtraRafContinuationClockDiagnostics
-      );
+      performSplitExtraJumpDiagnostics(frame + 1);
       const currentGeometry = geometrySnapshot();
       const deckStatus = thresholdDeckSnapshot();
       const deckTransitions = deckActivationTransitions(deckStatus);
@@ -5311,7 +5266,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.68" : "unbuilt";
+  var VERSION = true ? "5.67" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
