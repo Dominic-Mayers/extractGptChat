@@ -893,7 +893,11 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 preservedJumpCount: 0,
                 delayMsSum: 0,
                 byOutcome: {},
-                byPredictionJumpLag: {}
+                byPredictionJumpLag: {},
+                decompositionCount: 0,
+                mutationRemainderMsSum: 0,
+                betweenCallbacksMsSum: 0,
+                preparationMsSum: 0
             };
             byDelay.jumpCount++;
             byDelay.delayMsSum += delayMs;
@@ -969,11 +973,7 @@ function recordJumpPopulationDiagnostics(jump, outcome) {
                 leadMsMinimum: null,
                 leadMsMaximum: null,
                 byOutcome: {},
-                byPredictionJumpLag: {},
-                decompositionCount: 0,
-                mutationRemainderMsSum: 0,
-                betweenCallbacksMsSum: 0,
-                preparationMsSum: 0
+                byPredictionJumpLag: {}
             };
         byLead.jumpCount++;
         if (outcome === "erased" || outcome === "retry-erased") {
