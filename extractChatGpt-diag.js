@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.68
+// @version      5.69
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1003,11 +1003,7 @@
           preservedJumpCount: 0,
           delayMsSum: 0,
           byOutcome: {},
-          byPredictionJumpLag: {},
-          decompositionCount: 0,
-          mutationRemainderMsSum: 0,
-          betweenCallbacksMsSum: 0,
-          preparationMsSum: 0
+          byPredictionJumpLag: {}
         };
         byDelay.jumpCount++;
         byDelay.delayMsSum += delayMs;
@@ -1059,7 +1055,11 @@
         leadMsMinimum: null,
         leadMsMaximum: null,
         byOutcome: {},
-        byPredictionJumpLag: {}
+        byPredictionJumpLag: {},
+        decompositionCount: 0,
+        mutationRemainderMsSum: 0,
+        betweenCallbacksMsSum: 0,
+        preparationMsSum: 0
       };
       byLead.jumpCount++;
       if (outcome === "erased" || outcome === "retry-erased") {
@@ -5311,7 +5311,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.68" : "unbuilt";
+  var VERSION = true ? "5.69" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",
