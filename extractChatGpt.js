@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.65
+// @version      5.66
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1438,15 +1438,16 @@ ${fence}
         viewportHeight2,
         slabDestination
       );
+      let commandedJump = jump;
       const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
-      await moveWorkZoneBy(jump);
+      await moveWorkZoneBy(commandedJump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         break;
       }
       await waitLayoutStable({ trackAnchor: true });
       const obtainedRoom = anchorRoom();
-      const jumpWasErased = obtainedRoom === room;
+      let jumpWasErased = obtainedRoom === room;
       if (jumpWasErased && retriedErasedJump) {
         throw new Error(
           `Anchor made no progress after retrying an erased jump at room=${room}.`
@@ -1928,7 +1929,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.65" : "unbuilt";
+  var VERSION = true ? "5.66" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

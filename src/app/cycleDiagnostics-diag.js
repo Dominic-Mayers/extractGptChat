@@ -131,7 +131,9 @@ export function resetCycleDiagnostics() {
         singleDeactivationRetryByLastKnownHeightJumpLag: {},
         singleDeactivationJumpByPreviousJumpActivation: {},
         singleDeactivationJumpByPreviousJumpGeometricActivation: {},
-        singleDeactivationJumpByN2GeometricActivations: {}
+        singleDeactivationJumpByN2GeometricActivations: {},
+        splitTotalOnlyPredictionsByOutcome: {},
+        splitJumpOutcomes: {}
     };
     deactivationPredictionElapsedValuesDiagnostics = [];
     predictionDeckHeightsByJumpLagDiagnostics = {};
@@ -228,6 +230,42 @@ export function recordStabilizationRuleDiagnostics({
 export function recordDeactivationPredictionDiagnostics() {
     if (deactivationPredictionDiagnostics == null) return;
     deactivationPredictionDiagnostics.predictionCount++;
+}
+
+export function recordSplitTotalOnlyPredictionOutcomeDiagnostics(
+    outcome,
+    matched
+) {
+    if (deactivationPredictionDiagnostics == null) return;
+    const population =
+        deactivationPredictionDiagnostics
+            .splitTotalOnlyPredictionsByOutcome;
+    const byOutcome = population[outcome] ?? {
+        predictionCount: 0,
+        matchedDeactivationCount: 0
+    };
+    byOutcome.predictionCount++;
+    if (matched) byOutcome.matchedDeactivationCount++;
+    population[outcome] = byOutcome;
+}
+
+export function recordSplitTotalOnlyMatchedDeactivationDiagnostics(
+    outcome
+) {
+    if (deactivationPredictionDiagnostics == null) return;
+    const population =
+        deactivationPredictionDiagnostics
+            .splitTotalOnlyPredictionsByOutcome;
+    const byOutcome = population[outcome];
+    if (byOutcome == null) return;
+    byOutcome.matchedDeactivationCount++;
+}
+
+export function recordSplitJumpOutcomeDiagnostics(outcome) {
+    if (deactivationPredictionDiagnostics == null) return;
+    deactivationPredictionDiagnostics.splitJumpOutcomes[outcome] =
+        (deactivationPredictionDiagnostics.splitJumpOutcomes[outcome] ?? 0) +
+        1;
 }
 
 export function recordPendingDeactivationPredictionsForJumpDiagnostics({
@@ -649,6 +687,8 @@ function compactActivationChangesDiagnostics(changes) {
             change.lastKnownHeightUpdateStabilizationRaf ?? null,
         deckHeightAtPrediction:
             change.deckHeightAtPrediction ?? null,
+        splitTotalOnly: change.splitTotalOnly ?? false,
+        splitOutcome: change.splitOutcome ?? null,
         deckId: change.deck?.id ?? null,
         before: change.before ?? null,
         after: change.after ?? null,
@@ -2163,6 +2203,14 @@ function emitDeactivationPredictionDiagnostics() {
             "geometricActivations"
         ))
     );
+    console.log(
+        "[split jump total-only deactivation]\n" +
+        JSON.stringify(output.splitTotalOnlyPredictionsByOutcome)
+    );
+    console.log(
+        "[split jump outcomes]\n" +
+        JSON.stringify(output.splitJumpOutcomes)
+    );
     delete output.singleDeactivationJumpByLastKnownHeightLeadMs;
     delete output.singleDeactivationRetryByLastKnownHeightLeadMs;
     delete output.singleDeactivationJumpByLastKnownHeightStabilizationRaf;
@@ -2173,6 +2221,8 @@ function emitDeactivationPredictionDiagnostics() {
     delete output
         .singleDeactivationJumpByPreviousJumpGeometricActivation;
     delete output.singleDeactivationJumpByN2GeometricActivations;
+    delete output.splitTotalOnlyPredictionsByOutcome;
+    delete output.splitJumpOutcomes;
     output.deckHeightByJumpLag = Object.fromEntries(
         Object.entries(predictionDeckHeightsByJumpLagDiagnostics)
             .map(([lag, heights]) => [

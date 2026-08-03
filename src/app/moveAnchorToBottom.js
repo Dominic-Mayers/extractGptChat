@@ -59,10 +59,12 @@ export async function moveAnchorToBottom(
             slabDestination
         );
 
+        let commandedJump = jump;
+
         const predictedDeactivationDecks =
             await checkUpdateNeededBeforeDeactivation(jump);
 
-        await moveWorkZoneBy(jump);
+        await moveWorkZoneBy(commandedJump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
@@ -74,7 +76,7 @@ export async function moveAnchorToBottom(
 
         const obtainedRoom = anchorRoom();
 
-        const jumpWasErased = obtainedRoom === room;
+        let jumpWasErased = obtainedRoom === room;
 
         if (jumpWasErased && retriedErasedJump) {
             throw new Error(
