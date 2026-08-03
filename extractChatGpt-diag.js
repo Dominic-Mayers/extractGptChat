@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.72
+// @version      5.73
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -5040,11 +5040,11 @@ Do not omit or combine any item.`;
       }
       return { port, cycle, token };
     })();
-    function sendBatchResultDiagnostics(configuration, result) {
+    function sendBatchRequestDiagnostics(configuration, path, result) {
       return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
           method: "POST",
-          url: `http://127.0.0.1:${configuration.port}/result`,
+          url: `http://127.0.0.1:${configuration.port}${path}`,
           headers: {
             "Content-Type": "application/json",
             "X-Extract-Gpt-Token": configuration.token
@@ -5103,9 +5103,10 @@ Do not omit or combine any item.`;
     }
     async function runBatchTraversalDiagnostics(configuration) {
       try {
+        await sendBatchRequestDiagnostics(configuration, "/ready", {});
         await waitBatchConversationDiagnostics();
         await traverseBatchConversationDiagnostics();
-        await sendBatchResultDiagnostics(configuration, {
+        await sendBatchRequestDiagnostics(configuration, "/result", {
           cycle: configuration.cycle,
           version: VERSION2,
           conversationUrl: batchConversationUrlDiagnostics(),
@@ -5113,7 +5114,7 @@ Do not omit or combine any item.`;
           fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
         });
       } catch (error) {
-        await sendBatchResultDiagnostics(configuration, {
+        await sendBatchRequestDiagnostics(configuration, "/result", {
           cycle: configuration.cycle,
           version: VERSION2,
           conversationUrl: batchConversationUrlDiagnostics(),
@@ -5160,7 +5161,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.72" : "unbuilt";
+  var VERSION = true ? "5.73" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

@@ -27,11 +27,15 @@ class Collector(http.server.ThreadingHTTPServer):
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        if self.path != "/result":
+        if self.path not in ("/ready", "/result"):
             self.send_error(404)
             return
         if self.headers.get("X-Extract-Gpt-Token") != self.server.token:
             self.send_error(403)
+            return
+        if self.path == "/ready":
+            self.send_response(204)
+            self.end_headers()
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))

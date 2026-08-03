@@ -64,11 +64,11 @@ const batchConfigurationDiagnostics = (() => {
     return { port, cycle, token };
 })();
 
-function sendBatchResultDiagnostics(configuration, result) {
+function sendBatchRequestDiagnostics(configuration, path, result) {
     return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
             method: 'POST',
-            url: `http://127.0.0.1:${configuration.port}/result`,
+            url: `http://127.0.0.1:${configuration.port}${path}`,
             headers: {
                 'Content-Type': 'application/json',
                 'X-Extract-Gpt-Token': configuration.token
@@ -136,9 +136,10 @@ async function traverseBatchConversationDiagnostics() {
 
 async function runBatchTraversalDiagnostics(configuration) {
     try {
+        await sendBatchRequestDiagnostics(configuration, '/ready', {});
         await waitBatchConversationDiagnostics();
         await traverseBatchConversationDiagnostics();
-        await sendBatchResultDiagnostics(configuration, {
+        await sendBatchRequestDiagnostics(configuration, '/result', {
             cycle: configuration.cycle,
             version: VERSION,
             conversationUrl: batchConversationUrlDiagnostics(),
@@ -146,7 +147,7 @@ async function runBatchTraversalDiagnostics(configuration) {
             fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
         });
     } catch (error) {
-        await sendBatchResultDiagnostics(configuration, {
+        await sendBatchRequestDiagnostics(configuration, '/result', {
             cycle: configuration.cycle,
             version: VERSION,
             conversationUrl: batchConversationUrlDiagnostics(),
