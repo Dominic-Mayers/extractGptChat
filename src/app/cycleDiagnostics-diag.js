@@ -4,6 +4,9 @@ import {
     workZonePosition
 } from "./scrollContainer-diag.js";
 import { MIN_ACTIVATION_DISTANCE } from "./constants-diag.js";
+import {
+    recordDeckStudyJumpOutcomeDiagnostics
+} from "./rafDeckStudy-diag.js";
 
 let previousCycle = null;
 let currentCycle = null;
@@ -442,6 +445,17 @@ export function recordErasedJumpResultDiagnostics(
     retriedErasedJump
 ) {
     const retryDiagnostics = currentJumpDiagnostics();
+    const recordedOutcomeDiagnostics = jumpWasErased
+        ? retriedErasedJump
+            ? "retry-erased"
+            : "erased"
+        : retriedErasedJump
+            ? "retry-succeeded"
+            : "survived";
+    recordDeckStudyJumpOutcomeDiagnostics(
+        retryDiagnostics.erasedJumpProbe?.movementJumpNumber,
+        recordedOutcomeDiagnostics
+    );
     if (!retriedErasedJump) {
         retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;
     }

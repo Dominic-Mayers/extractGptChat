@@ -10,7 +10,7 @@ import {
     roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
-    collectStabilizationRafMutationsDiagnostics,
+    sampleStabilizationDecksDiagnostics,
     supplyHeight,
     supplyRoom,
     thresholdDeckSnapshot
@@ -66,9 +66,9 @@ export async function waitLayoutStable(
 
     for (let frame = 0; frame < maxFrames; frame++) {
         beginRafDiagnostics({ frame: frame + 1 });
-        await nextAnimationFrame(() => {
-            if (collectStabilizationRafMutationsDiagnostics) {
-                collectStabilizationRafMutationsDiagnostics(frame + 1);
+        await nextAnimationFrame(clock => {
+            if (sampleStabilizationDecksDiagnostics) {
+                sampleStabilizationDecksDiagnostics(frame + 1, clock);
             }
         });
         finishRafWaitDiagnostics();

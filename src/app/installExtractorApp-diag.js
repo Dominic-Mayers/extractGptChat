@@ -9,11 +9,12 @@ import {
     logActiveTraversalDiagnostics,
     logCycleContextDiagnostics,
     recordCycleStageDiagnostics,
-    selectCurrentJumpDiagnostics,
-    fixedDeckOutcomesSnapshotDiagnostics,
-    deactivatedDeckIdsSnapshotDiagnostics
+    selectCurrentJumpDiagnostics
 } from './cycleDiagnostics-diag.js';
 import { stopSupplyWorkerDiagnostics } from './supplyWorker-diag.js';
+import {
+    rafDeckStudySnapshotDiagnostics
+} from './rafDeckStudy-diag.js';
 
 export function installExtractorApp({
     version,
@@ -156,9 +157,7 @@ async function runBatchTraversalDiagnostics(configuration) {
             conversationUrl: batchConversationUrlDiagnostics(),
             status: 'complete',
             deckIds,
-            deactivatedDeckIds:
-                deactivatedDeckIdsSnapshotDiagnostics(),
-            fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+            rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
     } catch (error) {
         await sendBatchRequestDiagnostics(configuration, '/result', {
@@ -172,9 +171,7 @@ async function runBatchTraversalDiagnostics(configuration) {
                 stack: error?.stack ?? null
             },
             deckIds,
-            deactivatedDeckIds:
-                deactivatedDeckIdsSnapshotDiagnostics(),
-            fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+            rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
     }
 }

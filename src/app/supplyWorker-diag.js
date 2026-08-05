@@ -39,21 +39,24 @@ import {
     waitSlabReady,
     storeCompiledDeck
 } from "./extraction-diag.js";
+import {
+    recordDeckRafDiagnostics,
+    recordDeckStudyJumpDiagnostics,
+    recordGeometricDeactivationDiagnostics,
+    resetRafDeckStudyDiagnostics
+} from "./rafDeckStudy-diag.js";
 
 let supplier;
 let currentDeck;
 let currentSlab;
 let currentAnchor;
 let savedDeckActivationStatus;
-let currentJumpObserverDiagnostics = null;
-let deliveredJumpMutationBatchesDiagnostics = [];
 let currentJumpProbeDiagnostics = null;
 let currentAnchorNumberDiagnostics = 0;
 let movementJumpNumberDiagnostics = 0;
 let geometricActivationJumpNumbersDiagnostics = new Set();
 let pendingDeactivationPredictionsDiagnostics = new Map();
 let deckActivationGeometryDiagnostics = new WeakMap();
-let lastKnownHeightUpdateDiagnostics = new WeakMap();
 let nativeRemovalInstrumentationInstalledDiagnostics = false;
 let viewportOscillationRafDiagnostics = null;
 let viewportOscillationFrameDiagnostics = 0;
@@ -378,6 +381,16 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
                     section?.getBoundingClientRect().height ?? null,
                 lastKnownHeightAtPrediction:
                     deck.style.getPropertyValue("--last-known-height")
+            });
+            recordGeometricDeactivationDiagnostics({
+                deckId: deck.getAttribute("data-turn-id-container"),
+                jumpNumber: movementJumpNumberDiagnostics + 1,
+                clock: performance.now(),
+                lastKnownHeight:
+                    deck.style.getPropertyValue("--last-known-height"),
+                formalState:
+                    deck.getAttribute("data-is-intersecting"),
+                deckHeight: rect.height
             });
             recordDeactivationPredictionDiagnostics();
         }
@@ -994,7 +1007,6 @@ function layoutElementDiagnostics(element, viewportTop) {
 }
 
 export async function moveWorkZoneBy(jump) {
-    resetJumpObserverDiagnostics();
     movementJumpNumberDiagnostics++;
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
@@ -1035,11 +1047,6 @@ export async function moveWorkZoneBy(jump) {
         movementJumpNumberDiagnostics - 3
     );
     currentJumpProbeDiagnostics = probeDiagnostics;
-    beginJumpObserverDiagnostics(
-        probeDiagnostics,
-        supplyArea
-    );
-
     beginOrContinueJumpDiagnostics({
         kind: "anchor-move",
         anchor: snapshotElementDiagnostics(anchorDiagnostics),
@@ -1050,7 +1057,14 @@ export async function moveWorkZoneBy(jump) {
         erasedJumpProbe: probeDiagnostics
     });
 
-    await nextAnimationFrame();
+    await nextAnimationFrame(clock => {
+        sampleDeckDeactivationRafDiagnostics(
+            movementJumpNumberDiagnostics,
+            0,
+            "jump",
+            clock
+        );
+    });
 
     probeDiagnostics.preCommand = jumpProbeGeometryDiagnostics(
         anchorDiagnostics,
@@ -1059,6 +1073,11 @@ export async function moveWorkZoneBy(jump) {
     );
     probeDiagnostics.phase = "command";
     probeDiagnostics.commandClock = performance.now();
+    recordDeckStudyJumpDiagnostics({
+        jumpNumber: movementJumpNumberDiagnostics,
+        clock: probeDiagnostics.commandClock,
+        requestedJump: jump
+    });
     moveWorkZone(jump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
         previousViewportSampleDiagnostics.extractorJump = {
@@ -1099,65 +1118,56 @@ export async function moveWorkZoneBy(jump) {
     );
 }
 
-function resetJumpObserverDiagnostics() {
-    currentJumpObserverDiagnostics?.disconnect();
-    currentJumpObserverDiagnostics = null;
-    deliveredJumpMutationBatchesDiagnostics = [];
+export function sampleStabilizationDecksDiagnostics(frame, clock) {
+    sampleDeckDeactivationRafDiagnostics(
+        movementJumpNumberDiagnostics,
+        frame,
+        "stabilization",
+        clock
+    );
 }
 
-function drainJumpObserverDiagnostics(
-    probe,
-    phase,
-    jumpRaf = false,
-    stabilizationRaf = null
+function sampleDeckDeactivationRafDiagnostics(
+    jumpNumber,
+    rafNumber,
+    rafKind,
+    clock
 ) {
-    for (const batch of deliveredJumpMutationBatchesDiagnostics) {
-        recordJumpChangesDiagnostics(
-            probe,
-            batch.records,
-            batch.phase,
-            batch.scrollYAtDeliveryStart,
-            jumpRaf,
-            stabilizationRaf
-        );
+    const { supplyArea } = environment();
+    const deckElements = getDecks(supplyArea);
+    const decks = deckElements.map(deck => ({
+        deckId: deck.getAttribute("data-turn-id-container"),
+        lastKnownHeight:
+            deck.style.getPropertyValue("--last-known-height"),
+        formalState: deck.getAttribute("data-is-intersecting"),
+        deckHeight: deck.getBoundingClientRect().height
+    }));
+    const deactivatedDeckIds = recordDeckRafDiagnostics({
+        clock,
+        jumpNumber,
+        rafNumber,
+        rafKind,
+        decks
+    });
+    for (const deck of deckElements) {
+        if (!deactivatedDeckIds.includes(
+            deck.getAttribute("data-turn-id-container")
+        )) {
+            continue;
+        }
+        pendingDeactivationPredictionsDiagnostics.delete(deck);
     }
-    deliveredJumpMutationBatchesDiagnostics = [];
-    const { supplyArea, workZone } = environment();
-    const scrollYAtDeliveryStart = workZonePosition(
-        supplyArea,
-        workZone
-    );
-    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-    recordJumpChangesDiagnostics(
-        probe,
-        records,
-        phase,
-        scrollYAtDeliveryStart,
-        jumpRaf,
-        stabilizationRaf
-    );
-}
-
-export function collectStabilizationRafMutationsDiagnostics(frame) {
-    if (currentJumpProbeDiagnostics == null) return;
-    drainJumpObserverDiagnostics(
-        currentJumpProbeDiagnostics,
-        currentJumpProbeDiagnostics.phase,
-        false,
-        frame
-    );
 }
 
 function resetSupplyWorkerDiagnostics() {
     installNativeRemovalInstrumentationDiagnostics();
-    resetJumpObserverDiagnostics();
+    resetRafDeckStudyDiagnostics();
     currentJumpProbeDiagnostics = null;
     currentAnchorNumberDiagnostics = 0;
     movementJumpNumberDiagnostics = 0;
     geometricActivationJumpNumbersDiagnostics = new Set();
     pendingDeactivationPredictionsDiagnostics = new Map();
     deckActivationGeometryDiagnostics = new WeakMap();
-    lastKnownHeightUpdateDiagnostics = new WeakMap();
 }
 
 function geometricallyActivatesDeckDiagnostics(before, after) {
@@ -1276,13 +1286,6 @@ function canvasGeometrySnapshotDiagnostics(deck, canvas = null) {
     };
 }
 
-function beginJumpObserverDiagnostics(probe, supplyArea) {
-    currentJumpObserverDiagnostics = observeJumpChangesDiagnostics(
-        probe,
-        supplyArea
-    );
-}
-
 function captureNextRafJumpProbeDiagnostics(
     probe,
     anchor,
@@ -1290,7 +1293,6 @@ function captureNextRafJumpProbeDiagnostics(
     workZone
 ) {
     requestAnimationFrame(() => {
-        drainJumpObserverDiagnostics(probe, "post-command", true);
         probe.nextRaf = jumpProbeGeometryDiagnostics(
             anchor,
             supplyArea,
@@ -1351,246 +1353,6 @@ function jumpProbeGeometryDiagnostics(anchor, supplyArea, workZone) {
         activationDistanceBelow,
         inactiveDeckAbove: snapshotElementDiagnostics(inactiveDeckAbove),
         inactiveDeckBelow: snapshotElementDiagnostics(inactiveDeckBelow)
-    };
-}
-
-function observeJumpChangesDiagnostics(probe, supplyArea) {
-    const observer = new MutationObserver(records => {
-        const { workZone } = environment();
-        const scrollYAtDeliveryStart = workZonePosition(
-            supplyArea,
-            workZone
-        );
-        deliveredJumpMutationBatchesDiagnostics.push({
-            records,
-            phase: probe.phase,
-            scrollYAtDeliveryStart
-        });
-    });
-
-    observer.observe(document.body, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        attributeOldValue: true,
-        attributeFilter: ["data-is-intersecting", "style"]
-    });
-    return observer;
-}
-
-function recordJumpChangesDiagnostics(
-    probe,
-    records,
-    phase,
-    scrollYAtDeliveryStart,
-    jumpRaf = false,
-    stabilizationRaf = null
-) {
-    if (records.length === 0) return;
-    const delivery = ++probe.mutationDeliveryNumber;
-    for (const record of records) {
-        if (
-            record.type === "attributes" &&
-            record.attributeName === "style" &&
-            record.target.matches?.("[data-turn-id-container]")
-        ) {
-            const before = lastKnownHeightFromStyleDiagnostics(
-                record.oldValue
-            );
-            const after = record.target.style.getPropertyValue(
-                "--last-known-height"
-            );
-            if (before !== after) {
-                const clock = performance.now();
-                const renderedHeight =
-                    record.target.getBoundingClientRect().height;
-                const section = Array.from(record.target.children).find(
-                    child => child.matches("section")
-                );
-                const sectionHeight =
-                    section?.getBoundingClientRect().height ?? null;
-                lastKnownHeightUpdateDiagnostics.set(record.target, {
-                    clock,
-                    movementJumpNumber: movementJumpNumberDiagnostics,
-                    jumpRaf,
-                    stabilizationRaf,
-                    before,
-                    after,
-                    renderedHeight,
-                    sectionHeight
-                });
-                probe.renderingChanges.push({
-                    delivery,
-                    order: ++probe.mutationOrder,
-                    clock,
-                    phase,
-                    jumpRaf,
-                    stabilizationRaf,
-                    change: "last-known-height",
-                    before,
-                    after,
-                    activation: record.target.getAttribute(
-                        "data-is-intersecting"
-                    ),
-                    renderedHeight,
-                    sectionHeight,
-                    element: mutationElementDiagnostics(record.target)
-                });
-            }
-            continue;
-        }
-        if (
-            record.type === "attributes" &&
-            record.attributeName === "data-is-intersecting"
-        ) {
-            const before = record.oldValue;
-            const after = record.target.getAttribute(
-                "data-is-intersecting"
-            );
-            const deactivated =
-                before != null &&
-                before !== "false" &&
-                (after == null || after === "false");
-            const lastKnownHeightUpdate = deactivated
-                ? lastKnownHeightUpdateDiagnostics.get(record.target)
-                : null;
-            const prediction = deactivated
-                ? pendingDeactivationPredictionsDiagnostics.get(
-                    record.target
-                )
-                : null;
-            if (prediction != null) {
-                pendingDeactivationPredictionsDiagnostics.delete(
-                    record.target
-                );
-            }
-            probe.activationChanges.push({
-                delivery,
-                order: ++probe.mutationOrder,
-                clock: performance.now(),
-                phase,
-                scrollYAtMutationDeliveryStart:
-                    scrollYAtDeliveryStart,
-                deck: snapshotElementDiagnostics(record.target),
-                before,
-                after,
-                predictionElapsedMs: prediction == null
-                    ? null
-                    : performance.now() - prediction.predictedAt,
-                predictionJumpLag: prediction == null
-                    ? null
-                    : movementJumpNumberDiagnostics -
-                        prediction.predictedOnJumpNumber,
-                lastKnownHeightUpdateClock:
-                    lastKnownHeightUpdate?.clock ?? null,
-                lastKnownHeightUpdateJumpLag:
-                    lastKnownHeightUpdate == null
-                        ? null
-                        : movementJumpNumberDiagnostics -
-                            lastKnownHeightUpdate.movementJumpNumber,
-                lastKnownHeightUpdateJumpRaf:
-                    lastKnownHeightUpdate?.jumpRaf ?? false,
-                lastKnownHeightUpdateStabilizationRaf:
-                    lastKnownHeightUpdate?.stabilizationRaf ?? null,
-                lastKnownHeightBeforeUpdate:
-                    lastKnownHeightUpdate?.before ?? null,
-                lastKnownHeightAfterUpdate:
-                    lastKnownHeightUpdate?.after ?? null,
-                deckHeightAtHeightUpdate:
-                    lastKnownHeightUpdate?.renderedHeight ?? null,
-                sectionHeightAtHeightUpdate:
-                    lastKnownHeightUpdate?.sectionHeight ?? null,
-                jumpRaf,
-                stabilizationRaf,
-                deckHeightAtPrediction: prediction == null
-                    ? null
-                    : prediction.deckHeightAtPrediction,
-                sectionHeightAtPrediction: prediction == null
-                    ? null
-                    : prediction.sectionHeightAtPrediction,
-                lastKnownHeightAtPrediction: prediction == null
-                    ? null
-                    : prediction.lastKnownHeightAtPrediction
-            });
-            continue;
-        }
-
-        if (record.type !== "childList") continue;
-        for (const element of record.addedNodes) {
-            if (element.nodeType !== Node.ELEMENT_NODE) continue;
-            if (element.tagName === "SECTION") {
-                probe.activationChanges.push({
-                    delivery,
-                    order: ++probe.mutationOrder,
-                    clock: performance.now(),
-                    phase,
-                    deck: snapshotElementDiagnostics(
-                        record.target.closest?.(
-                            "[data-turn-id-container]"
-                        )
-                    ),
-                    sectionChange: "added",
-                    section: mutationElementDiagnostics(element)
-                });
-                continue;
-            }
-            probe.renderingChanges.push({
-                delivery,
-                order: ++probe.mutationOrder,
-                clock: performance.now(),
-                phase,
-                change: "added",
-                element: mutationElementDiagnostics(element)
-            });
-        }
-        for (const element of record.removedNodes) {
-            if (element.nodeType !== Node.ELEMENT_NODE) continue;
-            if (element.tagName === "SECTION") {
-                probe.activationChanges.push({
-                    delivery,
-                    order: ++probe.mutationOrder,
-                    clock: performance.now(),
-                    phase,
-                    deck: snapshotElementDiagnostics(
-                        record.target.closest?.(
-                            "[data-turn-id-container]"
-                        )
-                    ),
-                    sectionChange: "removed",
-                    section: mutationElementDiagnostics(element)
-                });
-                continue;
-            }
-            probe.renderingChanges.push({
-                delivery,
-                order: ++probe.mutationOrder,
-                clock: performance.now(),
-                phase,
-                change: "removed",
-                element: mutationElementDiagnostics(element)
-            });
-        }
-    }
-}
-
-function lastKnownHeightFromStyleDiagnostics(styleText) {
-    const style = document.createElement("div").style;
-    style.cssText = styleText ?? "";
-    return style.getPropertyValue("--last-known-height");
-}
-
-function mutationElementDiagnostics(element) {
-    const deck = element.matches?.("[data-turn-id-container]")
-        ? element
-        : element.closest?.("[data-turn-id-container]");
-    return {
-        tagName: element.tagName?.toLowerCase() ?? null,
-        id: element.id || null,
-        className: element.getAttribute?.("class") ?? null,
-        role: element.getAttribute?.("data-message-author-role") ?? null,
-        messageId: element.getAttribute?.("data-message-id") ?? null,
-        turnId: deck?.getAttribute("data-turn-id-container") ?? null,
-        snapshot: snapshotElementDiagnostics(element)
     };
 }
 

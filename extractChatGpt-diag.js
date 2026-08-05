@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.78
+// @version      5.79
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -246,6 +246,170 @@
     }
   }
 
+  // src/app/rafDeckStudy-diag.js
+  var nextEpisodeIdDiagnostics = 1;
+  var nextRafIdDiagnostics = 1;
+  var episodesDiagnostics = [];
+  var openEpisodesDiagnostics = /* @__PURE__ */ new Map();
+  var jumpsDiagnostics = [];
+  var rafsDiagnostics = [];
+  function resetRafDeckStudyDiagnostics() {
+    nextEpisodeIdDiagnostics = 1;
+    nextRafIdDiagnostics = 1;
+    episodesDiagnostics = [];
+    openEpisodesDiagnostics = /* @__PURE__ */ new Map();
+    jumpsDiagnostics = [];
+    rafsDiagnostics = [];
+  }
+  function recordGeometricDeactivationDiagnostics({
+    deckId,
+    jumpNumber,
+    clock,
+    lastKnownHeight,
+    formalState,
+    deckHeight
+  }) {
+    if (openEpisodesDiagnostics.has(deckId)) return;
+    const episode = {
+      episodeId: nextEpisodeIdDiagnostics++,
+      deckId,
+      geometricDeactivationJumpNumber: jumpNumber,
+      geometricDeactivationClock: clock,
+      deckHeightAtGeometricDeactivation: deckHeight,
+      initialLastKnownHeight: lastKnownHeight,
+      initialFormalState: formalState,
+      heightUpdates: [],
+      formalDeactivation: null,
+      lastKnownHeight,
+      formalState
+    };
+    episodesDiagnostics.push(episode);
+    openEpisodesDiagnostics.set(deckId, episode);
+  }
+  function recordDeckRafDiagnostics({
+    clock,
+    jumpNumber,
+    rafNumber,
+    rafKind,
+    decks
+  }) {
+    const rafId = nextRafIdDiagnostics++;
+    const observedDecks = [];
+    const deactivatedDeckIds = [];
+    for (const deck of decks) {
+      const episode = openEpisodesDiagnostics.get(deck.deckId);
+      if (episode == null) continue;
+      const previousHeight = episode.lastKnownHeight;
+      const previousFormalState = episode.formalState;
+      observedDecks.push(deck);
+      if (deck.lastKnownHeight !== previousHeight) {
+        episode.heightUpdates.push({
+          rafId,
+          clock,
+          jumpNumber,
+          rafNumber,
+          rafKind,
+          before: previousHeight,
+          after: deck.lastKnownHeight,
+          deckHeight: deck.deckHeight
+        });
+        episode.lastKnownHeight = deck.lastKnownHeight;
+      }
+      if (previousFormalState != null && previousFormalState !== "false" && (deck.formalState == null || deck.formalState === "false")) {
+        episode.formalDeactivation = {
+          rafId,
+          clock,
+          jumpNumber,
+          rafNumber,
+          rafKind
+        };
+        episode.formalState = deck.formalState;
+        openEpisodesDiagnostics.delete(deck.deckId);
+        deactivatedDeckIds.push(deck.deckId);
+        continue;
+      }
+      episode.formalState = deck.formalState;
+    }
+    rafsDiagnostics.push({
+      rafId,
+      clock,
+      jumpNumber,
+      rafNumber,
+      rafKind,
+      decks: observedDecks
+    });
+    return deactivatedDeckIds;
+  }
+  function recordDeckStudyJumpDiagnostics({
+    jumpNumber,
+    clock,
+    requestedJump
+  }) {
+    jumpsDiagnostics.push({
+      jumpNumber,
+      clock,
+      requestedJump,
+      outcome: null,
+      isErased: null
+    });
+  }
+  function recordDeckStudyJumpOutcomeDiagnostics(jumpNumber, outcome) {
+    const jump = jumpsDiagnostics.find(
+      (candidate) => candidate.jumpNumber === jumpNumber
+    );
+    if (jump == null) return;
+    jump.outcome = outcome;
+    jump.isErased = outcome === "erased" || outcome === "retry-erased";
+  }
+  function rafDeckStudySnapshotDiagnostics() {
+    const completedEpisodes = episodesDiagnostics.filter(
+      (episode) => episode.formalDeactivation != null
+    );
+    const matchedJumps = jumpsDiagnostics.map((jump) => {
+      const episodesAhead = completedEpisodes.filter(
+        (candidate) => candidate.formalDeactivation.clock > jump.clock
+      ).sort(
+        (first, second) => first.formalDeactivation.clock - second.formalDeactivation.clock
+      );
+      const firstClock = episodesAhead[0]?.formalDeactivation.clock ?? null;
+      const candidates = firstClock == null ? [] : episodesAhead.filter(
+        (candidate) => candidate.formalDeactivation.clock === firstClock
+      );
+      const episode = candidates.length === 1 ? candidates[0] : null;
+      const updates = episode?.heightUpdates ?? [];
+      return {
+        ...jump,
+        candidateEpisodeIds: candidates.map((candidate) => candidate.episodeId),
+        candidateDeckIds: candidates.map((candidate) => candidate.deckId),
+        matchedEpisodeId: episode?.episodeId ?? null,
+        matchedDeckId: episode?.deckId ?? null,
+        lagN: episode == null ? null : jump.jumpNumber - episode.geometricDeactivationJumpNumber,
+        heightUpdates: updates.map((update) => ({
+          rafId: update.rafId,
+          jumpNumber: update.jumpNumber,
+          rafNumber: update.rafNumber,
+          rafKind: update.rafKind,
+          jumpDelayMs: jump.clock - update.clock
+        }))
+      };
+    });
+    const erasedByEpisode = /* @__PURE__ */ new Map();
+    for (const jump of matchedJumps) {
+      if (!jump.isErased || jump.matchedEpisodeId == null) continue;
+      const erased = erasedByEpisode.get(jump.matchedEpisodeId) ?? [];
+      erased.push(jump.jumpNumber);
+      erasedByEpisode.set(jump.matchedEpisodeId, erased);
+    }
+    return structuredClone({
+      episodes: episodesDiagnostics.map((episode) => ({
+        ...episode,
+        erasingJumpNumbers: erasedByEpisode.get(episode.episodeId) ?? []
+      })),
+      jumps: matchedJumps,
+      rafs: rafsDiagnostics
+    });
+  }
+
   // src/app/cycleDiagnostics-diag.js
   var previousCycle = null;
   var currentCycle = null;
@@ -388,12 +552,6 @@
     deactivatedDeckIdsDiagnostics = /* @__PURE__ */ new Set();
     selectedJumpReasonsDiagnostics = /* @__PURE__ */ new WeakMap();
     emittedCyclesDiagnostics = /* @__PURE__ */ new WeakSet();
-  }
-  function fixedDeckOutcomesSnapshotDiagnostics() {
-    return structuredClone(fixedDeckOutcomesDiagnostics);
-  }
-  function deactivatedDeckIdsSnapshotDiagnostics() {
-    return [...deactivatedDeckIdsDiagnostics].sort();
   }
   function beginCycleDiagnostics(data) {
     finishCycleTimingDiagnostics(currentCycle);
@@ -644,6 +802,11 @@
   }
   function recordErasedJumpResultDiagnostics(jumpWasErased, retriedErasedJump) {
     const retryDiagnostics = currentJumpDiagnostics();
+    const recordedOutcomeDiagnostics = jumpWasErased ? retriedErasedJump ? "retry-erased" : "erased" : retriedErasedJump ? "retry-succeeded" : "survived";
+    recordDeckStudyJumpOutcomeDiagnostics(
+      retryDiagnostics.erasedJumpProbe?.movementJumpNumber,
+      recordedOutcomeDiagnostics
+    );
     if (!retriedErasedJump) {
       retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;
     }
@@ -2725,15 +2888,12 @@ ${fence}
   var currentSlab;
   var currentAnchor;
   var savedDeckActivationStatus;
-  var currentJumpObserverDiagnostics = null;
-  var deliveredJumpMutationBatchesDiagnostics = [];
   var currentJumpProbeDiagnostics = null;
   var currentAnchorNumberDiagnostics = 0;
   var movementJumpNumberDiagnostics = 0;
   var geometricActivationJumpNumbersDiagnostics = /* @__PURE__ */ new Set();
   var pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
   var deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
-  var lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
   var nativeRemovalInstrumentationInstalledDiagnostics = false;
   var viewportOscillationRafDiagnostics = null;
   var viewportOscillationFrameDiagnostics = 0;
@@ -2987,6 +3147,14 @@ ${fence}
           deckHeightAtPrediction: rect.height,
           sectionHeightAtPrediction: section?.getBoundingClientRect().height ?? null,
           lastKnownHeightAtPrediction: deck.style.getPropertyValue("--last-known-height")
+        });
+        recordGeometricDeactivationDiagnostics({
+          deckId: deck.getAttribute("data-turn-id-container"),
+          jumpNumber: movementJumpNumberDiagnostics + 1,
+          clock: performance.now(),
+          lastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
+          formalState: deck.getAttribute("data-is-intersecting"),
+          deckHeight: rect.height
         });
         recordDeactivationPredictionDiagnostics();
       }
@@ -3472,7 +3640,6 @@ ${fence}
     };
   }
   async function moveWorkZoneBy(jump) {
-    resetJumpObserverDiagnostics();
     movementJumpNumberDiagnostics++;
     const { supplyArea, workZone } = environment();
     const anchorDiagnostics = retainedAnchor();
@@ -3506,10 +3673,6 @@ ${fence}
       movementJumpNumberDiagnostics - 3
     );
     currentJumpProbeDiagnostics = probeDiagnostics;
-    beginJumpObserverDiagnostics(
-      probeDiagnostics,
-      supplyArea
-    );
     beginOrContinueJumpDiagnostics({
       kind: "anchor-move",
       anchor: snapshotElementDiagnostics(anchorDiagnostics),
@@ -3519,7 +3682,14 @@ ${fence}
       scrollYBefore: supplyRoomBeforeDiagnostics,
       erasedJumpProbe: probeDiagnostics
     });
-    await nextAnimationFrame();
+    await nextAnimationFrame((clock) => {
+      sampleDeckDeactivationRafDiagnostics(
+        movementJumpNumberDiagnostics,
+        0,
+        "jump",
+        clock
+      );
+    });
     probeDiagnostics.preCommand = jumpProbeGeometryDiagnostics(
       anchorDiagnostics,
       supplyArea,
@@ -3527,6 +3697,11 @@ ${fence}
     );
     probeDiagnostics.phase = "command";
     probeDiagnostics.commandClock = performance.now();
+    recordDeckStudyJumpDiagnostics({
+      jumpNumber: movementJumpNumberDiagnostics,
+      clock: probeDiagnostics.commandClock,
+      requestedJump: jump
+    });
     moveWorkZone(jump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
       previousViewportSampleDiagnostics.extractorJump = {
@@ -3561,57 +3736,48 @@ ${fence}
       workZone
     );
   }
-  function resetJumpObserverDiagnostics() {
-    currentJumpObserverDiagnostics?.disconnect();
-    currentJumpObserverDiagnostics = null;
-    deliveredJumpMutationBatchesDiagnostics = [];
+  function sampleStabilizationDecksDiagnostics(frame, clock) {
+    sampleDeckDeactivationRafDiagnostics(
+      movementJumpNumberDiagnostics,
+      frame,
+      "stabilization",
+      clock
+    );
   }
-  function drainJumpObserverDiagnostics(probe, phase, jumpRaf = false, stabilizationRaf = null) {
-    for (const batch of deliveredJumpMutationBatchesDiagnostics) {
-      recordJumpChangesDiagnostics(
-        probe,
-        batch.records,
-        batch.phase,
-        batch.scrollYAtDeliveryStart,
-        jumpRaf,
-        stabilizationRaf
-      );
+  function sampleDeckDeactivationRafDiagnostics(jumpNumber, rafNumber, rafKind, clock) {
+    const { supplyArea } = environment();
+    const deckElements = getDecks(supplyArea);
+    const decks = deckElements.map((deck) => ({
+      deckId: deck.getAttribute("data-turn-id-container"),
+      lastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
+      formalState: deck.getAttribute("data-is-intersecting"),
+      deckHeight: deck.getBoundingClientRect().height
+    }));
+    const deactivatedDeckIds = recordDeckRafDiagnostics({
+      clock,
+      jumpNumber,
+      rafNumber,
+      rafKind,
+      decks
+    });
+    for (const deck of deckElements) {
+      if (!deactivatedDeckIds.includes(
+        deck.getAttribute("data-turn-id-container")
+      )) {
+        continue;
+      }
+      pendingDeactivationPredictionsDiagnostics.delete(deck);
     }
-    deliveredJumpMutationBatchesDiagnostics = [];
-    const { supplyArea, workZone } = environment();
-    const scrollYAtDeliveryStart = workZonePosition(
-      supplyArea,
-      workZone
-    );
-    const records = currentJumpObserverDiagnostics?.takeRecords() ?? [];
-    recordJumpChangesDiagnostics(
-      probe,
-      records,
-      phase,
-      scrollYAtDeliveryStart,
-      jumpRaf,
-      stabilizationRaf
-    );
-  }
-  function collectStabilizationRafMutationsDiagnostics(frame) {
-    if (currentJumpProbeDiagnostics == null) return;
-    drainJumpObserverDiagnostics(
-      currentJumpProbeDiagnostics,
-      currentJumpProbeDiagnostics.phase,
-      false,
-      frame
-    );
   }
   function resetSupplyWorkerDiagnostics() {
     installNativeRemovalInstrumentationDiagnostics();
-    resetJumpObserverDiagnostics();
+    resetRafDeckStudyDiagnostics();
     currentJumpProbeDiagnostics = null;
     currentAnchorNumberDiagnostics = 0;
     movementJumpNumberDiagnostics = 0;
     geometricActivationJumpNumbersDiagnostics = /* @__PURE__ */ new Set();
     pendingDeactivationPredictionsDiagnostics = /* @__PURE__ */ new Map();
     deckActivationGeometryDiagnostics = /* @__PURE__ */ new WeakMap();
-    lastKnownHeightUpdateDiagnostics = /* @__PURE__ */ new WeakMap();
   }
   function geometricallyActivatesDeckDiagnostics(before, after) {
     const scrollDelta = after.scrollY - before.scrollY;
@@ -3698,15 +3864,8 @@ ${fence}
       canvas: elementGeometry(canvas)
     };
   }
-  function beginJumpObserverDiagnostics(probe, supplyArea) {
-    currentJumpObserverDiagnostics = observeJumpChangesDiagnostics(
-      probe,
-      supplyArea
-    );
-  }
   function captureNextRafJumpProbeDiagnostics(probe, anchor, supplyArea, workZone) {
     requestAnimationFrame(() => {
-      drainJumpObserverDiagnostics(probe, "post-command", true);
       probe.nextRaf = jumpProbeGeometryDiagnostics(
         anchor,
         supplyArea,
@@ -3757,192 +3916,6 @@ ${fence}
       activationDistanceBelow,
       inactiveDeckAbove: snapshotElementDiagnostics(inactiveDeckAbove),
       inactiveDeckBelow: snapshotElementDiagnostics(inactiveDeckBelow)
-    };
-  }
-  function observeJumpChangesDiagnostics(probe, supplyArea) {
-    const observer = new MutationObserver((records) => {
-      const { workZone } = environment();
-      const scrollYAtDeliveryStart = workZonePosition(
-        supplyArea,
-        workZone
-      );
-      deliveredJumpMutationBatchesDiagnostics.push({
-        records,
-        phase: probe.phase,
-        scrollYAtDeliveryStart
-      });
-    });
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeOldValue: true,
-      attributeFilter: ["data-is-intersecting", "style"]
-    });
-    return observer;
-  }
-  function recordJumpChangesDiagnostics(probe, records, phase, scrollYAtDeliveryStart, jumpRaf = false, stabilizationRaf = null) {
-    if (records.length === 0) return;
-    const delivery = ++probe.mutationDeliveryNumber;
-    for (const record of records) {
-      if (record.type === "attributes" && record.attributeName === "style" && record.target.matches?.("[data-turn-id-container]")) {
-        const before = lastKnownHeightFromStyleDiagnostics(
-          record.oldValue
-        );
-        const after = record.target.style.getPropertyValue(
-          "--last-known-height"
-        );
-        if (before !== after) {
-          const clock = performance.now();
-          const renderedHeight = record.target.getBoundingClientRect().height;
-          const section = Array.from(record.target.children).find(
-            (child) => child.matches("section")
-          );
-          const sectionHeight = section?.getBoundingClientRect().height ?? null;
-          lastKnownHeightUpdateDiagnostics.set(record.target, {
-            clock,
-            movementJumpNumber: movementJumpNumberDiagnostics,
-            jumpRaf,
-            stabilizationRaf,
-            before,
-            after,
-            renderedHeight,
-            sectionHeight
-          });
-          probe.renderingChanges.push({
-            delivery,
-            order: ++probe.mutationOrder,
-            clock,
-            phase,
-            jumpRaf,
-            stabilizationRaf,
-            change: "last-known-height",
-            before,
-            after,
-            activation: record.target.getAttribute(
-              "data-is-intersecting"
-            ),
-            renderedHeight,
-            sectionHeight,
-            element: mutationElementDiagnostics(record.target)
-          });
-        }
-        continue;
-      }
-      if (record.type === "attributes" && record.attributeName === "data-is-intersecting") {
-        const before = record.oldValue;
-        const after = record.target.getAttribute(
-          "data-is-intersecting"
-        );
-        const deactivated = before != null && before !== "false" && (after == null || after === "false");
-        const lastKnownHeightUpdate = deactivated ? lastKnownHeightUpdateDiagnostics.get(record.target) : null;
-        const prediction = deactivated ? pendingDeactivationPredictionsDiagnostics.get(
-          record.target
-        ) : null;
-        if (prediction != null) {
-          pendingDeactivationPredictionsDiagnostics.delete(
-            record.target
-          );
-        }
-        probe.activationChanges.push({
-          delivery,
-          order: ++probe.mutationOrder,
-          clock: performance.now(),
-          phase,
-          scrollYAtMutationDeliveryStart: scrollYAtDeliveryStart,
-          deck: snapshotElementDiagnostics(record.target),
-          before,
-          after,
-          predictionElapsedMs: prediction == null ? null : performance.now() - prediction.predictedAt,
-          predictionJumpLag: prediction == null ? null : movementJumpNumberDiagnostics - prediction.predictedOnJumpNumber,
-          lastKnownHeightUpdateClock: lastKnownHeightUpdate?.clock ?? null,
-          lastKnownHeightUpdateJumpLag: lastKnownHeightUpdate == null ? null : movementJumpNumberDiagnostics - lastKnownHeightUpdate.movementJumpNumber,
-          lastKnownHeightUpdateJumpRaf: lastKnownHeightUpdate?.jumpRaf ?? false,
-          lastKnownHeightUpdateStabilizationRaf: lastKnownHeightUpdate?.stabilizationRaf ?? null,
-          lastKnownHeightBeforeUpdate: lastKnownHeightUpdate?.before ?? null,
-          lastKnownHeightAfterUpdate: lastKnownHeightUpdate?.after ?? null,
-          deckHeightAtHeightUpdate: lastKnownHeightUpdate?.renderedHeight ?? null,
-          sectionHeightAtHeightUpdate: lastKnownHeightUpdate?.sectionHeight ?? null,
-          jumpRaf,
-          stabilizationRaf,
-          deckHeightAtPrediction: prediction == null ? null : prediction.deckHeightAtPrediction,
-          sectionHeightAtPrediction: prediction == null ? null : prediction.sectionHeightAtPrediction,
-          lastKnownHeightAtPrediction: prediction == null ? null : prediction.lastKnownHeightAtPrediction
-        });
-        continue;
-      }
-      if (record.type !== "childList") continue;
-      for (const element of record.addedNodes) {
-        if (element.nodeType !== Node.ELEMENT_NODE) continue;
-        if (element.tagName === "SECTION") {
-          probe.activationChanges.push({
-            delivery,
-            order: ++probe.mutationOrder,
-            clock: performance.now(),
-            phase,
-            deck: snapshotElementDiagnostics(
-              record.target.closest?.(
-                "[data-turn-id-container]"
-              )
-            ),
-            sectionChange: "added",
-            section: mutationElementDiagnostics(element)
-          });
-          continue;
-        }
-        probe.renderingChanges.push({
-          delivery,
-          order: ++probe.mutationOrder,
-          clock: performance.now(),
-          phase,
-          change: "added",
-          element: mutationElementDiagnostics(element)
-        });
-      }
-      for (const element of record.removedNodes) {
-        if (element.nodeType !== Node.ELEMENT_NODE) continue;
-        if (element.tagName === "SECTION") {
-          probe.activationChanges.push({
-            delivery,
-            order: ++probe.mutationOrder,
-            clock: performance.now(),
-            phase,
-            deck: snapshotElementDiagnostics(
-              record.target.closest?.(
-                "[data-turn-id-container]"
-              )
-            ),
-            sectionChange: "removed",
-            section: mutationElementDiagnostics(element)
-          });
-          continue;
-        }
-        probe.renderingChanges.push({
-          delivery,
-          order: ++probe.mutationOrder,
-          clock: performance.now(),
-          phase,
-          change: "removed",
-          element: mutationElementDiagnostics(element)
-        });
-      }
-    }
-  }
-  function lastKnownHeightFromStyleDiagnostics(styleText) {
-    const style = document.createElement("div").style;
-    style.cssText = styleText ?? "";
-    return style.getPropertyValue("--last-known-height");
-  }
-  function mutationElementDiagnostics(element) {
-    const deck = element.matches?.("[data-turn-id-container]") ? element : element.closest?.("[data-turn-id-container]");
-    return {
-      tagName: element.tagName?.toLowerCase() ?? null,
-      id: element.id || null,
-      className: element.getAttribute?.("class") ?? null,
-      role: element.getAttribute?.("data-message-author-role") ?? null,
-      messageId: element.getAttribute?.("data-message-id") ?? null,
-      turnId: deck?.getAttribute("data-turn-id-container") ?? null,
-      snapshot: snapshotElementDiagnostics(element)
     };
   }
   function closestDeck(referenceRoom, candidates, workZone) {
@@ -4136,9 +4109,9 @@ ${fence}
     });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
-      await nextAnimationFrame(() => {
-        if (collectStabilizationRafMutationsDiagnostics) {
-          collectStabilizationRafMutationsDiagnostics(frame + 1);
+      await nextAnimationFrame((clock) => {
+        if (sampleStabilizationDecksDiagnostics) {
+          sampleStabilizationDecksDiagnostics(frame + 1, clock);
         }
       });
       finishRafWaitDiagnostics();
@@ -5075,8 +5048,7 @@ Do not omit or combine any item.`;
           conversationUrl: batchConversationUrlDiagnostics(),
           status: "complete",
           deckIds,
-          deactivatedDeckIds: deactivatedDeckIdsSnapshotDiagnostics(),
-          fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+          rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
       } catch (error) {
         await sendBatchRequestDiagnostics(configuration, "/result", {
@@ -5090,8 +5062,7 @@ Do not omit or combine any item.`;
             stack: error?.stack ?? null
           },
           deckIds,
-          deactivatedDeckIds: deactivatedDeckIdsSnapshotDiagnostics(),
-          fixedDeckOutcomes: fixedDeckOutcomesSnapshotDiagnostics()
+          rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
       }
     }
@@ -5128,7 +5099,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.78" : "unbuilt";
+  var VERSION = true ? "5.79" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

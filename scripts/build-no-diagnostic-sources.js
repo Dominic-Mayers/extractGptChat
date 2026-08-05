@@ -15,7 +15,10 @@ function buildNoDiagnosticSources() {
             filename.replace(/-diag\.js$/, '.js')
         );
         const source = fs.readFileSync(sourcePath, 'utf8');
-        const output = filename === 'cycleDiagnostics-diag.js'
+        const output = [
+            'cycleDiagnostics-diag.js',
+            'rafDeckStudy-diag.js'
+        ].includes(filename)
             ? ''
             : removeDiagnostics(source);
 
@@ -63,7 +66,7 @@ function removeDiagnostics(source) {
     );
     return output
         .replace(
-            /nextAnimationFrame\(\(\) => \{\s*\}\)/g,
+            /nextAnimationFrame\((?:\(\)|\w+) => \{\s*\}\)/g,
             'nextAnimationFrame()'
         )
         .replace(/\s*if\s*\([^)]*\)\s*\{\s*\}/g, '')
