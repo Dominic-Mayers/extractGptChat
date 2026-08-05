@@ -41,6 +41,7 @@ const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
     try {
         const snapshot = await traverseConversation();
         await exportMarkdown(snapshot, { assetMode });
+        logRafDeckStudyDiagnostics();
         console.log(`[${logPrefix}] finished.`);
     } catch (error) {
         recordCycleStageDiagnostics("error", { error });
@@ -87,6 +88,13 @@ function sendBatchRequestDiagnostics(configuration, path, result) {
             ))
         });
     });
+}
+
+function logRafDeckStudyDiagnostics() {
+    console.log(
+        '[rAF deck study]\n' +
+        JSON.stringify(rafDeckStudySnapshotDiagnostics(), null, 2)
+    );
 }
 
 function batchConversationUrlDiagnostics() {

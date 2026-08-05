@@ -35,6 +35,7 @@ const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
     try {
         const snapshot = await traverseConversation();
         await exportMarkdown(snapshot, { assetMode });
+
         console.log(`[${logPrefix}] finished.`);
     } catch (error) {
 
