@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.81
+// @version      5.82
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -249,7 +249,8 @@
   // src/app/rafDeckStudy-diag.js
   var nextEpisodeIdDiagnostics = 1;
   var nextRafIdDiagnostics = 1;
-  var nextHeightUpdateIdDiagnostics = 1;
+  var nextLastKnownHeightUpdateIdDiagnostics = 1;
+  var nextActualHeightTransitionIdDiagnostics = 1;
   var episodesDiagnostics = [];
   var openEpisodesDiagnostics = /* @__PURE__ */ new Map();
   var deckHistoriesDiagnostics = /* @__PURE__ */ new Map();
@@ -258,7 +259,8 @@
   function resetRafDeckStudyDiagnostics() {
     nextEpisodeIdDiagnostics = 1;
     nextRafIdDiagnostics = 1;
-    nextHeightUpdateIdDiagnostics = 1;
+    nextLastKnownHeightUpdateIdDiagnostics = 1;
+    nextActualHeightTransitionIdDiagnostics = 1;
     episodesDiagnostics = [];
     openEpisodesDiagnostics = /* @__PURE__ */ new Map();
     deckHistoriesDiagnostics = /* @__PURE__ */ new Map();
@@ -271,7 +273,7 @@
     clock,
     lastKnownHeight,
     formalState,
-    deckHeight
+    actualHeight
   }) {
     if (openEpisodesDiagnostics.has(deckId)) return;
     const episode = {
@@ -279,7 +281,7 @@
       deckId,
       geometricDeactivationJumpNumber: jumpNumber,
       geometricDeactivationClock: clock,
-      deckHeightAtGeometricDeactivation: deckHeight,
+      actualHeightAtGeometricDeactivation: actualHeight,
       lastKnownHeightAtGeometricDeactivation: lastKnownHeight,
       formalStateAtGeometricDeactivation: formalState,
       formalDeactivation: null,
@@ -305,19 +307,35 @@
         rafNumber,
         rafKind
       });
-      const previousHeight = history.lastKnownHeight;
-      if (deck.lastKnownHeight !== previousHeight) {
-        history.heightUpdates.push({
-          heightUpdateId: nextHeightUpdateIdDiagnostics++,
+      const previousActualHeight = history.lastActualHeight;
+      if (deck.actualHeight !== previousActualHeight) {
+        history.actualHeightTransitions.push({
+          actualHeightTransitionId: nextActualHeightTransitionIdDiagnostics++,
           deckId: deck.deckId,
           rafId,
           clock,
           jumpNumber,
           rafNumber,
           rafKind,
-          before: previousHeight,
+          before: previousActualHeight,
+          after: deck.actualHeight,
+          lastKnownHeight: deck.lastKnownHeight
+        });
+        history.lastActualHeight = deck.actualHeight;
+      }
+      const previousLastKnownHeight = history.lastKnownHeight;
+      if (deck.lastKnownHeight !== previousLastKnownHeight) {
+        history.lastKnownHeightUpdates.push({
+          lastKnownHeightUpdateId: nextLastKnownHeightUpdateIdDiagnostics++,
+          deckId: deck.deckId,
+          rafId,
+          clock,
+          jumpNumber,
+          rafNumber,
+          rafKind,
+          before: previousLastKnownHeight,
           after: deck.lastKnownHeight,
-          deckHeight: deck.deckHeight
+          actualHeight: deck.actualHeight
         });
         history.lastKnownHeight = deck.lastKnownHeight;
       }
@@ -362,10 +380,12 @@
         ...raf,
         lastKnownHeight: deck.lastKnownHeight,
         formalState: deck.formalState,
-        deckHeight: deck.deckHeight
+        actualHeight: deck.actualHeight
       },
-      heightUpdates: [],
+      lastKnownHeightUpdates: [],
+      actualHeightTransitions: [],
       lastKnownHeight: deck.lastKnownHeight,
+      lastActualHeight: deck.actualHeight,
       formalState: deck.formalState
     };
     deckHistoriesDiagnostics.set(deck.deckId, history);
@@ -393,11 +413,14 @@
     jump.isErased = outcome === "erased" || outcome === "retry-erased";
   }
   function rafDeckStudySnapshotDiagnostics() {
-    const heightUpdates = Array.from(
+    const lastKnownHeightUpdates = Array.from(
       deckHistoriesDiagnostics.values()
-    ).flatMap((history) => history.heightUpdates);
+    ).flatMap((history) => history.lastKnownHeightUpdates);
     const classifiedJumps = jumpsDiagnostics.map(
-      (jump) => classifyJumpByPrecedingUpdateDiagnostics(jump, heightUpdates)
+      (jump) => classifyJumpByPrecedingUpdateDiagnostics(
+        jump,
+        lastKnownHeightUpdates
+      )
     );
     return structuredClone({
       episodes: episodesDiagnostics.map((episode) => ({
@@ -405,7 +428,7 @@
         deckId: episode.deckId,
         geometricDeactivationJumpNumber: episode.geometricDeactivationJumpNumber,
         geometricDeactivationClock: episode.geometricDeactivationClock,
-        deckHeightAtGeometricDeactivation: episode.deckHeightAtGeometricDeactivation,
+        actualHeightAtGeometricDeactivation: episode.actualHeightAtGeometricDeactivation,
         lastKnownHeightAtGeometricDeactivation: episode.lastKnownHeightAtGeometricDeactivation,
         formalStateAtGeometricDeactivation: episode.formalStateAtGeometricDeactivation,
         formalDeactivation: episode.formalDeactivation
@@ -414,15 +437,16 @@
         (history) => ({
           deckId: history.deckId,
           firstObservation: history.firstObservation,
-          heightUpdates: history.heightUpdates
+          lastKnownHeightUpdates: history.lastKnownHeightUpdates,
+          actualHeightTransitions: history.actualHeightTransitions
         })
       ),
       jumps: classifiedJumps,
       rafs: rafsDiagnostics
     });
   }
-  function classifyJumpByPrecedingUpdateDiagnostics(jump, heightUpdates) {
-    const precedingUpdates = heightUpdates.filter(
+  function classifyJumpByPrecedingUpdateDiagnostics(jump, lastKnownHeightUpdates) {
+    const precedingUpdates = lastKnownHeightUpdates.filter(
       (update) => update.clock <= jump.clock
     );
     const closestClock = precedingUpdates.reduce(
@@ -438,8 +462,8 @@
     ) ?? null;
     return {
       ...jump,
-      precedingHeightUpdateCandidates: candidates.map((update) => ({
-        heightUpdateId: update.heightUpdateId,
+      precedingLastKnownHeightUpdateCandidates: candidates.map((update) => ({
+        lastKnownHeightUpdateId: update.lastKnownHeightUpdateId,
         deckId: update.deckId,
         rafId: update.rafId,
         clock: update.clock,
@@ -448,10 +472,10 @@
         rafKind: update.rafKind,
         before: update.before,
         after: update.after,
-        deckHeight: update.deckHeight,
+        actualHeight: update.actualHeight,
         jumpDelayMs: jump.clock - update.clock
       })),
-      selectedHeightUpdateId: selectedUpdate?.heightUpdateId ?? null,
+      selectedLastKnownHeightUpdateId: selectedUpdate?.lastKnownHeightUpdateId ?? null,
       selectedDeckId: selectedUpdate?.deckId ?? null,
       selectedEpisodeId: episode?.episodeId ?? null,
       lagN: episode == null ? null : jump.jumpNumber - episode.geometricDeactivationJumpNumber,
@@ -3203,7 +3227,7 @@ ${fence}
           clock: performance.now(),
           lastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
           formalState: deck.getAttribute("data-is-intersecting"),
-          deckHeight: rect.height
+          actualHeight: rect.height
         });
         recordDeactivationPredictionDiagnostics();
       }
@@ -3800,7 +3824,7 @@ ${fence}
       deckId: deck.getAttribute("data-turn-id-container"),
       lastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
       formalState: deck.getAttribute("data-is-intersecting"),
-      deckHeight: deck.getBoundingClientRect().height
+      actualHeight: deck.getBoundingClientRect().height
     }));
     const deactivatedDeckIds = recordDeckRafDiagnostics({
       clock,
@@ -5154,7 +5178,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.81" : "unbuilt";
+  var VERSION = true ? "5.82" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

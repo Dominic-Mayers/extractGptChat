@@ -390,7 +390,7 @@ export async function checkUpdateNeededBeforeDeactivation(jump) {
                     deck.style.getPropertyValue("--last-known-height"),
                 formalState:
                     deck.getAttribute("data-is-intersecting"),
-                deckHeight: rect.height
+                actualHeight: rect.height
             });
             recordDeactivationPredictionDiagnostics();
         }
@@ -1140,7 +1140,7 @@ function sampleDeckDeactivationRafDiagnostics(
         lastKnownHeight:
             deck.style.getPropertyValue("--last-known-height"),
         formalState: deck.getAttribute("data-is-intersecting"),
-        deckHeight: deck.getBoundingClientRect().height
+        actualHeight: deck.getBoundingClientRect().height
     }));
     const deactivatedDeckIds = recordDeckRafDiagnostics({
         clock,

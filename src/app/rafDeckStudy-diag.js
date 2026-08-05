@@ -1,6 +1,7 @@
 let nextEpisodeIdDiagnostics = 1;
 let nextRafIdDiagnostics = 1;
-let nextHeightUpdateIdDiagnostics = 1;
+let nextLastKnownHeightUpdateIdDiagnostics = 1;
+let nextActualHeightTransitionIdDiagnostics = 1;
 let episodesDiagnostics = [];
 let openEpisodesDiagnostics = new Map();
 let deckHistoriesDiagnostics = new Map();
@@ -10,7 +11,8 @@ let rafsDiagnostics = [];
 export function resetRafDeckStudyDiagnostics() {
     nextEpisodeIdDiagnostics = 1;
     nextRafIdDiagnostics = 1;
-    nextHeightUpdateIdDiagnostics = 1;
+    nextLastKnownHeightUpdateIdDiagnostics = 1;
+    nextActualHeightTransitionIdDiagnostics = 1;
     episodesDiagnostics = [];
     openEpisodesDiagnostics = new Map();
     deckHistoriesDiagnostics = new Map();
@@ -24,7 +26,7 @@ export function recordGeometricDeactivationDiagnostics({
     clock,
     lastKnownHeight,
     formalState,
-    deckHeight
+    actualHeight
 }) {
     if (openEpisodesDiagnostics.has(deckId)) return;
     const episode = {
@@ -32,7 +34,7 @@ export function recordGeometricDeactivationDiagnostics({
         deckId,
         geometricDeactivationJumpNumber: jumpNumber,
         geometricDeactivationClock: clock,
-        deckHeightAtGeometricDeactivation: deckHeight,
+        actualHeightAtGeometricDeactivation: actualHeight,
         lastKnownHeightAtGeometricDeactivation: lastKnownHeight,
         formalStateAtGeometricDeactivation: formalState,
         formalDeactivation: null,
@@ -59,19 +61,37 @@ export function recordDeckRafDiagnostics({
             rafNumber,
             rafKind
         });
-        const previousHeight = history.lastKnownHeight;
-        if (deck.lastKnownHeight !== previousHeight) {
-            history.heightUpdates.push({
-                heightUpdateId: nextHeightUpdateIdDiagnostics++,
+        const previousActualHeight = history.lastActualHeight;
+        if (deck.actualHeight !== previousActualHeight) {
+            history.actualHeightTransitions.push({
+                actualHeightTransitionId:
+                    nextActualHeightTransitionIdDiagnostics++,
                 deckId: deck.deckId,
                 rafId,
                 clock,
                 jumpNumber,
                 rafNumber,
                 rafKind,
-                before: previousHeight,
+                before: previousActualHeight,
+                after: deck.actualHeight,
+                lastKnownHeight: deck.lastKnownHeight
+            });
+            history.lastActualHeight = deck.actualHeight;
+        }
+        const previousLastKnownHeight = history.lastKnownHeight;
+        if (deck.lastKnownHeight !== previousLastKnownHeight) {
+            history.lastKnownHeightUpdates.push({
+                lastKnownHeightUpdateId:
+                    nextLastKnownHeightUpdateIdDiagnostics++,
+                deckId: deck.deckId,
+                rafId,
+                clock,
+                jumpNumber,
+                rafNumber,
+                rafKind,
+                before: previousLastKnownHeight,
                 after: deck.lastKnownHeight,
-                deckHeight: deck.deckHeight
+                actualHeight: deck.actualHeight
             });
             history.lastKnownHeight = deck.lastKnownHeight;
         }
@@ -122,10 +142,12 @@ function deckHistoryDiagnostics(deck, raf) {
             ...raf,
             lastKnownHeight: deck.lastKnownHeight,
             formalState: deck.formalState,
-            deckHeight: deck.deckHeight
+            actualHeight: deck.actualHeight
         },
-        heightUpdates: [],
+        lastKnownHeightUpdates: [],
+        actualHeightTransitions: [],
         lastKnownHeight: deck.lastKnownHeight,
+        lastActualHeight: deck.actualHeight,
         formalState: deck.formalState
     };
     deckHistoriesDiagnostics.set(deck.deckId, history);
@@ -159,11 +181,14 @@ export function recordDeckStudyJumpOutcomeDiagnostics(
 }
 
 export function rafDeckStudySnapshotDiagnostics() {
-    const heightUpdates = Array.from(
+    const lastKnownHeightUpdates = Array.from(
         deckHistoriesDiagnostics.values()
-    ).flatMap(history => history.heightUpdates);
+    ).flatMap(history => history.lastKnownHeightUpdates);
     const classifiedJumps = jumpsDiagnostics.map(jump =>
-        classifyJumpByPrecedingUpdateDiagnostics(jump, heightUpdates)
+        classifyJumpByPrecedingUpdateDiagnostics(
+            jump,
+            lastKnownHeightUpdates
+        )
     );
     return structuredClone({
         episodes: episodesDiagnostics.map(episode => ({
@@ -173,8 +198,8 @@ export function rafDeckStudySnapshotDiagnostics() {
                 episode.geometricDeactivationJumpNumber,
             geometricDeactivationClock:
                 episode.geometricDeactivationClock,
-            deckHeightAtGeometricDeactivation:
-                episode.deckHeightAtGeometricDeactivation,
+            actualHeightAtGeometricDeactivation:
+                episode.actualHeightAtGeometricDeactivation,
             lastKnownHeightAtGeometricDeactivation:
                 episode.lastKnownHeightAtGeometricDeactivation,
             formalStateAtGeometricDeactivation:
@@ -185,7 +210,10 @@ export function rafDeckStudySnapshotDiagnostics() {
             history => ({
                 deckId: history.deckId,
                 firstObservation: history.firstObservation,
-                heightUpdates: history.heightUpdates
+                lastKnownHeightUpdates:
+                    history.lastKnownHeightUpdates,
+                actualHeightTransitions:
+                    history.actualHeightTransitions
             })
         ),
         jumps: classifiedJumps,
@@ -193,8 +221,11 @@ export function rafDeckStudySnapshotDiagnostics() {
     });
 }
 
-function classifyJumpByPrecedingUpdateDiagnostics(jump, heightUpdates) {
-    const precedingUpdates = heightUpdates.filter(update =>
+function classifyJumpByPrecedingUpdateDiagnostics(
+    jump,
+    lastKnownHeightUpdates
+) {
+    const precedingUpdates = lastKnownHeightUpdates.filter(update =>
         update.clock <= jump.clock
     );
     const closestClock = precedingUpdates.reduce(
@@ -214,21 +245,23 @@ function classifyJumpByPrecedingUpdateDiagnostics(jump, heightUpdates) {
         ) ?? null;
     return {
         ...jump,
-        precedingHeightUpdateCandidates: candidates.map(update => ({
-            heightUpdateId: update.heightUpdateId,
-            deckId: update.deckId,
-            rafId: update.rafId,
-            clock: update.clock,
-            jumpNumber: update.jumpNumber,
-            rafNumber: update.rafNumber,
-            rafKind: update.rafKind,
-            before: update.before,
-            after: update.after,
-            deckHeight: update.deckHeight,
-            jumpDelayMs: jump.clock - update.clock
-        })),
-        selectedHeightUpdateId:
-            selectedUpdate?.heightUpdateId ?? null,
+        precedingLastKnownHeightUpdateCandidates:
+            candidates.map(update => ({
+                lastKnownHeightUpdateId:
+                    update.lastKnownHeightUpdateId,
+                deckId: update.deckId,
+                rafId: update.rafId,
+                clock: update.clock,
+                jumpNumber: update.jumpNumber,
+                rafNumber: update.rafNumber,
+                rafKind: update.rafKind,
+                before: update.before,
+                after: update.after,
+                actualHeight: update.actualHeight,
+                jumpDelayMs: jump.clock - update.clock
+            })),
+        selectedLastKnownHeightUpdateId:
+            selectedUpdate?.lastKnownHeightUpdateId ?? null,
         selectedDeckId: selectedUpdate?.deckId ?? null,
         selectedEpisodeId: episode?.episodeId ?? null,
         lagN: episode == null
