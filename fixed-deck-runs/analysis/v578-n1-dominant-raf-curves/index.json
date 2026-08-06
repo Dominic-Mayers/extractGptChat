@@ -1,0 +1,393 @@
+[
+  {
+    "deckId": "10e58f4e-e8d6-498a-9397-94e117277dd3",
+    "studiedJumps": 28,
+    "erased": 23,
+    "dominant": {
+      "jump rAF": 28
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "1928c257-b3a5-4bd9-9300-5bb7d2d2787c",
+    "studiedJumps": 29,
+    "erased": 29,
+    "dominant": {
+      "jump rAF": 29
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "1a5c5814-d968-47f6-b1c9-276d31884239",
+    "studiedJumps": 30,
+    "erased": 4,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "1d88fc8e-d785-49c7-842d-49b23270fdfc",
+    "studiedJumps": 30,
+    "erased": 30,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "1ea769ca-b8fe-4985-b984-8a9809c463e4",
+    "studiedJumps": 30,
+    "erased": 22,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "230fb919-f4b7-4268-8f08-f15c2f9ccccc",
+    "studiedJumps": 29,
+    "erased": 12,
+    "dominant": {
+      "jump rAF": 29
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "2882027d-4e37-4a80-b437-8690dd23acb4",
+    "studiedJumps": 30,
+    "erased": 22,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "2a6cd3a3-623b-4dac-a47d-b115531153d0",
+    "studiedJumps": 30,
+    "erased": 24,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "2f2130c5-73f3-4108-94de-8f8571a387b6",
+    "studiedJumps": 30,
+    "erased": 22,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "37e84110-8743-42a2-9b59-cd0a729e2e80",
+    "studiedJumps": 30,
+    "erased": 15,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "37f5e082-d210-419f-bb30-ea9417c53570",
+    "studiedJumps": 27,
+    "erased": 21,
+    "dominant": {
+      "jump rAF": 27
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "3e0338eb-0ed9-4abb-9a1e-ebef6ff47863",
+    "studiedJumps": 30,
+    "erased": 0,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "438a3ef0-ae01-4bee-9e31-ada59ba7aab2",
+    "studiedJumps": 28,
+    "erased": 1,
+    "dominant": {
+      "jump rAF": 28
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "438e818d-3c3e-47ad-bfc2-78a46477a5e1",
+    "studiedJumps": 29,
+    "erased": 24,
+    "dominant": {
+      "stabilization rAF 4": 23
+    },
+    "rare": {
+      "jump rAF": 4,
+      "stabilization rAF 3": 2
+    }
+  },
+  {
+    "deckId": "4599312f-0085-4458-a3f2-19c8db57b2db",
+    "studiedJumps": 29,
+    "erased": 16,
+    "dominant": {
+      "jump rAF": 29
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "490261b7-97be-4908-8ea3-ce76565f27ad",
+    "studiedJumps": 30,
+    "erased": 1,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "550c12f1-5025-48d8-8d2d-ce1155c35927",
+    "studiedJumps": 28,
+    "erased": 28,
+    "dominant": {
+      "jump rAF": 28
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "591e0078-626d-4ce3-9ba2-f6d9a6a3232f",
+    "studiedJumps": 27,
+    "erased": 24,
+    "dominant": {
+      "stabilization rAF 4": 19,
+      "stabilization rAF 3": 6
+    },
+    "rare": {
+      "jump rAF": 2
+    }
+  },
+  {
+    "deckId": "606b0080-656c-4b39-bb7c-3d9c4e02ccfc",
+    "studiedJumps": 28,
+    "erased": 18,
+    "dominant": {
+      "jump rAF": 28
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "6f25b4ae-89b2-42f8-89de-b30524c75a43",
+    "studiedJumps": 27,
+    "erased": 23,
+    "dominant": {
+      "jump rAF": 27
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "7189fb09-a409-4e81-bbf8-53ceec60718b",
+    "studiedJumps": 29,
+    "erased": 24,
+    "dominant": {
+      "jump rAF": 29
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "7a452d7c-961f-4b3f-acbe-9ed68a95ec88",
+    "studiedJumps": 27,
+    "erased": 21,
+    "dominant": {
+      "jump rAF": 27
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "83a8659d-7251-4cb8-8bdd-6861349e5119",
+    "studiedJumps": 27,
+    "erased": 0,
+    "dominant": {
+      "stabilization rAF 3": 25
+    },
+    "rare": {
+      "stabilization rAF 2": 2
+    }
+  },
+  {
+    "deckId": "8b311278-80c4-4832-8ada-21f222fdc06f",
+    "studiedJumps": 30,
+    "erased": 11,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "8df90f94-c626-49b0-a1e8-1c309cbde81f",
+    "studiedJumps": 30,
+    "erased": 22,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "9762eadc-3fc7-454f-8a69-153343a7d65b",
+    "studiedJumps": 28,
+    "erased": 27,
+    "dominant": {
+      "jump rAF": 28
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "97917f0a-7969-4f95-b7e7-868b7c52ec69",
+    "studiedJumps": 30,
+    "erased": 15,
+    "dominant": {
+      "stabilization rAF 4": 24
+    },
+    "rare": {
+      "jump rAF": 3,
+      "stabilization rAF 3": 3
+    }
+  },
+  {
+    "deckId": "a38bc528-72ee-46cd-8f02-399eb7f61c26",
+    "studiedJumps": 30,
+    "erased": 29,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "a56a0319-a139-4e2a-9e38-e794d053ee70",
+    "studiedJumps": 30,
+    "erased": 3,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "a7dec02f-8d5c-4616-9dd7-f965a9e878d7",
+    "studiedJumps": 30,
+    "erased": 23,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "a9620a5b-27cb-47e3-a0c5-1a7aefcbc536",
+    "studiedJumps": 30,
+    "erased": 21,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "b5e9ea5e-f64b-4c6b-b83a-b81d3d36cf35",
+    "studiedJumps": 30,
+    "erased": 0,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "b7d6bf0e-17d9-49c3-980e-0540587f1dd8",
+    "studiedJumps": 28,
+    "erased": 23,
+    "dominant": {
+      "jump rAF": 28
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "b9aee7e7-dfef-499e-b2b3-209faf23125c",
+    "studiedJumps": 30,
+    "erased": 28,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "c14e6a5a-645f-4fc0-8e7b-af2d7c9239da",
+    "studiedJumps": 30,
+    "erased": 12,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "d376ef4f-6f20-4023-a972-7277d0bd6652",
+    "studiedJumps": 30,
+    "erased": 1,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "db35805d-f380-41bf-bd7d-38ec869e64d3",
+    "studiedJumps": 30,
+    "erased": 0,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "dc9bee5c-4bf1-4986-8269-6ae82b961ae1",
+    "studiedJumps": 30,
+    "erased": 30,
+    "dominant": {
+      "jump rAF": 30
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "ddfbdf29-b6de-4a0c-91c6-f37ddc8b7042",
+    "studiedJumps": 29,
+    "erased": 28,
+    "dominant": {
+      "jump rAF": 29
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "dfc55ca2-c0ec-4620-aeec-f6a1df4c9b9c",
+    "studiedJumps": 26,
+    "erased": 0,
+    "dominant": {
+      "jump rAF": 26
+    },
+    "rare": {}
+  },
+  {
+    "deckId": "eeec1058-18d3-4f03-9d1d-00f64689248c",
+    "studiedJumps": 29,
+    "erased": 24,
+    "dominant": {
+      "stabilization rAF 2": 27
+    },
+    "rare": {
+      "stabilization rAF 3": 2
+    }
+  },
+  {
+    "deckId": "fea6f540-4647-4061-935d-19e71f77f623",
+    "studiedJumps": 25,
+    "erased": 25,
+    "dominant": {
+      "jump rAF": 25
+    },
+    "rare": {}
+  }
+]
