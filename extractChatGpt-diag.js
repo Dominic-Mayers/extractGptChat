@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.82
+// @version      5.84
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -335,6 +335,8 @@
           rafKind,
           before: previousLastKnownHeight,
           after: deck.lastKnownHeight,
+          actualHeightBeforeRafObservation: previousActualHeight,
+          actualHeightAtRafObservation: deck.actualHeight,
           actualHeight: deck.actualHeight
         });
         history.lastKnownHeight = deck.lastKnownHeight;
@@ -404,13 +406,14 @@
       isErased: null
     });
   }
-  function recordDeckStudyJumpOutcomeDiagnostics(jumpNumber, outcome) {
+  function recordDeckStudyJumpOutcomeDiagnostics(jumpNumber, outcome, geometry) {
     const jump = jumpsDiagnostics.find(
       (candidate) => candidate.jumpNumber === jumpNumber
     );
     if (jump == null) return;
     jump.outcome = outcome;
     jump.isErased = outcome === "erased" || outcome === "retry-erased";
+    jump.geometry = geometry;
   }
   function rafDeckStudySnapshotDiagnostics() {
     const lastKnownHeightUpdates = Array.from(
@@ -472,6 +475,8 @@
         rafKind: update.rafKind,
         before: update.before,
         after: update.after,
+        actualHeightBeforeRafObservation: update.actualHeightBeforeRafObservation,
+        actualHeightAtRafObservation: update.actualHeightAtRafObservation,
         actualHeight: update.actualHeight,
         jumpDelayMs: jump.clock - update.clock
       })),
@@ -878,7 +883,12 @@
     const recordedOutcomeDiagnostics = jumpWasErased ? retriedErasedJump ? "retry-erased" : "erased" : retriedErasedJump ? "retry-succeeded" : "survived";
     recordDeckStudyJumpOutcomeDiagnostics(
       retryDiagnostics.erasedJumpProbe?.movementJumpNumber,
-      recordedOutcomeDiagnostics
+      recordedOutcomeDiagnostics,
+      {
+        beforeJump: retryDiagnostics.erasedJumpProbe?.preCommand ?? null,
+        afterCommand: retryDiagnostics.erasedJumpProbe?.afterCommand ?? null,
+        followingRaf: retryDiagnostics.erasedJumpProbe?.nextRaf ?? null
+      }
     );
     if (!retriedErasedJump) {
       retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;
@@ -5178,7 +5188,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.82" : "unbuilt";
+  var VERSION = true ? "5.84" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

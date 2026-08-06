@@ -454,7 +454,15 @@ export function recordErasedJumpResultDiagnostics(
             : "survived";
     recordDeckStudyJumpOutcomeDiagnostics(
         retryDiagnostics.erasedJumpProbe?.movementJumpNumber,
-        recordedOutcomeDiagnostics
+        recordedOutcomeDiagnostics,
+        {
+            beforeJump:
+                retryDiagnostics.erasedJumpProbe?.preCommand ?? null,
+            afterCommand:
+                retryDiagnostics.erasedJumpProbe?.afterCommand ?? null,
+            followingRaf:
+                retryDiagnostics.erasedJumpProbe?.nextRaf ?? null
+        }
     );
     if (!retriedErasedJump) {
         retryDiagnostics.previousJump = previousJumpSummaryDiagnostics;

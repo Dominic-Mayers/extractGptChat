@@ -6,6 +6,7 @@
     "build:diag": "node scripts/build-diag-userscript.js",
     "build:no-diag": "node scripts/build-userscript.js",
     "build:no-diag-sources": "node scripts/build-no-diagnostic-sources.js",
+    "present:raf-study": "node scripts/present-raf-erasure-study.js",
     "check": "npm run build && node --check extractChatGpt-diag.js && node --check extractChatGpt.js && node scripts/test-asset-modes.js"
   },
   "devDependencies": {

@@ -91,6 +91,10 @@ export function recordDeckRafDiagnostics({
                 rafKind,
                 before: previousLastKnownHeight,
                 after: deck.lastKnownHeight,
+                actualHeightBeforeRafObservation:
+                    previousActualHeight,
+                actualHeightAtRafObservation:
+                    deck.actualHeight,
                 actualHeight: deck.actualHeight
             });
             history.lastKnownHeight = deck.lastKnownHeight;
@@ -170,7 +174,8 @@ export function recordDeckStudyJumpDiagnostics({
 
 export function recordDeckStudyJumpOutcomeDiagnostics(
     jumpNumber,
-    outcome
+    outcome,
+    geometry
 ) {
     const jump = jumpsDiagnostics.find(candidate =>
         candidate.jumpNumber === jumpNumber
@@ -178,6 +183,7 @@ export function recordDeckStudyJumpOutcomeDiagnostics(
     if (jump == null) return;
     jump.outcome = outcome;
     jump.isErased = outcome === "erased" || outcome === "retry-erased";
+    jump.geometry = geometry;
 }
 
 export function rafDeckStudySnapshotDiagnostics() {
@@ -257,6 +263,10 @@ function classifyJumpByPrecedingUpdateDiagnostics(
                 rafKind: update.rafKind,
                 before: update.before,
                 after: update.after,
+                actualHeightBeforeRafObservation:
+                    update.actualHeightBeforeRafObservation,
+                actualHeightAtRafObservation:
+                    update.actualHeightAtRafObservation,
                 actualHeight: update.actualHeight,
                 jumpDelayMs: jump.clock - update.clock
             })),
