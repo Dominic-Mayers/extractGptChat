@@ -19,11 +19,17 @@ This is a progression from broad environmental scope to fine operational
 detail, not a claim that every object is wholly contained by the state above
 it. A deck or slab can straddle the inferred ready-area boundary.
 
-The **supply area** is everything currently exposed through the scroll
-container. The **active area** is the part to which ChatGPT has assigned
-rendering activity. The **ready area** is the part of that active area whose
-required detail has actually been prepared for the foreman's next operation.
-Active therefore does not mean ready.
+The **supply area** is the complete conversation as a geometric document. In
+the current ChatGPT adapter it corresponds to the `documentElement`. Its
+scroll extent contains the geometry of the conversation, including regions
+represented only by virtualizer placeholders. This does not mean that all of
+the conversation's detailed DOM or extractable content is mounted. The
+geometry can be present while the corresponding inventory is unavailable.
+
+The **active area** is the part of the supply area to which ChatGPT has
+assigned rendering activity. The **ready area** is the part of that active
+area whose required detail has actually been prepared for the foreman's next
+operation. Active therefore does not mean ready.
 
 Within the ready area, **decks** organize the supplier's batches, **slabs** are
 the physical content units whose extracted representations are added to the
@@ -52,13 +58,15 @@ distances and heights. The walkway remains a separate accumulated result.
 The current bottom-up traversal prepends each newly discovered entry to keep
 that result in chronological order.
 
-The environment boundary does **not** keep the entire conversation in stock.
+The supply area contains the complete conversation's geometry, but the
+environment boundary does **not** keep its entire detailed inventory in stock.
 New decks, slabs, anchors, and other observable supplies become available as
-ChatGPT's rendering systems do their work. The boundary exposes only a
-changing, partial inventory. `data-is-intersecting` is evidence that a deck is
-**active**; it is not proof that the deck, all of its slabs, or all of their
-anchors are ready. The exact ready-area boundary is not directly exposed and
-must be inferred through operation-specific observations.
+ChatGPT's rendering systems do their work. The boundary exposes a changing,
+partial realization of a geometrically complete document.
+`data-is-intersecting` is evidence that a deck is **active**; it is not proof
+that the deck, all of its slabs, or all of their anchors are ready. The exact
+ready-area boundary is not directly exposed and must be inferred through
+operation-specific observations.
 
 To work with this incomplete inventory, the traversal logic relies on three
 kinds of observations and one kind of action:
@@ -476,3 +484,213 @@ conditions were not controlled.
 
 Large viewport drifts are not part of this model. They are usually artifacts of
 ChatGPT's virtualized rendering and should not be used as explanatory telemetry.
+
+## Geometric Traversal Model and Current Conjectures
+
+The fixed-deck runs make it useful to separate two meanings of geometry:
+
+- **Conversation geometry** is the ordered set of deck intervals and heights
+  in the supply area. For a fixed conversation and fixed viewport, this is the
+  repeatable input to a traversal.
+- **Realized geometry** is what a particular animation frame exposes after
+  activation, deactivation, placeholder substitution, margin collapse, and
+  scroll-position adjustment. It is an observation of the conversation
+  geometry plus work that is still in flight.
+
+The first is the proposed cause of the repeatable baseline. The second is the
+trace from which that cause and the renderer's progress are inferred. A DOM
+mutation is therefore not an independent input merely because it happens at a
+different wall-clock time in two runs; it may be a delayed realization of the
+same geometric boundary crossing.
+
+### State of a traversal
+
+Let the supply area be an ordered one-dimensional document with deck intervals
+
+```text
+D_i = [b_i, b_i + h_i)
+```
+
+where `b_i` is the deck's document-coordinate top and `h_i` is its supplied
+height. Let `y_k` be the viewport's document-coordinate position before jump
+`k`, `v` the viewport height, and `a` the activation distance. Ignoring the
+boundary asymmetry visible in diagnostics, the geometric active interval is
+approximately
+
+```text
+A(y_k) = [y_k - a, y_k + v + a].
+```
+
+A jump of size `s_k` moves upward, so its commanded position is
+`y_k* = y_k - s_k`. The sets of decks predicted to enter and leave activity
+are determined by the interval differences
+
+```text
+enter_k = A(y_k*) ∖ A(y_k)
+leave_k = A(y_k) ∖ A(y_k*).
+```
+
+Intersecting these strips with the ordered deck intervals predicts which deck
+boundaries the movement asks the renderer to process. Heights matter in
+addition to deck count: a long deck can span a boundary for several jumps,
+while several short decks can cross it in one jump. The relevant geometric
+input is consequently the local ordered height profile, not a deck ID and not
+just total scroll distance.
+
+For each deck, use the observable stage state
+
+```text
+inactive → geometrically active → formally active
+formally active → geometrically inactive → height recorded → formally inactive
+```
+
+as an ordering model, not as a claim about ChatGPT's internal implementation.
+The stages can coincide at one observation point. A deck between geometric
+exit and formal inactivity carries a **deactivation debt**: the geometry has
+requested deactivation, but the later observable work has not completed. The
+traversal state immediately before a jump is then
+
+```text
+X_k = (y_k, s_k, local deck intervals, activation boundaries,
+       activation debts, deactivation debts, realized heights).
+```
+
+Wall-clock duration is deliberately absent. Traversal speed affects how much
+debt is discharged between movements, so comparisons across speeds must use an
+observation clock (rAF opportunities or stage transitions), not milliseconds.
+
+### Baseline-geometry conjecture
+
+For a fixed conversation, viewport, activation rule, jump policy, and browser
+renderer, repeated runs sample different schedules over the same geometric
+state machine. After normalizing traversal speed, the baseline distribution of
+activations, deactivations, and erasures is conjectured to depend entirely on
+the conversation geometry:
+
+```text
+P(next observable transition, erasure | traversal history)
+    = P(next observable transition, erasure | X_k).
+```
+
+In probabilistic language, run identity and absolute clock time should add no
+predictive information once `X_k` and traversal speed are known. This is the
+strong form of the conjecture. A safer form, supported by the present fixed
+deck repetitions, is that geometry determines the repeatable *opportunities*
+for activation and deactivation, while scheduling determines which stage is
+observed before the extractor makes its next move.
+
+This distinction gives the conjecture a falsification criterion. It fails if,
+after matching the same local deck-height profile, boundary distances, jump
+size, debt state, and rAF opportunity count, erasure rates still vary
+systematically by run, wall-clock phase, content identity, or another omitted
+non-geometric variable.
+
+### Erasure conjecture
+
+The observations support the following narrow model:
+
+1. A jump moves one or more decks across an activation boundary.
+2. At least one resulting deactivation is still pending after the movement's
+   first observation opportunity.
+3. The extractor issues another scroll command while that debt remains open.
+4. Completion of the pending work restores the position captured after the
+   preceding movement, erasing the new command.
+
+The fixed-deck evidence establishes exact position restoration and its strong
+association with pending deactivation. It does **not** establish who performs
+the restoration. CSS scroll anchoring and ChatGPT's virtualizer remain
+candidate mechanisms. Nor does it establish that every deactivation debt can
+erase a jump. The geometric model predicts the exposure window; it does not
+yet identify the internal commit operation.
+
+For a non-split jump, erasure is detected by
+
+```text
+y_following = y_before
+```
+
+together with the retained anchor returning to its pre-command position. A
+supply-height change is neither necessary nor sufficient: in the reference
+geometry-only runs, 339 of 381 non-split erasures restored the pre-jump scroll
+position without any supply-height change. This rules out an explanation in
+which lost height alone cancels the movement.
+
+### Why `split = true` and `T` appear to explain the erasure ratio
+
+A split movement contains two scroll jumps inside one stabilization wait.
+The first command stops at an activation guard; the remaining `extraJump` is
+issued in stabilization rAF 1. If the second command is erased at the next
+observation, the position restored is the position immediately after the
+first command. Thus the split experiment localizes the capture: it is refreshed
+within the preceding rAF rather than retained from some much earlier jump.
+
+Let `T` be the total number of stabilization rAF callbacks in that wait and
+`E_2` mean that the split's second jump is erased. The tempting quantity is
+
+```text
+P(E_2 | split = true, T = t).
+```
+
+It is descriptive, but it is not a causal erasure probability. `T` is only
+known after the wait and is partly caused by `E_2`. With the minimum stable
+frame rule, an uneventful split can finish at its floor. An erasure changes the
+observed scroll/anchor geometry, resets stability, and forces more callbacks.
+Schematically,
+
+```text
+pending deactivation ─┬─→ second-jump erasure ─→ larger T
+                      └─→ later stage observed ──→ larger T
+```
+
+Conditioning on `T` therefore conditions on a post-command common effect. It
+sorts waits by what happened during them rather than holding the opportunity
+population fixed. This explains the otherwise striking reference result:
+second-jump erasures were absent from 5,732 split waits ending at `T = 2` or
+`T = 3`, then appeared in the longer strata. It does not follow that waiting
+until a wait has `T = 4` causes erasure; an erasure can be one reason the wait
+reaches four frames.
+
+The predictive ratio should instead be conditioned on variables fixed before
+the second command. A first useful estimator is
+
+```text
+P(E_2 | split = true, X_pre-extra, O_pre-extra),
+```
+
+where `X_pre-extra` contains the local deck intervals, distances to both
+activation boundaries, first-jump distance, `extraJump`, and all open debts,
+and `O_pre-extra` is the number and kind of observation opportunities since
+the boundary crossing. `T` remains an outcome used to check the model. This
+also explains why split movements have a different raw erasure ratio: they
+place a second command deliberately inside the stabilization window, where a
+pending deactivation can still commit.
+
+### Predictions and required tests
+
+The model makes the following testable predictions:
+
+- Replaying the same conversation geometry and jump policy should reproduce
+  per-region activation, deactivation, and erasure rates after matching rAF
+  opportunity counts, even when absolute run time changes.
+- Geometrically similar local height profiles should have similar transition
+  rates even when their deck IDs and content differ.
+- Among pre-command-equivalent states, open deactivation debt should dominate
+  completed deactivation and no boundary crossing as an erasure predictor.
+- Requiring one additional stable rAF before permitting the next jump
+  should sharply reduce erasure by allowing debt to close. This intervention
+  changes opportunity count and is more informative than stratifying on
+  realized `T` afterward.
+- If a split second jump is erased, the restored position should continue
+  to be the post-first-command position. Restoration to an older position
+  would falsify the proposed refresh point.
+- A model using local geometry, debt stages, jump size, and pre-command rAF
+  opportunities should generalize across repeated fixed-deck cycles. Residual
+  predictive power from deck ID is evidence that the geometric state is
+  incomplete, not evidence to absorb the ID as geometry.
+
+Future diagnostic summaries should report both causal and outcome columns.
+The causal table is keyed by the pre-command geometry/debt state and
+observation opportunities. The outcome table reports erasure, resulting `T`,
+height delta, formal transitions, and exact restoration. Keeping the two
+tables separate prevents the `split`/`T` ratio from being mistaken for a
+mechanism.
