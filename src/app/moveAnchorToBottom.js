@@ -8,7 +8,8 @@ import {
     checkUpdateNeededBeforeDeactivation,
     moveWorkZoneBy,
     slabRoom,
-    supplyRoom
+    supplyRoom,
+    cancelSplitJump
 } from "./supplyWorker.js";
 import {
     waitLayoutStable
@@ -62,15 +63,20 @@ export async function moveAnchorToBottom(
         const predictedDeactivationDecks =
             await checkUpdateNeededBeforeDeactivation(jump);
 
-        await moveWorkZoneBy(jump);
+        const jumpRafClock = await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
 
+            cancelSplitJump();
+
             break;
         }
 
-        await waitLayoutStable({ trackAnchor: true });
+        await waitLayoutStable({
+            trackAnchor: true,
+            previousRafClock: jumpRafClock
+        });
 
         const obtainedRoom = anchorRoom();
 

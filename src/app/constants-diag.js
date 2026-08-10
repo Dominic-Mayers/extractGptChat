@@ -9,3 +9,5 @@ export const MAX_DRIFT = 2;
 export const ADJACENCY_OVERLAP_TOLERANCE = 2; // sub-pixel rendering noise, not real overlap
 export const MIN_ACTIVATION_DISTANCE = 1000;
 export const MAX_FRAMES_FOR_STABILIZATION = 3000;
+export const MAX_STABLE_RAF_DELAY = 90;
+export const MAX_IGNORED_FRAMES = 2;

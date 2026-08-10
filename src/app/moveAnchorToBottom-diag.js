@@ -10,7 +10,8 @@ import {
     moveWorkZoneBy,
     pendingDeactivationPredictionSnapshotDiagnostics,
     slabRoom,
-    supplyRoom
+    supplyRoom,
+    cancelSplitJump
 } from "./supplyWorker-diag.js";
 import { waitLayoutStable } from "./waitLayoutStable-diag.js";
 import {
@@ -23,6 +24,7 @@ import {
     recordErasedJumpResultDiagnostics,
     recordPendingDeactivationPredictionsForJumpDiagnostics
 } from "./cycleDiagnostics-diag.js";
+
 
 export async function moveAnchorToBottom(
     initialRoom,
@@ -109,7 +111,7 @@ export async function moveAnchorToBottom(
             geometricallyPredictedDeckCount:
                 predictedDeactivationDecks.length
         });
-        await moveWorkZoneBy(jump);
+        const jumpRafClock = await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
@@ -118,12 +120,16 @@ export async function moveAnchorToBottom(
                 obtainedAnchorRoom: anchorRoom(),
                 status: "no-movement"
             });
+            cancelSplitJump();
             discardCurrentJumpProbeDiagnostics();
             logSlowJumpDiagnosticsIfNeeded();
             break;
         }
 
-        await waitLayoutStable({ trackAnchor: true });
+        await waitLayoutStable({
+            trackAnchor: true,
+            previousRafClock: jumpRafClock
+        });
 
         const obtainedRoom = anchorRoom();
         finishJumpDiagnostics({

@@ -55,11 +55,28 @@ def arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", required=True)
     parser.add_argument("--profile", required=True)
+    parser.add_argument(
+        "--browser",
+        choices=("chromium", "firefox"),
+        default="chromium"
+    )
     parser.add_argument("--chromium", default="/usr/bin/chromium-browser")
+    parser.add_argument("--firefox", default="/usr/bin/firefox")
     parser.add_argument("--cycles", type=int, default=30)
     parser.add_argument("--timeout-minutes", type=float, default=30)
     parser.add_argument("--between-seconds", type=float, default=2)
     parser.add_argument("--output")
+    parser.add_argument(
+        "--window-width",
+        type=int,
+        help="startup window width; the browser decides the viewport"
+    )
+    parser.add_argument(
+        "--window-height",
+        type=int,
+        help="startup window height; the resulting viewport height is "
+             "recorded in each cycle payload"
+    )
     return parser.parse_args()
 
 
@@ -77,6 +94,37 @@ def batch_url(url, port, token, cycle):
     ))
 
 
+def browser_command(options, profile, cache, url):
+    if options.browser == "firefox":
+        command = [
+            options.firefox,
+            "--no-remote",
+            "-profile",
+            str(profile),
+        ]
+        if options.window_width is not None:
+            command += ["-width", str(options.window_width)]
+        if options.window_height is not None:
+            command += ["-height", str(options.window_height)]
+        command += ["-new-window", url]
+        return command
+    command = [
+        options.chromium,
+        f"--user-data-dir={profile}",
+        f"--disk-cache-dir={cache}",
+        "--disk-cache-size=1",
+        "--media-cache-size=1",
+        "--no-first-run",
+        "--disable-session-crashed-bubble",
+    ]
+    if options.window_width is not None or options.window_height is not None:
+        width = options.window_width or 1280
+        height = options.window_height or 1000
+        command.append(f"--window-size={width},{height}")
+    command += ["--new-window", url]
+    return command
+
+
 def stop_process(process):
     if process.poll() is not None:
         return
@@ -88,7 +136,7 @@ def stop_process(process):
         process.wait(timeout=10)
 
 
-def wait_for_result(collector, process, timeout_seconds):
+def wait_for_result(collector, process, timeout_seconds, browser):
     deadline = time.monotonic() + timeout_seconds
     while True:
         remaining = deadline - time.monotonic()
@@ -99,7 +147,8 @@ def wait_for_result(collector, process, timeout_seconds):
         except queue.Empty:
             if process.poll() is not None:
                 raise RuntimeError(
-                    f"Chromium exited with status {process.returncode}"
+                    f"{browser} exited with status "
+                    f"{process.returncode}"
                 )
 def main():
     options = arguments()
@@ -141,23 +190,19 @@ def main():
             with tempfile.TemporaryDirectory(
                 prefix=f"extract-gpt-cache-{cycle:02d}-"
             ) as cache:
-                command = [
-                    options.chromium,
-                    f"--user-data-dir={profile}",
-                    f"--disk-cache-dir={cache}",
-                    "--disk-cache-size=1",
-                    "--media-cache-size=1",
-                    "--no-first-run",
-                    "--disable-session-crashed-bubble",
-                    "--new-window",
-                    url,
-                ]
+                command = browser_command(
+                    options,
+                    profile,
+                    cache,
+                    url
+                )
                 process = subprocess.Popen(command, start_new_session=True)
                 try:
                     result = wait_for_result(
                         collector,
                         process,
-                        options.timeout_minutes * 60
+                        options.timeout_minutes * 60,
+                        options.browser
                     )
                     if result.get("cycle") != cycle:
                         raise RuntimeError(

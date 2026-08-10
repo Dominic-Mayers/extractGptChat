@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      5.84
+// @version      6.22
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -23,6 +23,8 @@
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var MIN_ACTIVATION_DISTANCE = 1e3;
   var MAX_FRAMES_FOR_STABILIZATION = 3e3;
+  var MAX_STABLE_RAF_DELAY = 90;
+  var MAX_IGNORED_FRAMES = 2;
 
   // src/app/geometry.js
   function areaAhead(referenceTop, maxGap) {
@@ -1104,10 +1106,68 @@ ${fence}
     if (deck.top >= viewportHeight2) return "below";
     return "viewport";
   }
+  var SPLIT_EXTRA_JUMP = 20;
+  var SPLIT_DISABLED = false;
+  var splitJump = null;
+  function beginSplitJump(totalJump, activationDistance) {
+    splitJump = null;
+    if (SPLIT_DISABLED) return totalJump;
+    if (!Number.isFinite(activationDistance)) return totalJump;
+    const activationLimit = activationDistance - MIN_ACTIVATION_DISTANCE;
+    if (activationLimit < 0) return totalJump;
+    const initialJump = Math.max(
+      totalJump - SPLIT_EXTRA_JUMP,
+      MAX_DRIFT
+    );
+    if (initialJump < activationLimit) return totalJump;
+    if (totalJump - initialJump < MAX_DRIFT) return totalJump;
+    splitJump = {
+      totalJump,
+      activationLimit,
+      initialJump,
+      extraJump: totalJump - initialJump,
+      performed: false
+    };
+    return initialJump;
+  }
+  function nextActivationDistanceAbove() {
+    const { supplyArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    let distance = Infinity;
+    for (const deck of getDecks(supplyArea)) {
+      const activation = deck.getAttribute("data-is-intersecting");
+      if (activation != null && activation !== "false") continue;
+      const rect = deck.getBoundingClientRect();
+      if (rect.bottom > viewportTop) continue;
+      const room = viewportTop - rect.bottom;
+      if (room < MIN_ACTIVATION_DISTANCE) continue;
+      if (room < distance) distance = room;
+    }
+    return distance;
+  }
+  function performSplitExtraJump(frame) {
+    if (frame !== 1) return 0;
+    if (splitJump == null) return 0;
+    if (splitJump.performed) return 0;
+    splitJump.performed = true;
+    const { supplyArea, workZone } = environment();
+    const nextActivationDistance = nextActivationDistanceAbove();
+    const secondActivation = Number.isFinite(nextActivationDistance) && nextActivationDistance - splitJump.extraJump < MIN_ACTIVATION_DISTANCE;
+    moveWorkZone(splitJump.extraJump, supplyArea, workZone);
+    return secondActivation ? 0 : splitJump.extraJump;
+  }
+  function cancelSplitJump() {
+    splitJump = null;
+  }
   async function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
-    await nextAnimationFrame();
-    moveWorkZone(jump, supplyArea, workZone);
+    const rafClock = await nextAnimationFrame();
+    const commandedJump = beginSplitJump(
+      jump,
+      roomUntilFirstNotReadyDeck()
+    );
+    moveWorkZone(commandedJump, supplyArea, workZone);
+    return rafClock;
   }
   function closestDeck(referenceRoom, candidates, workZone) {
     let selected = null;
@@ -1146,8 +1206,11 @@ ${fence}
         );
       }
       if (Date.now() >= deadline) {
+        const { workZone } = environment();
+        const geometry = deckGeometry(deck, workZone);
+        const rect = deck.getBoundingClientRect();
         throw new Error(
-          "Timed out waiting for deck activation."
+          `Timed out waiting for deck activation: turnId=${deck.getAttribute("data-turn-id-container")} rectTop=${rect.top} rectBottom=${rect.bottom} viewportTop=${workZoneTop(workZone)} viewportHeight=${workZone.height} room=${geometry.room} bottomRoom=${geometry.bottomRoom} isIntersecting=${deck.getAttribute("data-is-intersecting")} inActiveArea=${contains(activeArea, deck)}`
         );
       }
       await new Promise(
@@ -1274,76 +1337,63 @@ ${fence}
   // src/app/waitLayoutStable.js
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
-    trackAnchor = false
+    trackAnchor = false,
+    previousRafClock: startRafClock = null
   } = {}) {
     const activationDistanceAbove = roomUntilFirstNotReadyDeck();
     const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
     const activationNear = activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
     const deactivationNear = deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
     const stableFrames = trackAnchor && !activationNear ? 1 : 2;
-    let previous = geometrySnapshot();
-    let previousRafGeometry = previous;
+    let recentFrames = [{ geometry: geometrySnapshot(), ignorable: false }];
+    const deactivatedDecks = /* @__PURE__ */ new Set();
+    let previousRafClock = startRafClock;
     let unchanged = 0;
+    let promptFrames = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
     for (let frame = 0; frame < maxFrames; frame++) {
-      await nextAnimationFrame();
+      const rafClock = await nextAnimationFrame();
+      const extraJump = performSplitExtraJump(frame + 1);
+      if (extraJump) {
+        recentFrames = recentFrames.map((entry) => ({
+          ignorable: entry.ignorable,
+          geometry: {
+            scrollHeight: entry.geometry.scrollHeight,
+            scrollY: entry.geometry.scrollY - extraJump
+          }
+        }));
+      }
+      const rafDelay = previousRafClock == null ? Infinity : rafClock - previousRafClock;
+      previousRafClock = rafClock;
       const currentGeometry = geometrySnapshot();
       const deckStatus = thresholdDeckSnapshot();
       const deckTransitions = deckActivationTransitions(deckStatus);
       saveDeckActivationStatus(deckStatus);
-      const scrollHeightChange = Math.abs(
-        currentGeometry.scrollHeight - previous.scrollHeight
+      for (const transition of deckTransitions.deactivations) {
+        deactivatedDecks.add(transition.deck);
+      }
+      const skippable = [...deactivatedDecks].some(
+        (deck) => deckStatus.decks.get(deck)?.state === "true"
       );
-      const scrollYChange = Math.abs(
-        currentGeometry.scrollY - previous.scrollY
+      const geometryChanged = !matchesRecentFrame(
+        recentFrames,
+        currentGeometry
       );
-      const effectiveScrollHeightChange = scrollHeightChange < TOLERATED_ROUNDING ? 0 : scrollHeightChange;
-      const geometryChangeMagnitude = Math.max(
-        effectiveScrollHeightChange,
-        scrollYChange
-      );
-      const geometryChanged = geometryChangeMagnitude !== 0;
+      recentFrames = [
+        { geometry: currentGeometry, ignorable: skippable },
+        ...recentFrames
+      ].slice(0, MAX_IGNORED_FRAMES + 1);
       const positionAtFrame = trackAnchor ? anchorRoom() : null;
-      const previousRafScrollHeightChange = Math.abs(
-        currentGeometry.scrollHeight - previousRafGeometry.scrollHeight
-      );
-      const previousRafScrollYChange = Math.abs(
-        currentGeometry.scrollY - previousRafGeometry.scrollY
-      );
-      const ignoredRafContext = {
-        currentGeometry,
-        previousRafGeometry,
-        previousRafScrollHeightChange,
-        previousRafScrollYChange,
-        acceptedGeometry: previous,
-        acceptedScrollHeightChange: scrollHeightChange,
-        acceptedScrollYChange: scrollYChange
-      };
-      previousRafGeometry = currentGeometry;
-      if (shouldIgnoreRaf(deckTransitions)) {
-        warnIgnoredDeckTransitions(
-          deckTransitions,
-          frame + 1,
-          ignoredRafContext
-        );
-        continue;
-      }
       if (geometryChanged) {
-        previous = currentGeometry;
-        unchanged = 0;
-        continue;
+        if (!skippable) unchanged = 0;
+      } else {
+        unchanged++;
       }
-      const anchorStable = await checkAnchorAcrossYields(
-        trackAnchor,
-        positionAtFrame
-      );
-      if (!anchorStable) {
-        previous = currentGeometry;
-        unchanged = 0;
-        continue;
+      if (!skippable) {
+        promptFrames = rafDelay >= MAX_STABLE_RAF_DELAY ? 0 : promptFrames + 1;
       }
-      unchanged++;
-      if (unchanged >= stableFrames) {
+      const stable = unchanged >= stableFrames;
+      if (stable) {
         return;
       }
     }
@@ -1351,65 +1401,24 @@ ${fence}
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
   }
-  function shouldIgnoreRaf({ activations, deactivations }) {
-    return activations.some(({ location }) => location === "below") || deactivations.some(({ location }) => location === "above");
+  function matchesRecentFrame(recentFrames, currentGeometry) {
+    for (let index = 0; index < recentFrames.length; index++) {
+      if (sameGeometry(recentFrames[index].geometry, currentGeometry)) {
+        return true;
+      }
+      if (!recentFrames[index].ignorable) return false;
+    }
+    return false;
   }
-  function warnIgnoredDeckTransitions({ activations, deactivations }, frame, geometry) {
-    const ignoredTransitions = [
-      ...activations.filter(({ location }) => location === "below").map((transition) => ({
-        turnId: transition.turnId,
-        transition: "activation-below",
-        previous: transitionGeometry(transition.previous),
-        current: transitionGeometry(transition.current)
-      })),
-      ...deactivations.filter(({ location }) => location === "above").map((transition) => ({
-        turnId: transition.turnId,
-        transition: "deactivation-above",
-        previous: transitionGeometry(transition.previous),
-        current: transitionGeometry(transition.current)
-      }))
-    ];
-    console.warn(
-      "[stabilization] Ignored rAF with reverse deck transition.\n" + JSON.stringify({
-        frame,
-        geometry,
-        transitions: ignoredTransitions
-      }, null, 2)
-    );
-  }
-  function transitionGeometry(deck) {
-    return {
-      state: deck.state,
-      top: deck.top,
-      bottom: deck.bottom,
-      height: deck.height
-    };
+  function sameGeometry(left, right) {
+    if (left.scrollY !== right.scrollY) return false;
+    return Math.abs(left.scrollHeight - right.scrollHeight) < TOLERATED_ROUNDING;
   }
   function geometrySnapshot() {
     return {
       scrollHeight: supplyHeight2(),
       scrollY: supplyRoom()
     };
-  }
-  async function checkAnchorAcrossYields(trackAnchor, positionAtFrame) {
-    let previousPosition = positionAtFrame;
-    let stable = true;
-    for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
-      await yieldToScheduler();
-      const position = trackAnchor ? anchorRoom() : null;
-      const change = position == null || previousPosition == null ? 0 : Math.abs(position - previousPosition);
-      const changed = change !== 0;
-      if (changed) stable = false;
-      previousPosition = position;
-    }
-    return stable;
-  }
-  async function yieldToScheduler() {
-    if (typeof globalThis.scheduler?.yield === "function") {
-      await globalThis.scheduler.yield();
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
   // src/app/moveAnchorToBottom.js
@@ -1442,12 +1451,16 @@ ${fence}
         slabDestination
       );
       const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
-      await moveWorkZoneBy(jump);
+      const jumpRafClock = await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
+        cancelSplitJump();
         break;
       }
-      await waitLayoutStable({ trackAnchor: true });
+      await waitLayoutStable({
+        trackAnchor: true,
+        previousRafClock: jumpRafClock
+      });
       const obtainedRoom = anchorRoom();
       const jumpWasErased = obtainedRoom === room;
       if (jumpWasErased && retriedErasedJump) {
@@ -1931,7 +1944,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "5.84" : "unbuilt";
+  var VERSION = true ? "6.22" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

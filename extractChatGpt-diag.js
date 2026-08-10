@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      5.84
+// @version      6.22
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -25,6 +25,8 @@
   var ADJACENCY_OVERLAP_TOLERANCE = 2;
   var MIN_ACTIVATION_DISTANCE = 1e3;
   var MAX_FRAMES_FOR_STABILIZATION = 3e3;
+  var MAX_STABLE_RAF_DELAY = 90;
+  var MAX_IGNORED_FRAMES = 2;
 
   // src/app/geometry-diag.js
   function areaAhead(referenceTop, maxGap) {
@@ -256,6 +258,10 @@
   var deckHistoriesDiagnostics = /* @__PURE__ */ new Map();
   var jumpsDiagnostics = [];
   var rafsDiagnostics = [];
+  var formalTransitionsDiagnostics = [];
+  var geometricActivationsDiagnostics = [];
+  var lastScrollYDiagnostics = null;
+  var OBSERVATION_BAND_DIAGNOSTICS = 2500;
   function resetRafDeckStudyDiagnostics() {
     nextEpisodeIdDiagnostics = 1;
     nextRafIdDiagnostics = 1;
@@ -266,6 +272,9 @@
     deckHistoriesDiagnostics = /* @__PURE__ */ new Map();
     jumpsDiagnostics = [];
     rafsDiagnostics = [];
+    formalTransitionsDiagnostics = [];
+    geometricActivationsDiagnostics = [];
+    lastScrollYDiagnostics = null;
   }
   function recordGeometricDeactivationDiagnostics({
     deckId,
@@ -295,9 +304,13 @@
     jumpNumber,
     rafNumber,
     rafKind,
-    decks
+    decks,
+    viewportHeight: viewportHeight2,
+    scrollY: scrollY2
   }) {
     const rafId = nextRafIdDiagnostics++;
+    const previousScrollY = lastScrollYDiagnostics;
+    lastScrollYDiagnostics = scrollY2;
     const deactivatedDeckIds = [];
     for (const deck of decks) {
       const history = deckHistoryDiagnostics(deck, {
@@ -307,6 +320,27 @@
         rafNumber,
         rafKind
       });
+      if (history.formalState !== deck.formalState) {
+        formalTransitionsDiagnostics.push({
+          deckId: deck.deckId,
+          rafId,
+          clock,
+          jumpNumber,
+          rafNumber,
+          rafKind,
+          from: history.formalState,
+          to: deck.formalState,
+          top: deck.top,
+          bottom: deck.bottom,
+          previousTop: history.lastTop,
+          previousBottom: history.lastBottom,
+          previousRafId: history.lastRafId,
+          viewportHeight: viewportHeight2,
+          actualHeight: deck.actualHeight,
+          lastKnownHeight: deck.lastKnownHeight
+        });
+        history.formalState = deck.formalState;
+      }
       const previousActualHeight = history.lastActualHeight;
       if (deck.actualHeight !== previousActualHeight) {
         history.actualHeightTransitions.push({
@@ -341,6 +375,30 @@
         });
         history.lastKnownHeight = deck.lastKnownHeight;
       }
+      const previousDistance = history.lastBottom == null ? null : -history.lastBottom;
+      const currentDistance = -deck.bottom;
+      if (previousDistance != null && previousDistance > OBSERVATION_BAND_DIAGNOSTICS && currentDistance <= OBSERVATION_BAND_DIAGNOSTICS) {
+        geometricActivationsDiagnostics.push({
+          deckId: deck.deckId,
+          rafId,
+          clock,
+          jumpNumber,
+          rafNumber,
+          rafKind,
+          formalState: deck.formalState,
+          previousDistance,
+          distance: currentDistance,
+          step: previousDistance - currentDistance,
+          scrollY: scrollY2,
+          previousScrollY,
+          scrollStep: scrollY2 == null || previousScrollY == null ? null : previousScrollY - scrollY2,
+          actualHeight: deck.actualHeight,
+          lastKnownHeight: deck.lastKnownHeight
+        });
+      }
+      history.lastTop = deck.top;
+      history.lastBottom = deck.bottom;
+      history.lastRafId = rafId;
       const episode = openEpisodesDiagnostics.get(deck.deckId);
       if (episode == null) {
         history.formalState = deck.formalState;
@@ -388,7 +446,10 @@
       actualHeightTransitions: [],
       lastKnownHeight: deck.lastKnownHeight,
       lastActualHeight: deck.actualHeight,
-      formalState: deck.formalState
+      formalState: deck.formalState,
+      lastTop: deck.top,
+      lastBottom: deck.bottom,
+      lastRafId: null
     };
     deckHistoriesDiagnostics.set(deck.deckId, history);
     return history;
@@ -405,6 +466,13 @@
       outcome: null,
       isErased: null
     });
+  }
+  function annotateDeckStudyJumpDiagnostics(jumpNumber, data) {
+    const jump = jumpsDiagnostics.find(
+      (candidate) => candidate.jumpNumber === jumpNumber
+    );
+    if (jump == null) return;
+    Object.assign(jump, data);
   }
   function recordDeckStudyJumpOutcomeDiagnostics(jumpNumber, outcome, geometry) {
     const jump = jumpsDiagnostics.find(
@@ -426,6 +494,8 @@
       )
     );
     return structuredClone({
+      formalTransitions: formalTransitionsDiagnostics,
+      geometricActivations: geometricActivationsDiagnostics,
       episodes: episodesDiagnostics.map((episode) => ({
         episodeId: episode.episodeId,
         deckId: episode.deckId,
@@ -489,6 +559,10 @@
   }
 
   // src/app/cycleDiagnostics-diag.js
+  var WARNING_SAMPLES_PER_KIND_DIAGNOSTICS = 200;
+  var WARNING_TEXT_LIMIT_DIAGNOSTICS = 2e3;
+  var consoleCaptureInstalledDiagnostics = false;
+  var capturedWarningsDiagnostics = /* @__PURE__ */ new Map();
   var previousCycle = null;
   var currentCycle = null;
   var runPerformanceOriginDiagnostics = 0;
@@ -829,32 +903,6 @@
     const rafDiagnostics = currentRafDiagnostics();
     if (!rafDiagnostics) return;
     Object.assign(rafDiagnostics, data);
-  }
-  function beginYieldDiagnostics(data = {}) {
-    const rafDiagnostics = currentRafDiagnostics();
-    if (!rafDiagnostics) return;
-    const yieldDiagnostics = {
-      ...data,
-      status: "waiting-yield",
-      startedClock: clockDiagnostics(),
-      startedWallAtDiagnostics: Date.now(),
-      startedAtDiagnostics: performance.now()
-    };
-    rafDiagnostics.yields.push(yieldDiagnostics);
-    armSlowAwaitDiagnostics(yieldDiagnostics, `yield-${data.index}`);
-  }
-  function finishYieldDiagnostics(data = {}) {
-    const yieldDiagnostics = currentYieldDiagnostics();
-    if (!yieldDiagnostics) return;
-    disarmSlowAwaitDiagnostics(yieldDiagnostics);
-    Object.assign(yieldDiagnostics, data, {
-      elapsedMs: performance.now() - yieldDiagnostics.startedAtDiagnostics,
-      wallElapsedMs: Date.now() - yieldDiagnostics.startedWallAtDiagnostics,
-      finishedClock: clockDiagnostics(),
-      status: "complete"
-    });
-    delete yieldDiagnostics.startedAtDiagnostics;
-    delete yieldDiagnostics.startedWallAtDiagnostics;
   }
   function finishRafDiagnostics(data = {}) {
     const rafDiagnostics = currentRafDiagnostics();
@@ -1838,6 +1886,78 @@
     if (deckUpdatesDiagnostics.recentUnchanged.length > 10) {
       deckUpdatesDiagnostics.recentUnchanged.shift();
     }
+  }
+  function installConsoleCaptureDiagnostics() {
+    if (consoleCaptureInstalledDiagnostics) return;
+    consoleCaptureInstalledDiagnostics = true;
+    for (const level of ["warn", "error", "info"]) {
+      const original = console[level].bind(console);
+      console[level] = (...args) => {
+        recordConsoleMessageDiagnostics(level, args);
+        original(...args);
+      };
+    }
+  }
+  function consoleWarningsSnapshotDiagnostics() {
+    return Array.from(capturedWarningsDiagnostics.values()).map((entry) => ({
+      level: entry.level,
+      kind: entry.kind,
+      count: entry.count,
+      samples: entry.samples
+    }));
+  }
+  function recordConsoleMessageDiagnostics(level, args) {
+    const kind = warningKindDiagnostics(args[0]);
+    const key = `${level}|${kind}`;
+    let entry = capturedWarningsDiagnostics.get(key);
+    if (entry == null) {
+      entry = { level, kind, count: 0, samples: [] };
+      capturedWarningsDiagnostics.set(key, entry);
+    }
+    entry.count++;
+    if (entry.samples.length >= WARNING_SAMPLES_PER_KIND_DIAGNOSTICS) return;
+    const jumpDiagnostics = currentJumpDiagnostics();
+    const rafDiagnostics = currentRafDiagnostics();
+    entry.samples.push({
+      clock: clockDiagnostics(),
+      jumpNumber: jumpDiagnostics?.erasedJumpProbe?.movementJumpNumber ?? jumpDiagnostics?.movementJumpNumber ?? null,
+      stabilizationFrame: rafDiagnostics?.frame ?? null,
+      arguments: args.map(argumentSummaryDiagnostics)
+    });
+  }
+  function warningKindDiagnostics(first) {
+    if (typeof first !== "string") return typeof first;
+    return truncateWarningTextDiagnostics(first.split("\n")[0], 160);
+  }
+  function argumentSummaryDiagnostics(argument) {
+    if (argument instanceof Error) {
+      return {
+        name: argument.name,
+        message: argument.message,
+        stack: truncateWarningTextDiagnostics(
+          argument.stack ?? "",
+          WARNING_TEXT_LIMIT_DIAGNOSTICS
+        )
+      };
+    }
+    if (typeof argument === "string") {
+      return truncateWarningTextDiagnostics(
+        argument,
+        WARNING_TEXT_LIMIT_DIAGNOSTICS
+      );
+    }
+    try {
+      return truncateWarningTextDiagnostics(
+        JSON.stringify(argument),
+        WARNING_TEXT_LIMIT_DIAGNOSTICS
+      );
+    } catch {
+      return String(argument);
+    }
+  }
+  function truncateWarningTextDiagnostics(text, limit) {
+    if (typeof text !== "string" || text.length <= limit) return text;
+    return `${text.slice(0, limit)}\u2026 (${text.length} characters)`;
   }
   function clockDiagnostics() {
     return {
@@ -3722,6 +3842,108 @@ ${fence}
       position: style.position
     };
   }
+  var SPLIT_EXTRA_JUMP = 20;
+  var SPLIT_DISABLED = false;
+  var splitJump = null;
+  function beginSplitJump(totalJump, activationDistance) {
+    splitJump = null;
+    if (SPLIT_DISABLED) return totalJump;
+    if (!Number.isFinite(activationDistance)) return totalJump;
+    const activationLimit = activationDistance - MIN_ACTIVATION_DISTANCE;
+    if (activationLimit < 0) return totalJump;
+    const initialJump = Math.max(
+      totalJump - SPLIT_EXTRA_JUMP,
+      MAX_DRIFT
+    );
+    if (initialJump < activationLimit) return totalJump;
+    if (totalJump - initialJump < MAX_DRIFT) return totalJump;
+    splitJump = {
+      totalJump,
+      activationLimit,
+      initialJump,
+      extraJump: totalJump - initialJump,
+      performed: false
+    };
+    return initialJump;
+  }
+  function captureSplitFollowingRafDiagnostics(supplyArea, workZone, jumpNumber) {
+    requestAnimationFrame(() => {
+      annotateDeckStudyJumpDiagnostics(jumpNumber, {
+        splitFollowingRaf: splitGeometrySampleDiagnostics(
+          supplyArea,
+          workZone
+        )
+      });
+    });
+  }
+  function splitGeometrySampleDiagnostics(supplyArea, workZone) {
+    return {
+      clock: performance.now(),
+      scrollY: workZonePosition(supplyArea, workZone),
+      scrollHeight: supplyHeight(supplyArea),
+      anchorRoom: currentAnchor?.element?.isConnected ? roomAhead(currentAnchor, workZone) : null
+    };
+  }
+  function nextActivationDistanceAbove() {
+    const { supplyArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    let distance = Infinity;
+    for (const deck of getDecks(supplyArea)) {
+      const activation = deck.getAttribute("data-is-intersecting");
+      if (activation != null && activation !== "false") continue;
+      const rect = deck.getBoundingClientRect();
+      if (rect.bottom > viewportTop) continue;
+      const room = viewportTop - rect.bottom;
+      if (room < MIN_ACTIVATION_DISTANCE) continue;
+      if (room < distance) distance = room;
+    }
+    return distance;
+  }
+  function performSplitExtraJump(frame) {
+    if (frame !== 1) return 0;
+    if (splitJump == null) return 0;
+    if (splitJump.performed) return 0;
+    splitJump.performed = true;
+    const { supplyArea, workZone } = environment();
+    const jumpNumberDiagnostics = movementJumpNumberDiagnostics;
+    const nextActivationDistance = nextActivationDistanceAbove();
+    const secondActivation = Number.isFinite(nextActivationDistance) && nextActivationDistance - splitJump.extraJump < MIN_ACTIVATION_DISTANCE;
+    const beforeExtraDiagnostics = splitGeometrySampleDiagnostics(
+      supplyArea,
+      workZone
+    );
+    moveWorkZone(splitJump.extraJump, supplyArea, workZone);
+    const afterExtraDiagnostics = splitGeometrySampleDiagnostics(
+      supplyArea,
+      workZone
+    );
+    captureSplitFollowingRafDiagnostics(
+      supplyArea,
+      workZone,
+      jumpNumberDiagnostics
+    );
+    annotateDeckStudyJumpDiagnostics(movementJumpNumberDiagnostics, {
+      split: {
+        totalJump: splitJump.totalJump,
+        activationLimit: splitJump.activationLimit,
+        initialJump: splitJump.initialJump,
+        extraJump: splitJump.extraJump,
+        extraJumpFrame: frame,
+        extraJumpClock: performance.now(),
+        nextActivationDistance,
+        secondActivation,
+        beforeExtra: beforeExtraDiagnostics,
+        afterExtra: afterExtraDiagnostics
+      }
+    });
+    return secondActivation ? 0 : splitJump.extraJump;
+  }
+  function recordStabilizationEscapeDiagnostics(data) {
+    annotateDeckStudyJumpDiagnostics(movementJumpNumberDiagnostics, data);
+  }
+  function cancelSplitJump() {
+    splitJump = null;
+  }
   async function moveWorkZoneBy(jump) {
     movementJumpNumberDiagnostics++;
     const { supplyArea, workZone } = environment();
@@ -3765,7 +3987,7 @@ ${fence}
       scrollYBefore: supplyRoomBeforeDiagnostics,
       erasedJumpProbe: probeDiagnostics
     });
-    await nextAnimationFrame((clock) => {
+    const rafClock = await nextAnimationFrame((clock) => {
       sampleDeckDeactivationRafDiagnostics(
         movementJumpNumberDiagnostics,
         0,
@@ -3785,7 +4007,11 @@ ${fence}
       clock: probeDiagnostics.commandClock,
       requestedJump: jump
     });
-    moveWorkZone(jump, supplyArea, workZone);
+    const commandedJump = beginSplitJump(
+      jump,
+      roomUntilFirstNotReadyDeck()
+    );
+    moveWorkZone(commandedJump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
       previousViewportSampleDiagnostics.extractorJump = {
         movementJumpNumber: movementJumpNumberDiagnostics,
@@ -3818,6 +4044,7 @@ ${fence}
       supplyArea,
       workZone
     );
+    return rafClock;
   }
   function sampleStabilizationDecksDiagnostics(frame, clock) {
     sampleDeckDeactivationRafDiagnostics(
@@ -3828,20 +4055,28 @@ ${fence}
     );
   }
   function sampleDeckDeactivationRafDiagnostics(jumpNumber, rafNumber, rafKind, clock) {
-    const { supplyArea } = environment();
+    const { supplyArea, workZone } = environment();
     const deckElements = getDecks(supplyArea);
-    const decks = deckElements.map((deck) => ({
-      deckId: deck.getAttribute("data-turn-id-container"),
-      lastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
-      formalState: deck.getAttribute("data-is-intersecting"),
-      actualHeight: deck.getBoundingClientRect().height
-    }));
+    const viewportTop = workZoneTop(workZone);
+    const decks = deckElements.map((deck) => {
+      const rect = deck.getBoundingClientRect();
+      return {
+        deckId: deck.getAttribute("data-turn-id-container"),
+        lastKnownHeight: deck.style.getPropertyValue("--last-known-height"),
+        formalState: deck.getAttribute("data-is-intersecting"),
+        actualHeight: rect.height,
+        top: rect.top - viewportTop,
+        bottom: rect.bottom - viewportTop
+      };
+    });
     const deactivatedDeckIds = recordDeckRafDiagnostics({
       clock,
       jumpNumber,
       rafNumber,
       rafKind,
-      decks
+      decks,
+      viewportHeight: workZone.height,
+      scrollY: workZonePosition(supplyArea, workZone)
     });
     for (const deck of deckElements) {
       if (!deactivatedDeckIds.includes(
@@ -4038,8 +4273,11 @@ ${fence}
         );
       }
       if (Date.now() >= deadline) {
+        const { workZone } = environment();
+        const geometry = deckGeometry(deck, workZone);
+        const rect = deck.getBoundingClientRect();
         throw new Error(
-          "Timed out waiting for deck activation."
+          `Timed out waiting for deck activation: turnId=${deck.getAttribute("data-turn-id-container")} rectTop=${rect.top} rectBottom=${rect.bottom} viewportTop=${workZoneTop(workZone)} viewportHeight=${workZone.height} room=${geometry.room} bottomRoom=${geometry.bottomRoom} isIntersecting=${deck.getAttribute("data-is-intersecting")} inActiveArea=${contains(activeArea, deck)}`
         );
       }
       await new Promise(
@@ -4166,7 +4404,8 @@ ${fence}
   // src/app/waitLayoutStable-diag.js
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
-    trackAnchor = false
+    trackAnchor = false,
+    previousRafClock: startRafClock = null
   } = {}) {
     const activationDistanceAbove = roomUntilFirstNotReadyDeck();
     const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
@@ -4179,9 +4418,15 @@ ${fence}
       deactivationNear,
       stableFrames
     });
-    let previous = geometrySnapshot();
-    let previousRafGeometry = previous;
+    let recentFrames = [{ geometry: geometrySnapshot(), ignorable: false }];
+    let skippableFramesDiagnostics = 0;
+    let escapesDiagnostics = 0;
+    const frameTraceDiagnostics = [];
+    const deactivatedDecks = /* @__PURE__ */ new Set();
+    let previousRafGeometryDiagnostics = recentFrames[0].geometry;
+    let previousRafClock = startRafClock;
     let unchanged = 0;
+    let promptFrames = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
     beginStabilizationDiagnostics({
       stableFrames,
@@ -4192,92 +4437,111 @@ ${fence}
     });
     for (let frame = 0; frame < maxFrames; frame++) {
       beginRafDiagnostics({ frame: frame + 1 });
-      await nextAnimationFrame((clock) => {
+      const rafClock = await nextAnimationFrame((clock) => {
         if (sampleStabilizationDecksDiagnostics) {
           sampleStabilizationDecksDiagnostics(frame + 1, clock);
         }
       });
       finishRafWaitDiagnostics();
+      const extraJump = performSplitExtraJump(frame + 1);
+      if (extraJump) {
+        recentFrames = recentFrames.map((entry) => ({
+          ignorable: entry.ignorable,
+          geometry: {
+            scrollHeight: entry.geometry.scrollHeight,
+            scrollY: entry.geometry.scrollY - extraJump
+          }
+        }));
+      }
+      const rafDelay = previousRafClock == null ? Infinity : rafClock - previousRafClock;
+      previousRafClock = rafClock;
       const currentGeometry = geometrySnapshot();
       const deckStatus = thresholdDeckSnapshot();
       const deckTransitions = deckActivationTransitions(deckStatus);
       saveDeckActivationStatus(deckStatus);
+      for (const transition of deckTransitions.deactivations) {
+        deactivatedDecks.add(transition.deck);
+      }
+      const skippable = [...deactivatedDecks].some(
+        (deck) => deckStatus.decks.get(deck)?.state === "true"
+      );
       evaluateThresholdsDiagnostics(deckStatus, frame + 1);
-      const scrollHeightChange = Math.abs(
-        currentGeometry.scrollHeight - previous.scrollHeight
+      const geometryChanged = !matchesRecentFrame(
+        recentFrames,
+        currentGeometry
       );
-      const scrollYChange = Math.abs(
-        currentGeometry.scrollY - previous.scrollY
-      );
-      const effectiveScrollHeightChange = scrollHeightChange < TOLERATED_ROUNDING ? 0 : scrollHeightChange;
-      const geometryChangeMagnitude = Math.max(
-        effectiveScrollHeightChange,
-        scrollYChange
-      );
-      const geometryChanged = geometryChangeMagnitude !== 0;
+      const usedEscapeDiagnostics = !geometryChanged && !sameGeometry(recentFrames[0].geometry, currentGeometry);
+      frameTraceDiagnostics.push({
+        frame: frame + 1,
+        scrollY: currentGeometry.scrollY,
+        scrollHeight: currentGeometry.scrollHeight,
+        rafDelay,
+        skippable,
+        previousFrameIgnorable: recentFrames[0].ignorable,
+        geometryChanged,
+        usedEscape: usedEscapeDiagnostics,
+        unchangedBefore: unchanged,
+        flippingDecks: [...deactivatedDecks].map((deck) => ({
+          turnId: deckStatus.decks.get(deck)?.turnId ?? null,
+          state: deckStatus.decks.get(deck)?.state ?? null,
+          top: deckStatus.decks.get(deck)?.top ?? null,
+          height: deckStatus.decks.get(deck)?.height ?? null
+        }))
+      });
+      if (usedEscapeDiagnostics) {
+        escapesDiagnostics++;
+      }
+      if (skippable) {
+        skippableFramesDiagnostics++;
+      }
+      recentFrames = [
+        { geometry: currentGeometry, ignorable: skippable },
+        ...recentFrames
+      ].slice(0, MAX_IGNORED_FRAMES + 1);
       const positionAtFrame = trackAnchor ? anchorRoom() : null;
-      const previousRafScrollHeightChange = Math.abs(
-        currentGeometry.scrollHeight - previousRafGeometry.scrollHeight
+      const previousRafScrollHeightChangeDiagnostics = Math.abs(
+        currentGeometry.scrollHeight - previousRafGeometryDiagnostics.scrollHeight
       );
-      const previousRafScrollYChange = Math.abs(
-        currentGeometry.scrollY - previousRafGeometry.scrollY
+      const previousRafScrollYChangeDiagnostics = Math.abs(
+        currentGeometry.scrollY - previousRafGeometryDiagnostics.scrollY
       );
       recordRafTelemetryDiagnostics({
-        geometryChangeMagnitude,
-        scrollHeightChange,
-        scrollHeightChangeIgnored: scrollHeightChange > 0 && effectiveScrollHeightChange === 0,
-        scrollYChange,
+        geometryChanged,
         scrollHeight: currentGeometry.scrollHeight,
         scrollY: currentGeometry.scrollY,
-        previousRafScrollHeight: previousRafGeometry.scrollHeight,
-        previousRafScrollY: previousRafGeometry.scrollY,
-        previousRafScrollHeightChange,
-        previousRafScrollYChange,
-        acceptedScrollHeight: previous.scrollHeight,
-        acceptedScrollY: previous.scrollY,
+        previousRafScrollHeight: previousRafGeometryDiagnostics.scrollHeight,
+        previousRafScrollY: previousRafGeometryDiagnostics.scrollY,
+        previousRafScrollHeightChange: previousRafScrollHeightChangeDiagnostics,
+        previousRafScrollYChange: previousRafScrollYChangeDiagnostics,
         anchorPosition: positionAtFrame
       });
-      const ignoredRafContext = {
-        currentGeometry,
-        previousRafGeometry,
-        previousRafScrollHeightChange,
-        previousRafScrollYChange,
-        acceptedGeometry: previous,
-        acceptedScrollHeightChange: scrollHeightChange,
-        acceptedScrollYChange: scrollYChange
-      };
-      previousRafGeometry = currentGeometry;
-      if (shouldIgnoreRaf(deckTransitions)) {
-        warnIgnoredDeckTransitions(
-          deckTransitions,
-          frame + 1,
-          ignoredRafContext
-        );
-        finishRafDiagnostics({
-          status: "ignored-reverse-deck-transition"
-        });
-        continue;
-      }
-      if (geometryChanged) {
-        finishRafDiagnostics({ status: "geometry-changed" });
-        previous = currentGeometry;
-        unchanged = 0;
-        continue;
-      }
-      const anchorStable = await checkAnchorAcrossYields(
-        trackAnchor,
-        positionAtFrame
-      );
+      previousRafGeometryDiagnostics = currentGeometry;
       const positionNowDiagnostics = trackAnchor ? anchorRoom() : null;
-      if (!anchorStable) {
-        finishRafDiagnostics({ status: "anchor-changed" });
-        previous = currentGeometry;
-        unchanged = 0;
-        continue;
+      if (geometryChanged) {
+        if (!skippable) unchanged = 0;
+      } else {
+        unchanged++;
       }
-      unchanged++;
-      finishRafDiagnostics({ status: "stable", unchanged });
-      if (unchanged >= stableFrames) {
+      if (!skippable) {
+        promptFrames = rafDelay >= MAX_STABLE_RAF_DELAY ? 0 : promptFrames + 1;
+      }
+      const stable = unchanged >= stableFrames;
+      finishRafDiagnostics({
+        status: stable ? "stable" : "waiting",
+        unchanged,
+        promptFrames,
+        rafDelay,
+        geometryChanged
+      });
+      if (stable) {
+        if (skippableFramesDiagnostics || escapesDiagnostics) {
+          recordStabilizationEscapeDiagnostics({
+            stabilizationSkippableFrames: skippableFramesDiagnostics,
+            stabilizationEscapes: escapesDiagnostics,
+            stabilizationFrames: frame + 1,
+            stabilizationTrace: frameTraceDiagnostics
+          });
+        }
         finishStabilizationDiagnostics({
           status: "stable",
           frames: frame + 1,
@@ -4294,70 +4558,24 @@ ${fence}
       `Exceeded ${maxFrames} frames waiting for layout stabilization.`
     );
   }
-  function shouldIgnoreRaf({ activations, deactivations }) {
-    return activations.some(({ location: location2 }) => location2 === "below") || deactivations.some(({ location: location2 }) => location2 === "above");
+  function matchesRecentFrame(recentFrames, currentGeometry) {
+    for (let index = 0; index < recentFrames.length; index++) {
+      if (sameGeometry(recentFrames[index].geometry, currentGeometry)) {
+        return true;
+      }
+      if (!recentFrames[index].ignorable) return false;
+    }
+    return false;
   }
-  function warnIgnoredDeckTransitions({ activations, deactivations }, frame, geometry) {
-    const ignoredTransitions = [
-      ...activations.filter(({ location: location2 }) => location2 === "below").map((transition) => ({
-        turnId: transition.turnId,
-        transition: "activation-below",
-        previous: transitionGeometry(transition.previous),
-        current: transitionGeometry(transition.current)
-      })),
-      ...deactivations.filter(({ location: location2 }) => location2 === "above").map((transition) => ({
-        turnId: transition.turnId,
-        transition: "deactivation-above",
-        previous: transitionGeometry(transition.previous),
-        current: transitionGeometry(transition.current)
-      }))
-    ];
-    console.warn(
-      "[stabilization] Ignored rAF with reverse deck transition.\n" + JSON.stringify({
-        frame,
-        geometry,
-        transitions: ignoredTransitions
-      }, null, 2)
-    );
-  }
-  function transitionGeometry(deck) {
-    return {
-      state: deck.state,
-      top: deck.top,
-      bottom: deck.bottom,
-      height: deck.height
-    };
+  function sameGeometry(left, right) {
+    if (left.scrollY !== right.scrollY) return false;
+    return Math.abs(left.scrollHeight - right.scrollHeight) < TOLERATED_ROUNDING;
   }
   function geometrySnapshot() {
     return {
       scrollHeight: supplyHeight2(),
       scrollY: supplyRoom()
     };
-  }
-  async function checkAnchorAcrossYields(trackAnchor, positionAtFrame) {
-    let previousPosition = positionAtFrame;
-    let stable = true;
-    for (let yieldIndex = 1; yieldIndex <= 2; yieldIndex++) {
-      beginYieldDiagnostics({
-        index: yieldIndex,
-        positionBefore: previousPosition
-      });
-      await yieldToScheduler();
-      const position = trackAnchor ? anchorRoom() : null;
-      const change = position == null || previousPosition == null ? 0 : Math.abs(position - previousPosition);
-      const changed = change !== 0;
-      finishYieldDiagnostics({ positionAfter: position, change, changed });
-      if (changed) stable = false;
-      previousPosition = position;
-    }
-    return stable;
-  }
-  async function yieldToScheduler() {
-    if (typeof globalThis.scheduler?.yield === "function") {
-      await globalThis.scheduler.yield();
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 0));
   }
   var thresholdEvaluationDiagnostics = {
     activationCount: 0,
@@ -4516,7 +4734,7 @@ ${fence}
         beforeCommand: pendingPredictionsBeforeCommandDiagnostics,
         geometricallyPredictedDeckCount: predictedDeactivationDecks.length
       });
-      await moveWorkZoneBy(jump);
+      const jumpRafClock = await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         finishJumpDiagnostics({
@@ -4524,11 +4742,15 @@ ${fence}
           obtainedAnchorRoom: anchorRoom(),
           status: "no-movement"
         });
+        cancelSplitJump();
         discardCurrentJumpProbeDiagnostics();
         logSlowJumpDiagnosticsIfNeeded();
         break;
       }
-      await waitLayoutStable({ trackAnchor: true });
+      await waitLayoutStable({
+        trackAnchor: true,
+        previousRafClock: jumpRafClock
+      });
       const obtainedRoom = anchorRoom();
       finishJumpDiagnostics({
         obtainedAnchorRoom: obtainedRoom
@@ -5016,6 +5238,7 @@ Do not omit or combine any item.`;
     logPrefix
   }) {
     const VERSION2 = version;
+    installConsoleCaptureDiagnostics();
     console.log(`[${logPrefix}] loaded, version ${VERSION2}`);
     let activeRuns = 0;
     const runTraversal = async (assetMode = ASSET_MODE_SEPARATE) => {
@@ -5073,6 +5296,9 @@ Do not omit or combine any item.`;
       });
     }
     function logRafDeckStudyDiagnostics() {
+      console.log(
+        "[captured warnings]\n" + JSON.stringify(consoleWarningsSnapshotDiagnostics(), null, 2)
+      );
       console.log(
         "[rAF deck study]\n" + JSON.stringify(rafDeckStudySnapshotDiagnostics(), null, 2)
       );
@@ -5137,6 +5363,7 @@ Do not omit or combine any item.`;
           conversationUrl: batchConversationUrlDiagnostics(),
           status: "complete",
           deckIds,
+          consoleWarnings: consoleWarningsSnapshotDiagnostics(),
           rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
       } catch (error) {
@@ -5151,6 +5378,7 @@ Do not omit or combine any item.`;
             stack: error?.stack ?? null
           },
           deckIds,
+          consoleWarnings: consoleWarningsSnapshotDiagnostics(),
           rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
       }
@@ -5188,7 +5416,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "5.84" : "unbuilt";
+  var VERSION = true ? "6.22" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

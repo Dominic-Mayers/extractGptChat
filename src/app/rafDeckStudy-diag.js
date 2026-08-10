@@ -7,6 +7,10 @@ let openEpisodesDiagnostics = new Map();
 let deckHistoriesDiagnostics = new Map();
 let jumpsDiagnostics = [];
 let rafsDiagnostics = [];
+let formalTransitionsDiagnostics = [];
+let geometricActivationsDiagnostics = [];
+let lastScrollYDiagnostics = null;
+const OBSERVATION_BAND_DIAGNOSTICS = 2500;
 
 export function resetRafDeckStudyDiagnostics() {
     nextEpisodeIdDiagnostics = 1;
@@ -18,6 +22,9 @@ export function resetRafDeckStudyDiagnostics() {
     deckHistoriesDiagnostics = new Map();
     jumpsDiagnostics = [];
     rafsDiagnostics = [];
+    formalTransitionsDiagnostics = [];
+    geometricActivationsDiagnostics = [];
+    lastScrollYDiagnostics = null;
 }
 
 export function recordGeometricDeactivationDiagnostics({
@@ -49,9 +56,13 @@ export function recordDeckRafDiagnostics({
     jumpNumber,
     rafNumber,
     rafKind,
-    decks
+    decks,
+    viewportHeight,
+    scrollY
 }) {
     const rafId = nextRafIdDiagnostics++;
+    const previousScrollY = lastScrollYDiagnostics;
+    lastScrollYDiagnostics = scrollY;
     const deactivatedDeckIds = [];
     for (const deck of decks) {
         const history = deckHistoryDiagnostics(deck, {
@@ -61,6 +72,28 @@ export function recordDeckRafDiagnostics({
             rafNumber,
             rafKind
         });
+        if (history.formalState !== deck.formalState) {
+            formalTransitionsDiagnostics.push({
+                deckId: deck.deckId,
+                rafId,
+                clock,
+                jumpNumber,
+                rafNumber,
+                rafKind,
+                from: history.formalState,
+                to: deck.formalState,
+                top: deck.top,
+                bottom: deck.bottom,
+                previousTop: history.lastTop,
+                previousBottom: history.lastBottom,
+                previousRafId: history.lastRafId,
+                viewportHeight,
+                actualHeight: deck.actualHeight,
+                lastKnownHeight: deck.lastKnownHeight
+            });
+            history.formalState = deck.formalState;
+        }
+
         const previousActualHeight = history.lastActualHeight;
         if (deck.actualHeight !== previousActualHeight) {
             history.actualHeightTransitions.push({
@@ -99,6 +132,40 @@ export function recordDeckRafDiagnostics({
             });
             history.lastKnownHeight = deck.lastKnownHeight;
         }
+
+        const previousDistance = history.lastBottom == null
+            ? null
+            : -history.lastBottom;
+        const currentDistance = -deck.bottom;
+        if (
+            previousDistance != null &&
+            previousDistance > OBSERVATION_BAND_DIAGNOSTICS &&
+            currentDistance <= OBSERVATION_BAND_DIAGNOSTICS
+        ) {
+            geometricActivationsDiagnostics.push({
+                deckId: deck.deckId,
+                rafId,
+                clock,
+                jumpNumber,
+                rafNumber,
+                rafKind,
+                formalState: deck.formalState,
+                previousDistance,
+                distance: currentDistance,
+                step: previousDistance - currentDistance,
+                scrollY,
+                previousScrollY,
+                scrollStep: scrollY == null || previousScrollY == null
+                    ? null
+                    : previousScrollY - scrollY,
+                actualHeight: deck.actualHeight,
+                lastKnownHeight: deck.lastKnownHeight
+            });
+        }
+
+        history.lastTop = deck.top;
+        history.lastBottom = deck.bottom;
+        history.lastRafId = rafId;
 
         const episode = openEpisodesDiagnostics.get(deck.deckId);
         if (episode == null) {
@@ -152,7 +219,10 @@ function deckHistoryDiagnostics(deck, raf) {
         actualHeightTransitions: [],
         lastKnownHeight: deck.lastKnownHeight,
         lastActualHeight: deck.actualHeight,
-        formalState: deck.formalState
+        formalState: deck.formalState,
+        lastTop: deck.top,
+        lastBottom: deck.bottom,
+        lastRafId: null
     };
     deckHistoriesDiagnostics.set(deck.deckId, history);
     return history;
@@ -170,6 +240,14 @@ export function recordDeckStudyJumpDiagnostics({
         outcome: null,
         isErased: null
     });
+}
+
+export function annotateDeckStudyJumpDiagnostics(jumpNumber, data) {
+    const jump = jumpsDiagnostics.find(candidate =>
+        candidate.jumpNumber === jumpNumber
+    );
+    if (jump == null) return;
+    Object.assign(jump, data);
 }
 
 export function recordDeckStudyJumpOutcomeDiagnostics(
@@ -197,6 +275,8 @@ export function rafDeckStudySnapshotDiagnostics() {
         )
     );
     return structuredClone({
+        formalTransitions: formalTransitionsDiagnostics,
+        geometricActivations: geometricActivationsDiagnostics,
         episodes: episodesDiagnostics.map(episode => ({
             episodeId: episode.episodeId,
             deckId: episode.deckId,

@@ -1,6 +1,7 @@
 import {
 
     ADJACENCY_OVERLAP_TOLERANCE,
+    MAX_DRIFT,
     MIN_ACTIVATION_DISTANCE,
     MAX_SLAB_GAP,
     TOLERATED_ROUNDING
@@ -41,6 +42,7 @@ import {
 } from "./extraction-diag.js";
 import {
     recordDeckRafDiagnostics,
+    annotateDeckStudyJumpDiagnostics,
     recordDeckStudyJumpDiagnostics,
     recordGeometricDeactivationDiagnostics,
     resetRafDeckStudyDiagnostics
@@ -1006,6 +1008,128 @@ function layoutElementDiagnostics(element, viewportTop) {
     };
 }
 
+const SPLIT_EXTRA_JUMP = 20;
+const SPLIT_DISABLED = false;
+
+let splitJump = null;
+
+function beginSplitJump(totalJump, activationDistance) {
+    splitJump = null;
+    if (SPLIT_DISABLED) return totalJump;
+    if (!Number.isFinite(activationDistance)) return totalJump;
+    const activationLimit = activationDistance - MIN_ACTIVATION_DISTANCE;
+    if (activationLimit < 0) return totalJump;
+    const initialJump = Math.max(
+        totalJump - SPLIT_EXTRA_JUMP,
+        MAX_DRIFT
+    );
+    if (initialJump < activationLimit) return totalJump;
+    if (totalJump - initialJump < MAX_DRIFT) return totalJump;
+    splitJump = {
+        totalJump,
+        activationLimit,
+        initialJump,
+        extraJump: totalJump - initialJump,
+        performed: false
+    };
+    return initialJump;
+}
+
+function captureSplitFollowingRafDiagnostics(
+    supplyArea,
+    workZone,
+    jumpNumber
+) {
+    requestAnimationFrame(() => {
+        annotateDeckStudyJumpDiagnostics(jumpNumber, {
+            splitFollowingRaf: splitGeometrySampleDiagnostics(
+                supplyArea,
+                workZone
+            )
+        });
+    });
+}
+
+function splitGeometrySampleDiagnostics(supplyArea, workZone) {
+    return {
+        clock: performance.now(),
+        scrollY: workZonePosition(supplyArea, workZone),
+        scrollHeight: readSupplyHeight(supplyArea),
+        anchorRoom: currentAnchor?.element?.isConnected
+            ? roomAhead(currentAnchor, workZone)
+            : null
+    };
+}
+
+function nextActivationDistanceAbove() {
+    const { supplyArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    let distance = Infinity;
+
+    for (const deck of getDecks(supplyArea)) {
+        const activation = deck.getAttribute("data-is-intersecting");
+        if (activation != null && activation !== "false") continue;
+        const rect = deck.getBoundingClientRect();
+        if (rect.bottom > viewportTop) continue;
+        const room = viewportTop - rect.bottom;
+        if (room < MIN_ACTIVATION_DISTANCE) continue;
+        if (room < distance) distance = room;
+    }
+
+    return distance;
+}
+
+export function performSplitExtraJump(frame) {
+    if (frame !== 1) return 0;
+    if (splitJump == null) return 0;
+    if (splitJump.performed) return 0;
+    splitJump.performed = true;
+    const { supplyArea, workZone } = environment();
+    const jumpNumberDiagnostics = movementJumpNumberDiagnostics;
+    const nextActivationDistance =
+        nextActivationDistanceAbove();
+    const secondActivation = Number.isFinite(nextActivationDistance) &&
+        nextActivationDistance - splitJump.extraJump <
+            MIN_ACTIVATION_DISTANCE;
+    const beforeExtraDiagnostics = splitGeometrySampleDiagnostics(
+        supplyArea,
+        workZone
+    );
+    moveWorkZone(splitJump.extraJump, supplyArea, workZone);
+    const afterExtraDiagnostics = splitGeometrySampleDiagnostics(
+        supplyArea,
+        workZone
+    );
+    captureSplitFollowingRafDiagnostics(
+        supplyArea,
+        workZone,
+        jumpNumberDiagnostics
+    );
+    annotateDeckStudyJumpDiagnostics(movementJumpNumberDiagnostics, {
+        split: {
+            totalJump: splitJump.totalJump,
+            activationLimit: splitJump.activationLimit,
+            initialJump: splitJump.initialJump,
+            extraJump: splitJump.extraJump,
+            extraJumpFrame: frame,
+            extraJumpClock: performance.now(),
+            nextActivationDistance,
+            secondActivation,
+            beforeExtra: beforeExtraDiagnostics,
+            afterExtra: afterExtraDiagnostics
+        }
+    });
+    return secondActivation ? 0 : splitJump.extraJump;
+}
+
+export function recordStabilizationEscapeDiagnostics(data) {
+    annotateDeckStudyJumpDiagnostics(movementJumpNumberDiagnostics, data);
+}
+
+export function cancelSplitJump() {
+    splitJump = null;
+}
+
 export async function moveWorkZoneBy(jump) {
     movementJumpNumberDiagnostics++;
     const { supplyArea, workZone } = environment();
@@ -1057,7 +1181,7 @@ export async function moveWorkZoneBy(jump) {
         erasedJumpProbe: probeDiagnostics
     });
 
-    await nextAnimationFrame(clock => {
+    const rafClock = await nextAnimationFrame(clock => {
         sampleDeckDeactivationRafDiagnostics(
             movementJumpNumberDiagnostics,
             0,
@@ -1078,7 +1202,11 @@ export async function moveWorkZoneBy(jump) {
         clock: probeDiagnostics.commandClock,
         requestedJump: jump
     });
-    moveWorkZone(jump, supplyArea, workZone);
+    const commandedJump = beginSplitJump(
+        jump,
+        roomUntilFirstNotReadyDeck()
+    );
+    moveWorkZone(commandedJump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
         previousViewportSampleDiagnostics.extractorJump = {
             movementJumpNumber: movementJumpNumberDiagnostics,
@@ -1116,6 +1244,8 @@ export async function moveWorkZoneBy(jump) {
         supplyArea,
         workZone
     );
+
+    return rafClock;
 }
 
 export function sampleStabilizationDecksDiagnostics(frame, clock) {
@@ -1133,21 +1263,30 @@ function sampleDeckDeactivationRafDiagnostics(
     rafKind,
     clock
 ) {
-    const { supplyArea } = environment();
+    const { supplyArea, workZone } = environment();
     const deckElements = getDecks(supplyArea);
-    const decks = deckElements.map(deck => ({
-        deckId: deck.getAttribute("data-turn-id-container"),
-        lastKnownHeight:
-            deck.style.getPropertyValue("--last-known-height"),
-        formalState: deck.getAttribute("data-is-intersecting"),
-        actualHeight: deck.getBoundingClientRect().height
-    }));
+    const viewportTop = workZoneTop(workZone);
+    const decks = deckElements.map(deck => {
+        const rect = deck.getBoundingClientRect();
+
+        return {
+            deckId: deck.getAttribute("data-turn-id-container"),
+            lastKnownHeight:
+                deck.style.getPropertyValue("--last-known-height"),
+            formalState: deck.getAttribute("data-is-intersecting"),
+            actualHeight: rect.height,
+            top: rect.top - viewportTop,
+            bottom: rect.bottom - viewportTop
+        };
+    });
     const deactivatedDeckIds = recordDeckRafDiagnostics({
         clock,
         jumpNumber,
         rafNumber,
         rafKind,
-        decks
+        decks,
+        viewportHeight: workZone.height,
+        scrollY: workZonePosition(supplyArea, workZone)
     });
     for (const deck of deckElements) {
         if (!deactivatedDeckIds.includes(
@@ -1409,8 +1548,20 @@ export async function waitDeckActive(
             );
         }
         if (Date.now() >= deadline) {
+            const { workZone } = environment();
+            const geometry = deckGeometry(deck, workZone);
+            const rect = deck.getBoundingClientRect();
             throw new Error(
-                "Timed out waiting for deck activation."
+                "Timed out waiting for deck activation: " +
+                `turnId=${deck.getAttribute("data-turn-id-container")} ` +
+                `rectTop=${rect.top} ` +
+                `rectBottom=${rect.bottom} ` +
+                `viewportTop=${workZoneTop(workZone)} ` +
+                `viewportHeight=${workZone.height} ` +
+                `room=${geometry.room} ` +
+                `bottomRoom=${geometry.bottomRoom} ` +
+                `isIntersecting=${deck.getAttribute("data-is-intersecting")} ` +
+                `inActiveArea=${contains(activeArea, deck)}`
             );
         }
         await new Promise(resolve =>

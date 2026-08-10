@@ -8,6 +8,11 @@ import {
     recordDeckStudyJumpOutcomeDiagnostics
 } from "./rafDeckStudy-diag.js";
 
+const WARNING_SAMPLES_PER_KIND_DIAGNOSTICS = 200;
+const WARNING_TEXT_LIMIT_DIAGNOSTICS = 2000;
+
+let consoleCaptureInstalledDiagnostics = false;
+let capturedWarningsDiagnostics = new Map();
 let previousCycle = null;
 let currentCycle = null;
 let runPerformanceOriginDiagnostics = 0;
@@ -1730,6 +1735,96 @@ export function recordDeckUpdateDiagnostics(data) {
     if (deckUpdatesDiagnostics.recentUnchanged.length > 10) {
         deckUpdatesDiagnostics.recentUnchanged.shift();
     }
+}
+
+export function warnDiagnostics(...args) {
+    console.warn(...args);
+}
+
+export function installConsoleCaptureDiagnostics() {
+    if (consoleCaptureInstalledDiagnostics) return;
+    consoleCaptureInstalledDiagnostics = true;
+
+    for (const level of ["warn", "error", "info"]) {
+        const original = console[level].bind(console);
+        console[level] = (...args) => {
+            recordConsoleMessageDiagnostics(level, args);
+            original(...args);
+        };
+    }
+}
+
+export function consoleWarningsSnapshotDiagnostics() {
+    return Array.from(capturedWarningsDiagnostics.values()).map(entry => ({
+        level: entry.level,
+        kind: entry.kind,
+        count: entry.count,
+        samples: entry.samples
+    }));
+}
+
+export function resetConsoleWarningsDiagnostics() {
+    capturedWarningsDiagnostics = new Map();
+}
+
+function recordConsoleMessageDiagnostics(level, args) {
+    const kind = warningKindDiagnostics(args[0]);
+    const key = `${level}|${kind}`;
+    let entry = capturedWarningsDiagnostics.get(key);
+    if (entry == null) {
+        entry = { level, kind, count: 0, samples: [] };
+        capturedWarningsDiagnostics.set(key, entry);
+    }
+    entry.count++;
+    if (entry.samples.length >= WARNING_SAMPLES_PER_KIND_DIAGNOSTICS) return;
+    const jumpDiagnostics = currentJumpDiagnostics();
+    const rafDiagnostics = currentRafDiagnostics();
+    entry.samples.push({
+        clock: clockDiagnostics(),
+        jumpNumber:
+            jumpDiagnostics?.erasedJumpProbe?.movementJumpNumber ??
+            jumpDiagnostics?.movementJumpNumber ??
+            null,
+        stabilizationFrame: rafDiagnostics?.frame ?? null,
+        arguments: args.map(argumentSummaryDiagnostics)
+    });
+}
+
+function warningKindDiagnostics(first) {
+    if (typeof first !== "string") return typeof first;
+    return truncateWarningTextDiagnostics(first.split("\n")[0], 160);
+}
+
+function argumentSummaryDiagnostics(argument) {
+    if (argument instanceof Error) {
+        return {
+            name: argument.name,
+            message: argument.message,
+            stack: truncateWarningTextDiagnostics(
+                argument.stack ?? "",
+                WARNING_TEXT_LIMIT_DIAGNOSTICS
+            )
+        };
+    }
+    if (typeof argument === "string") {
+        return truncateWarningTextDiagnostics(
+            argument,
+            WARNING_TEXT_LIMIT_DIAGNOSTICS
+        );
+    }
+    try {
+        return truncateWarningTextDiagnostics(
+            JSON.stringify(argument),
+            WARNING_TEXT_LIMIT_DIAGNOSTICS
+        );
+    } catch {
+        return String(argument);
+    }
+}
+
+function truncateWarningTextDiagnostics(text, limit) {
+    if (typeof text !== "string" || text.length <= limit) return text;
+    return `${text.slice(0, limit)}… (${text.length} characters)`;
 }
 
 function clockDiagnostics() {

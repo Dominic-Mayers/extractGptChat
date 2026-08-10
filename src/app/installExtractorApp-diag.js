@@ -6,6 +6,8 @@ import {
     exportMarkdown
 } from './extraction-diag.js';
 import {
+    consoleWarningsSnapshotDiagnostics,
+    installConsoleCaptureDiagnostics,
     logActiveTraversalDiagnostics,
     logCycleContextDiagnostics,
     recordCycleStageDiagnostics,
@@ -25,6 +27,7 @@ export function installExtractorApp({
 }) {
 const VERSION = version;
 
+installConsoleCaptureDiagnostics();
 console.log(`[${logPrefix}] loaded, version ${VERSION}`);
 
 let activeRuns = 0;
@@ -91,6 +94,10 @@ function sendBatchRequestDiagnostics(configuration, path, result) {
 }
 
 function logRafDeckStudyDiagnostics() {
+    console.log(
+        '[captured warnings]\n' +
+        JSON.stringify(consoleWarningsSnapshotDiagnostics(), null, 2)
+    );
     console.log(
         '[rAF deck study]\n' +
         JSON.stringify(rafDeckStudySnapshotDiagnostics(), null, 2)
@@ -165,6 +172,7 @@ async function runBatchTraversalDiagnostics(configuration) {
             conversationUrl: batchConversationUrlDiagnostics(),
             status: 'complete',
             deckIds,
+            consoleWarnings: consoleWarningsSnapshotDiagnostics(),
             rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
     } catch (error) {
@@ -179,6 +187,7 @@ async function runBatchTraversalDiagnostics(configuration) {
                 stack: error?.stack ?? null
             },
             deckIds,
+            consoleWarnings: consoleWarningsSnapshotDiagnostics(),
             rafDeckStudy: rafDeckStudySnapshotDiagnostics()
         });
     }

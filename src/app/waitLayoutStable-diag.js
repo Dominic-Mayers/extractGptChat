@@ -2,15 +2,19 @@ import {
 
     MIN_ACTIVATION_DISTANCE,
     TOLERATED_ROUNDING,
-    MAX_FRAMES_FOR_STABILIZATION
+    MAX_FRAMES_FOR_STABILIZATION,
+    MAX_STABLE_RAF_DELAY,
+    MAX_IGNORED_FRAMES
 } from "./constants-diag.js";
 import {
     anchorRoom,
-    deckActivationTransitions,
     roomUntilFirstActiveDeckBelow,
     roomUntilFirstNotReadyDeck,
     saveDeckActivationStatus,
+    performSplitExtraJump,
+    recordStabilizationEscapeDiagnostics,
     sampleStabilizationDecksDiagnostics,
+    deckActivationTransitions,
     supplyHeight,
     supplyRoom,
     thresholdDeckSnapshot
@@ -24,14 +28,16 @@ import {
     beginYieldDiagnostics,
     finishYieldDiagnostics,
     finishRafDiagnostics,
-    recordStabilizationRuleDiagnostics
+    recordStabilizationRuleDiagnostics,
+    warnDiagnostics
 } from "./cycleDiagnostics-diag.js";
 import { nextAnimationFrame } from "./scrollContainer-diag.js";
 
 export async function waitLayoutStable(
     {
         maxFrames = MAX_FRAMES_FOR_STABILIZATION,
-        trackAnchor = false
+        trackAnchor = false,
+        previousRafClock: startRafClock = null
     } = {}
 ) {
     const activationDistanceAbove =
@@ -52,9 +58,15 @@ export async function waitLayoutStable(
         stableFrames
     });
 
-    let previous = geometrySnapshot();
-    let previousRafGeometry = previous;
+    let recentFrames = [{ geometry: geometrySnapshot(), ignorable: false }];
+    let skippableFramesDiagnostics = 0;
+    let escapesDiagnostics = 0;
+    const frameTraceDiagnostics = [];
+    const deactivatedDecks = new Set();
+    let previousRafGeometryDiagnostics = recentFrames[0].geometry;
+    let previousRafClock = startRafClock;
     let unchanged = 0;
+    let promptFrames = 0;
     saveDeckActivationStatus(thresholdDeckSnapshot());
     beginStabilizationDiagnostics({
         stableFrames,
@@ -66,108 +78,133 @@ export async function waitLayoutStable(
 
     for (let frame = 0; frame < maxFrames; frame++) {
         beginRafDiagnostics({ frame: frame + 1 });
-        await nextAnimationFrame(clock => {
+        const rafClock = await nextAnimationFrame(clock => {
             if (sampleStabilizationDecksDiagnostics) {
                 sampleStabilizationDecksDiagnostics(frame + 1, clock);
             }
         });
         finishRafWaitDiagnostics();
+        const extraJump = performSplitExtraJump(frame + 1);
+        if (extraJump) {
+            recentFrames = recentFrames.map(entry => ({
+                ignorable: entry.ignorable,
+                geometry: {
+                    scrollHeight: entry.geometry.scrollHeight,
+                    scrollY: entry.geometry.scrollY - extraJump
+                }
+            }));
+        }
+        const rafDelay = previousRafClock == null
+            ? Infinity
+            : rafClock - previousRafClock;
+        previousRafClock = rafClock;
 
         const currentGeometry = geometrySnapshot();
         const deckStatus = thresholdDeckSnapshot();
         const deckTransitions = deckActivationTransitions(deckStatus);
         saveDeckActivationStatus(deckStatus);
+        for (const transition of deckTransitions.deactivations) {
+            deactivatedDecks.add(transition.deck);
+        }
+        const skippable = [...deactivatedDecks].some(
+            deck => deckStatus.decks.get(deck)?.state === "true"
+        );
         evaluateThresholdsDiagnostics(deckStatus, frame + 1);
-        const scrollHeightChange = Math.abs(
-            currentGeometry.scrollHeight - previous.scrollHeight
+        const geometryChanged = !matchesRecentFrame(
+            recentFrames,
+            currentGeometry
         );
-        const scrollYChange = Math.abs(
-            currentGeometry.scrollY - previous.scrollY
-        );
-        const effectiveScrollHeightChange =
-            scrollHeightChange < TOLERATED_ROUNDING
-                ? 0
-                : scrollHeightChange;
-        const geometryChangeMagnitude = Math.max(
-            effectiveScrollHeightChange,
-            scrollYChange
-        );
-        const geometryChanged = geometryChangeMagnitude !== 0;
+        const usedEscapeDiagnostics = !geometryChanged &&
+            !sameGeometry(recentFrames[0].geometry, currentGeometry);
+        frameTraceDiagnostics.push({
+            frame: frame + 1,
+            scrollY: currentGeometry.scrollY,
+            scrollHeight: currentGeometry.scrollHeight,
+            rafDelay,
+            skippable,
+            previousFrameIgnorable: recentFrames[0].ignorable,
+            geometryChanged,
+            usedEscape: usedEscapeDiagnostics,
+            unchangedBefore: unchanged,
+            flippingDecks: [...deactivatedDecks].map(deck => ({
+                turnId: deckStatus.decks.get(deck)?.turnId ?? null,
+                state: deckStatus.decks.get(deck)?.state ?? null,
+                top: deckStatus.decks.get(deck)?.top ?? null,
+                height: deckStatus.decks.get(deck)?.height ?? null
+            }))
+        });
+        if (usedEscapeDiagnostics) {
+            escapesDiagnostics++;
+        }
+        if (skippable) {
+            skippableFramesDiagnostics++;
+        }
+        recentFrames = [
+            { geometry: currentGeometry, ignorable: skippable },
+            ...recentFrames
+        ].slice(0, MAX_IGNORED_FRAMES + 1);
         const positionAtFrame = trackAnchor
             ? anchorRoom()
             : null;
-        const previousRafScrollHeightChange = Math.abs(
+        const previousRafScrollHeightChangeDiagnostics = Math.abs(
             currentGeometry.scrollHeight -
-            previousRafGeometry.scrollHeight
+            previousRafGeometryDiagnostics.scrollHeight
         );
-        const previousRafScrollYChange = Math.abs(
-            currentGeometry.scrollY - previousRafGeometry.scrollY
+        const previousRafScrollYChangeDiagnostics = Math.abs(
+            currentGeometry.scrollY -
+            previousRafGeometryDiagnostics.scrollY
         );
         recordRafTelemetryDiagnostics({
-            geometryChangeMagnitude,
-            scrollHeightChange,
-            scrollHeightChangeIgnored:
-                scrollHeightChange > 0 && effectiveScrollHeightChange === 0,
-            scrollYChange,
+            geometryChanged,
             scrollHeight: currentGeometry.scrollHeight,
             scrollY: currentGeometry.scrollY,
             previousRafScrollHeight:
-                previousRafGeometry.scrollHeight,
-            previousRafScrollY: previousRafGeometry.scrollY,
-            previousRafScrollHeightChange,
-            previousRafScrollYChange,
-            acceptedScrollHeight: previous.scrollHeight,
-            acceptedScrollY: previous.scrollY,
+                previousRafGeometryDiagnostics.scrollHeight,
+            previousRafScrollY:
+                previousRafGeometryDiagnostics.scrollY,
+            previousRafScrollHeightChange:
+                previousRafScrollHeightChangeDiagnostics,
+            previousRafScrollYChange:
+                previousRafScrollYChangeDiagnostics,
             anchorPosition: positionAtFrame
         });
-        const ignoredRafContext = {
-            currentGeometry,
-            previousRafGeometry,
-            previousRafScrollHeightChange,
-            previousRafScrollYChange,
-            acceptedGeometry: previous,
-            acceptedScrollHeightChange: scrollHeightChange,
-            acceptedScrollYChange: scrollYChange
-        };
-        previousRafGeometry = currentGeometry;
-        if (shouldIgnoreRaf(deckTransitions)) {
-            warnIgnoredDeckTransitions(
-                deckTransitions,
-                frame + 1,
-                ignoredRafContext
-            );
-            finishRafDiagnostics({
-                status: "ignored-reverse-deck-transition"
-            });
-            continue;
-        }
+        previousRafGeometryDiagnostics = currentGeometry;
 
-        if (geometryChanged) {
-            finishRafDiagnostics({ status: "geometry-changed" });
-            previous = currentGeometry;
-            unchanged = 0;
-            continue;
-        }
-
-        const anchorStable = await checkAnchorAcrossYields(
-            trackAnchor,
-            positionAtFrame
-        );
         const positionNowDiagnostics = trackAnchor
             ? anchorRoom()
             : null;
 
-        if (!anchorStable) {
-            finishRafDiagnostics({ status: "anchor-changed" });
-            previous = currentGeometry;
-            unchanged = 0;
-            continue;
+        if (geometryChanged) {
+            if (!skippable) unchanged = 0;
+        } else {
+            unchanged++;
         }
 
-        unchanged++;
-        finishRafDiagnostics({ status: "stable", unchanged });
+        if (!skippable) {
+            promptFrames = rafDelay >= MAX_STABLE_RAF_DELAY
+                ? 0
+                : promptFrames + 1;
+        }
 
-        if (unchanged >= stableFrames) {
+        const stable = unchanged >= stableFrames;
+        finishRafDiagnostics({
+            status: stable ? "stable" : "waiting",
+            unchanged,
+            promptFrames,
+            rafDelay,
+            geometryChanged
+        });
+
+        if (stable) {
+            if (skippableFramesDiagnostics || escapesDiagnostics) {
+                recordStabilizationEscapeDiagnostics({
+                    stabilizationSkippableFrames:
+                        skippableFramesDiagnostics,
+                    stabilizationEscapes: escapesDiagnostics,
+                    stabilizationFrames: frame + 1,
+                    stabilizationTrace: frameTraceDiagnostics
+                });
+            }
             finishStabilizationDiagnostics({
                 status: "stable",
                 frames: frame + 1,
@@ -185,53 +222,8 @@ export async function waitLayoutStable(
     );
 }
 
-function shouldIgnoreRaf({ activations, deactivations }) {
-    return activations.some(({ location }) => location === "below") ||
-        deactivations.some(({ location }) => location === "above");
-}
 
-function warnIgnoredDeckTransitions(
-    { activations, deactivations },
-    frame,
-    geometry
-) {
-    const ignoredTransitions = [
-        ...activations
-            .filter(({ location }) => location === "below")
-            .map(transition => ({
-                turnId: transition.turnId,
-                transition: "activation-below",
-                previous: transitionGeometry(transition.previous),
-                current: transitionGeometry(transition.current)
-            })),
-        ...deactivations
-            .filter(({ location }) => location === "above")
-            .map(transition => ({
-                turnId: transition.turnId,
-                transition: "deactivation-above",
-                previous: transitionGeometry(transition.previous),
-                current: transitionGeometry(transition.current)
-            }))
-    ];
 
-    console.warn(
-        "[stabilization] Ignored rAF with reverse deck transition.\n" +
-        JSON.stringify({
-            frame,
-            geometry,
-            transitions: ignoredTransitions
-        }, null, 2)
-    );
-}
-
-function transitionGeometry(deck) {
-    return {
-        state: deck.state,
-        top: deck.top,
-        bottom: deck.bottom,
-        height: deck.height
-    };
-}
 
 /**
  * Return a fingerprint of the current geometry.
@@ -239,6 +231,23 @@ function transitionGeometry(deck) {
  * Any geometric change that matters to traversal should
  * modify at least one of these quantities.
  */
+function matchesRecentFrame(recentFrames, currentGeometry) {
+    for (let index = 0; index < recentFrames.length; index++) {
+        if (sameGeometry(recentFrames[index].geometry, currentGeometry)) {
+            return true;
+        }
+        if (!recentFrames[index].ignorable) return false;
+    }
+
+    return false;
+}
+
+function sameGeometry(left, right) {
+    if (left.scrollY !== right.scrollY) return false;
+    return Math.abs(left.scrollHeight - right.scrollHeight) <
+        TOLERATED_ROUNDING;
+}
+
 function geometrySnapshot() {
 
     return {

@@ -1,5 +1,6 @@
 import {
     ADJACENCY_OVERLAP_TOLERANCE,
+    MAX_DRIFT,
     MIN_ACTIVATION_DISTANCE,
     MAX_SLAB_GAP,
     TOLERATED_ROUNDING
@@ -506,14 +507,86 @@ function deckLocation(deck, viewportHeight) {
     return "viewport";
 }
 
+const SPLIT_EXTRA_JUMP = 20;
+const SPLIT_DISABLED = false;
+
+let splitJump = null;
+
+function beginSplitJump(totalJump, activationDistance) {
+    splitJump = null;
+    if (SPLIT_DISABLED) return totalJump;
+    if (!Number.isFinite(activationDistance)) return totalJump;
+    const activationLimit = activationDistance - MIN_ACTIVATION_DISTANCE;
+    if (activationLimit < 0) return totalJump;
+    const initialJump = Math.max(
+        totalJump - SPLIT_EXTRA_JUMP,
+        MAX_DRIFT
+    );
+    if (initialJump < activationLimit) return totalJump;
+    if (totalJump - initialJump < MAX_DRIFT) return totalJump;
+    splitJump = {
+        totalJump,
+        activationLimit,
+        initialJump,
+        extraJump: totalJump - initialJump,
+        performed: false
+    };
+    return initialJump;
+}
+
+function nextActivationDistanceAbove() {
+    const { supplyArea, workZone } = environment();
+    const viewportTop = workZoneTop(workZone);
+    let distance = Infinity;
+
+    for (const deck of getDecks(supplyArea)) {
+        const activation = deck.getAttribute("data-is-intersecting");
+        if (activation != null && activation !== "false") continue;
+        const rect = deck.getBoundingClientRect();
+        if (rect.bottom > viewportTop) continue;
+        const room = viewportTop - rect.bottom;
+        if (room < MIN_ACTIVATION_DISTANCE) continue;
+        if (room < distance) distance = room;
+    }
+
+    return distance;
+}
+
+export function performSplitExtraJump(frame) {
+    if (frame !== 1) return 0;
+    if (splitJump == null) return 0;
+    if (splitJump.performed) return 0;
+    splitJump.performed = true;
+    const { supplyArea, workZone } = environment();
+
+    const nextActivationDistance =
+        nextActivationDistanceAbove();
+    const secondActivation = Number.isFinite(nextActivationDistance) &&
+        nextActivationDistance - splitJump.extraJump <
+            MIN_ACTIVATION_DISTANCE;
+
+    moveWorkZone(splitJump.extraJump, supplyArea, workZone);
+
+    return secondActivation ? 0 : splitJump.extraJump;
+}
+
+export function cancelSplitJump() {
+    splitJump = null;
+}
+
 export async function moveWorkZoneBy(jump) {
 
     const { supplyArea, workZone } = environment();
 
-    await nextAnimationFrame();
+    const rafClock = await nextAnimationFrame();
 
-    moveWorkZone(jump, supplyArea, workZone);
+    const commandedJump = beginSplitJump(
+        jump,
+        roomUntilFirstNotReadyDeck()
+    );
+    moveWorkZone(commandedJump, supplyArea, workZone);
 
+    return rafClock;
 }
 
 function closestDeck(referenceRoom, candidates, workZone) {
@@ -569,8 +642,20 @@ export async function waitDeckActive(
             );
         }
         if (Date.now() >= deadline) {
+            const { workZone } = environment();
+            const geometry = deckGeometry(deck, workZone);
+            const rect = deck.getBoundingClientRect();
             throw new Error(
-                "Timed out waiting for deck activation."
+                "Timed out waiting for deck activation: " +
+                `turnId=${deck.getAttribute("data-turn-id-container")} ` +
+                `rectTop=${rect.top} ` +
+                `rectBottom=${rect.bottom} ` +
+                `viewportTop=${workZoneTop(workZone)} ` +
+                `viewportHeight=${workZone.height} ` +
+                `room=${geometry.room} ` +
+                `bottomRoom=${geometry.bottomRoom} ` +
+                `isIntersecting=${deck.getAttribute("data-is-intersecting")} ` +
+                `inActiveArea=${contains(activeArea, deck)}`
             );
         }
         await new Promise(resolve =>
