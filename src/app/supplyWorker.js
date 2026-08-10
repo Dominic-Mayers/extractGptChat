@@ -508,7 +508,7 @@ function deckLocation(deck, viewportHeight) {
 }
 
 const SPLIT_EXTRA_JUMP = 20;
-const SPLIT_DISABLED = false;
+const SPLIT_DISABLED = true;
 
 let splitJump = null;
 
