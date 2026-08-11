@@ -303,17 +303,17 @@ $$\tau_{\mathrm{run}} \approx JF + DR$$
 $J$, $S$, and even the realized scripted distance $D$ are outcomes of the
 traversal, not fixed inputs. At jump $k$, the selected anchor, slab target,
 activation guard, and current supply geometry clamp the requested maximum to a
-realized jump $s_k$. Geometry changes after that jump alter the next distances
+realized jump $s_{k}$. Geometry changes after that jump alter the next distances
 and therefore the next clamp. More explicitly,
 
 $$
 \begin{aligned}
-s_k &= \mathrm{clamp}(\mathrm{maxJump}, \text{realized geometry at } k), \\
-\tau_{\mathrm{run}} &\approx \sum_k (F + Rs_k + W_k).
+s_{k} &= \mathrm{clamp}(\mathrm{maxJump}, \text{realized geometry at } k), \\
+\tau_{\mathrm{run}} &\approx \sum_{k} (F + Rs_{k} + W_{k}).
 \end{aligned}
 $$
 
-where $W_k$ is additional stabilization work induced by changes in realized
+where $W_{k}$ is additional stabilization work induced by changes in realized
 geometry. Variation in realized geometry therefore produces variation in
 clamped jump sizes, jump count, distance exposed per jump, stabilization work,
 and total measured time. The timing variation is not an independent source of
@@ -435,7 +435,7 @@ that every run realizes the geometry in exactly the same sequence.
 
 The definitions below are a tentative attempt to make this simple conjecture
 precise enough to test. They are part of the conjecture, not established facts.
-In particular, the proposed state $X_k$ may need fields added, removed, or
+In particular, the proposed state $X_{k}$ may need fields added, removed, or
 redefined as the fixed-deck investigation reveals what information is actually
 required.
 
@@ -459,45 +459,45 @@ A valid specification of `k` must:
 The ordering $k' > k$ means that landmark $k'$ occurs later in the traversal;
 it does not require consecutive jump numbers.
 
-Let $S_k$ be the complete observable traversal state at position $k$. Even for
-a fixed conversation and fixed browser settings, $S_k$ may vary across runs.
+Let $S_{k}$ be the complete observable traversal state at position $k$. Even for
+a fixed conversation and fixed browser settings, $S_{k}$ may vary across runs.
 It includes the clock time, rAF and jump history, formal deck states, pending
 renderer work, scroll position, and all realized geometry observable at that
-landmark. Absolute clock time belongs to $S_k$ even though the conjecture
+landmark. Absolute clock time belongs to $S_{k}$ even though the conjecture
 proposes that it is not relevant once traversal speed and geometry are
 accounted for.
 
-Let $X_k$ be the geometric part of $S_k$. The central conjecture is that, after
-adjusting for traversal speed, $X_k$ is sufficient for the distribution of a
+Let $X_{k}$ be the geometric part of $S_{k}$. The central conjecture is that, after
+adjusting for traversal speed, $X_{k}$ is sufficient for the distribution of a
 future state at any specified position $k' > k$. The other components of
-$S_k$, including its absolute clock time and run identity, should add no
+$S_{k}$, including its absolute clock time and run identity, should add no
 predictive information. When future clock values are compared, they must be
 expressed relative to $k$ or in the normalized observation clock; otherwise
 the absolute clock at $k$ is trivially carried into $S_{k'}$.
 
-This statement does not yet require a detailed definition of $X_k$. The tuple
+This statement does not yet require a detailed definition of $X_{k}$. The tuple
 below is a first proposal for making its geometric content measurable.
 
 Let the supply area be an ordered one-dimensional document with deck intervals
 
-$$D_i = [b_i, b_i + h_i)$$
+$$D_{i} = [b_{i}, b_{i} + h_{i})$$
 
-where $b_i$ is the deck's document-coordinate top and $h_i$ is its supplied
-height. Let $y_k$ be the viewport's document-coordinate position at landmark
+where $b_{i}$ is the deck's document-coordinate top and $h_{i}$ is its supplied
+height. Let $y_{k}$ be the viewport's document-coordinate position at landmark
 $k$, $v$ the viewport height, and $a$ the activation distance. Ignoring the
 boundary asymmetry visible in diagnostics, the geometric active interval at
 that landmark is approximately
 
-$$A(y_k) = [y_k - a, y_k + v + a].$$
+$$A(y_{k}) = [y_{k} - a, y_{k} + v + a].$$
 
-If the next operation after $k$ is an upward jump of size $s_k$, its commanded
-position is $y_k^* = y_k - s_k$. The sets of decks predicted to enter and leave
+If the next operation after $k$ is an upward jump of size $s_{k}$, its commanded
+position is $y_{k}^{*} = y_{k} - s_{k}$. The sets of decks predicted to enter and leave
 activity are determined by the interval differences
 
 $$
 \begin{aligned}
-\mathrm{enter}_k &= A(y_k^*) \setminus A(y_k), \\
-\mathrm{leave}_k &= A(y_k) \setminus A(y_k^*).
+{\mathrm{enter}}_{k} &= A(y_{k}^{*}) \setminus A(y_{k}), \\
+{\mathrm{leave}}_{k} &= A(y_{k}) \setminus A(y_{k}^{*}).
 \end{aligned}
 $$
 
@@ -507,12 +507,12 @@ a formally inactive deck that is already geometrically inside the active area
 does not become active merely because it is there. It remains inactive until
 viewport movements move the deck outside $A(y)$ and back in the entering strip. Deactivation is conjectured to be triggered analogously by the leaving strip.
 
-On this conjecture, intersecting $\mathrm{enter}_k$ and
-$\mathrm{leave}_k$ with the ordered deck intervals predicts which deck
+On this conjecture, intersecting ${\mathrm{enter}}_{k}$ and
+${\mathrm{leave}}_{k}$ with the ordered deck intervals predicts which deck
 boundaries jump $k$ asks the renderer to process.
 This is a proposed transition rule, not a directly exposed ChatGPT rule. It
 would be falsified by a deck activating while it remains in the overlap
-$A(y_k) \cap A(y_k^*)$, without a relevant strip crossing or another identified
+$A(y_{k}) \cap A(y_{k}^{*})$, without a relevant strip crossing or another identified
 activation stimulus.
 
 Heights matter in addition to deck count: a long deck can span a boundary for
@@ -535,7 +535,7 @@ requested deactivation, but the later observable work has not completed.
 As a first measurable specification of the geometric projection, let
 
 $$
-X_k = (y_k,\ \text{local deck intervals},\ \text{activation boundaries},
+X_{k} = (y_{k},\ \text{local deck intervals},\ \text{activation boundaries},
        \text{anchor and slab clamp distances},\ \text{activation debts},
        \text{deactivation debts},\ \text{realized heights}).
 $$
@@ -544,18 +544,18 @@ When the operation following $k$ is a jump, its realized size is derived from
 this geometric state and the fixed jump policy rather than treated as an
 independent component:
 
-$$s_k = \mathrm{jumpPolicy}(X_k).$$
+$$s_{k} = \mathrm{jumpPolicy}(X_{k}).$$
 
 This tuple is provisional. Its purpose is to name a candidate sufficient
 geometric projection against which repeated runs can be compared. Failure of
 this particular tuple does not immediately refute the simple geometry
-conjecture: it may instead show that $X_k$ omitted a relevant aspect of geometry
+conjecture: it may instead show that $X_{k}$ omitted a relevant aspect of geometry
 or renderer progress. The tuple, and therefore the precise form of the
 conjecture, may be modified as the investigation proceeds. The simple
 conjecture is refuted only if the residual behavior cannot be explained by a
 defensible geometry-based refinement of the state.
 
-Wall-clock duration is deliberately absent from $X_k$ because it is an outcome
+Wall-clock duration is deliberately absent from $X_{k}$ because it is an outcome
 of the realized geometric path. Traversal speed still affects how much debt is
 discharged between movements, so comparisons across speeds must use an
 observation clock (rAF opportunities or stage transitions), not raw
@@ -569,15 +569,15 @@ For a fixed conversation, viewport, activation rule, jump policy, and browser
 renderer, repeated runs sample different schedules over the same geometric
 state machine. For a specified later landmark $k'$, let
 $S_{k'}^{\mathrm{rel}}$ denote its state with clocks expressed relative to
-$k$. The tentative $X_k$ formulation expresses the conjecture as:
+$k$. The tentative $X_{k}$ formulation expresses the conjecture as:
 
 $$
-P(S_{k'}^{\mathrm{rel}} \mid S_k, \text{traversal speed})
-= P(S_{k'}^{\mathrm{rel}} \mid X_k, \text{traversal speed}), \qquad k' > k.
+P(S_{k'}^{\mathrm{rel}} \mid S_{k}, \text{traversal speed})
+= P(S_{k'}^{\mathrm{rel}} \mid X_{k}, \text{traversal speed}), \qquad k' > k.
 $$
 
-Equivalently, the non-geometric components $S_k \setminus X_k$ should add no
-predictive information once $X_k$ and traversal speed are known. This is the
+Equivalently, the non-geometric components $S_{k} \setminus X_{k}$ should add no
+predictive information once $X_{k}$ and traversal speed are known. This is the
 strong, presently tentative form. A safer form, supported by the fixed-deck
 repetitions, is that geometry determines the repeatable *opportunities* for
 activation and deactivation, while scheduling determines which stage is
@@ -587,7 +587,7 @@ This distinction gives the conjecture a falsification criterion. It fails if,
 after matching the same local deck-height profile, boundary distances, jump
 size, debt state, and rAF opportunity count, erasure rates still vary
 systematically by run, wall-clock phase, content identity, or another omitted
-variable. Such a result first rejects this definition of $X_k$. It rejects the
+variable. Such a result first rejects this definition of $X_{k}$. It rejects the
 simple conjecture only if the residual cannot be explained by a defensible
 geometry-based refinement of the state.
 
@@ -631,12 +631,12 @@ first jump. Thus the split experiment localizes the capture: it is refreshed
 within the preceding rAF rather than retained from some much earlier jump.
 
 Let $T$ be the total number of stabilization rAF callbacks in that wait and
-$E_2$ mean that the split's second jump is erased. The tempting quantity is
+$E_{2}$ mean that the split's second jump is erased. The tempting quantity is
 
-$$P(E_2 \mid \mathrm{split} = \mathrm{true}, T = t).$$
+$$P(E_{2} \mid \mathrm{split} = \mathrm{true}, T = t).$$
 
 It is descriptive, but it is not a causal erasure probability. $T$ is only
-known after the wait and is partly caused by $E_2$. With the minimum stable
+known after the wait and is partly caused by $E_{2}$. With the minimum stable
 frame rule, an uneventful split can finish at its floor. An erasure changes the
 observed scroll/anchor geometry, resets stability, and forces more callbacks.
 Schematically,
@@ -658,7 +658,7 @@ The predictive ratio should instead be conditioned on variables fixed before
 the split's second jump. A first useful estimator is
 
 $$
-P(E_2 \mid \mathrm{split} = \mathrm{true},
+P(E_{2} \mid \mathrm{split} = \mathrm{true},
   X_{\mathrm{pre\text{-}extra}}, O_{\mathrm{pre\text{-}extra}}).
 $$
 
