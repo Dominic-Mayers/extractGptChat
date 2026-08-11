@@ -421,7 +421,29 @@ happens at a different wall-clock time in two runs; it may be a delayed
 realization of the same geometric boundary crossing, but it can change the
 subsequent traversal path and its duration.
 
-### State of a traversal
+### Baseline-geometry conjecture
+
+The conjecture in its simplest form is:
+
+> After adjusting for traversal speed, the repeatable baseline behavior of
+> activations, deactivations, and jump erasures depends entirely on the
+> geometry of the conversation.
+
+Conversation geometry supplies the fixed structure, while variations in its
+realized geometry determine the path actually taken through that structure:
+which jumps are clamped, how many jumps are needed, which activation boundaries
+are crossed, and which activation or deactivation work remains pending. The
+conjecture says that these geometric facts are sufficient to explain the
+baseline distribution observed across repeated traversals. It does not say
+that every run realizes the geometry in exactly the same sequence.
+
+The definitions below are a tentative attempt to make this simple conjecture
+precise enough to test. They are part of the conjecture, not established facts.
+In particular, the proposed state `X_k` may need fields added, removed, or
+redefined as the fixed-deck investigation reveals what information is actually
+required.
+
+### Tentative traversal state
 
 Let the supply area be an ordered one-dimensional document with deck intervals
 
@@ -452,9 +474,7 @@ The **strip-trigger conjecture** is that activation is caused by crossing the
 newly entered strip, rather than by membership in `A(y)` alone. In particular,
 a formally inactive deck that is already geometrically inside the active area
 does not become active merely because it is there. It remains inactive until
-viewport movement sweeps the relevant entering strip across its interval or
-boundary. Deactivation is conjectured to be triggered analogously by the
-leaving strip.
+viewport movements move the deck outside `A(y)` and back in the entering strip. Deactivation is conjectured to be triggered analogously by the leaving strip.
 
 On this conjecture, intersecting `enter_k` and `leave_k` with the ordered deck
 intervals predicts which deck boundaries jump `k` asks the renderer to process.
@@ -478,13 +498,30 @@ formally active → geometrically inactive → height recorded → formally inac
 as an ordering model, not as a claim about ChatGPT's internal implementation.
 The stages can coincide at one observation point. A deck between geometric
 exit and formal inactivity carries a **deactivation debt**: the geometry has
-requested deactivation, but the later observable work has not completed. The
-traversal state immediately before a jump is then
+requested deactivation, but the later observable work has not completed.
+
+As a first formulation, let the traversal state immediately before jump `k`
+be
 
 ```text
-X_k = (y_k, s_k, local deck intervals, activation boundaries,
-       activation debts, deactivation debts, realized heights).
+X_k = (y_k, local deck intervals, activation boundaries,
+       anchor and slab clamp distances, activation debts,
+       deactivation debts, realized heights).
 ```
+
+The next realized jump size is derived from this state and the fixed jump
+policy rather than treated as an independent component:
+
+```text
+s_k = jumpPolicy(X_k).
+```
+
+This tuple is provisional. Its purpose is to name a candidate sufficient state
+against which repeated runs can be compared. Failure of this particular tuple
+does not immediately refute the simple geometry conjecture: it may instead show
+that `X_k` omitted a relevant aspect of geometry or renderer progress. The
+simple conjecture is refuted only if the residual behavior cannot be explained
+by a defensible geometry-based refinement of the state.
 
 Wall-clock duration is deliberately absent from `X_k` because it is an outcome
 of the realized geometric path. Traversal speed still affects how much debt is
@@ -494,31 +531,31 @@ milliseconds. The two directions must be kept distinct: speed changes which
 realization is observed at the next jump, while the realized geometry changes
 jump clamping, jump count, stabilization work, and hence measured time.
 
-### Baseline-geometry conjecture
+### Probabilistic interpretation and falsification
 
 For a fixed conversation, viewport, activation rule, jump policy, and browser
 renderer, repeated runs sample different schedules over the same geometric
-state machine. After normalizing traversal speed, the baseline distribution of
-activations, deactivations, and erasures is conjectured to depend entirely on
-the conversation geometry:
+state machine. The tentative `X_k` formulation expresses the conjecture as:
 
 ```text
 P(next observable transition, erasure | traversal history)
     = P(next observable transition, erasure | X_k).
 ```
 
-In probabilistic language, run identity and absolute clock time should add no
-predictive information once `X_k` and traversal speed are known. This is the
-strong form of the conjecture. A safer form, supported by the present fixed
-deck repetitions, is that geometry determines the repeatable *opportunities*
-for activation and deactivation, while scheduling determines which stage is
-observed before the extractor makes its next move.
+Run identity and absolute clock time should add no predictive information once
+`X_k` and traversal speed are known. This is the strong, presently tentative
+form. A safer form, supported by the fixed-deck repetitions, is that geometry
+determines the repeatable *opportunities* for activation and deactivation,
+while scheduling determines which stage is observed before the extractor makes
+its next move.
 
 This distinction gives the conjecture a falsification criterion. It fails if,
 after matching the same local deck-height profile, boundary distances, jump
 size, debt state, and rAF opportunity count, erasure rates still vary
 systematically by run, wall-clock phase, content identity, or another omitted
-non-geometric variable.
+variable. Such a result first rejects this definition of `X_k`. It rejects the
+simple conjecture only if the residual cannot be explained by a defensible
+geometry-based refinement of the state.
 
 ### Erasure conjecture
 
