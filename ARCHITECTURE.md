@@ -445,6 +445,43 @@ required.
 
 ### Tentative traversal state
 
+To formulate the conjecture, first choose a **traversal position** `k`. This is
+an observable landmark in the ordered traversal, not necessarily a jump number
+or a document coordinate. For example, `k` can be the position immediately
+after the first geometric activation of the deck with a specified turn ID.
+
+A valid specification of `k` must:
+
+- use only information observable at or before the landmark, rather than a
+  future outcome such as whether the next jump is erased;
+- identify corresponding positions across runs of the same conversation;
+- specify whether the state is sampled immediately before or after the named
+  event; and
+- disambiguate repeated events by traversal direction and occurrence number,
+  such as the first upward geometric activation of a given deck.
+
+The ordering `k' > k` means that landmark `k'` occurs later in the traversal;
+it does not require consecutive jump numbers.
+
+Let `S_k` be the complete observable traversal state at position `k`. Even for
+a fixed conversation and fixed browser settings, `S_k` may vary across runs.
+It includes the clock time, rAF and jump history, formal deck states, pending
+renderer work, scroll position, and all realized geometry observable at that
+landmark. Absolute clock time belongs to `S_k` even though the conjecture
+proposes that it is not relevant once traversal speed and geometry are
+accounted for.
+
+Let `X_k` be the geometric part of `S_k`. The central conjecture is that, after
+adjusting for traversal speed, `X_k` is sufficient for the distribution of a
+future state at any specified position `k' > k`. The other components of
+`S_k`, including its absolute clock time and run identity, should add no
+predictive information. When future clock values are compared, they must be
+expressed relative to `k` or in the normalized observation clock; otherwise
+the absolute clock at `k` is trivially carried into `S_{k'}`.
+
+This statement does not yet require a detailed definition of `X_k`. The tuple
+below is a first proposal for making its geometric content measurable.
+
 Let the supply area be an ordered one-dimensional document with deck intervals
 
 ```text
@@ -452,18 +489,18 @@ D_i = [b_i, b_i + h_i)
 ```
 
 where `b_i` is the deck's document-coordinate top and `h_i` is its supplied
-height. Let `y_k` be the viewport's document-coordinate position before jump
+height. Let `y_k` be the viewport's document-coordinate position at landmark
 `k`, `v` the viewport height, and `a` the activation distance. Ignoring the
-boundary asymmetry visible in diagnostics, the geometric active interval is
-approximately
+boundary asymmetry visible in diagnostics, the geometric active interval at
+that landmark is approximately
 
 ```text
 A(y_k) = [y_k - a, y_k + v + a].
 ```
 
-A jump of size `s_k` moves upward, so its commanded position is
-`y_k* = y_k - s_k`. The sets of decks predicted to enter and leave activity
-are determined by the interval differences
+If the next operation after `k` is an upward jump of size `s_k`, its commanded
+position is `y_k* = y_k - s_k`. The sets of decks predicted to enter and leave
+activity are determined by the interval differences
 
 ```text
 enter_k = A(y_k*) ∖ A(y_k)
@@ -500,8 +537,7 @@ The stages can coincide at one observation point. A deck between geometric
 exit and formal inactivity carries a **deactivation debt**: the geometry has
 requested deactivation, but the later observable work has not completed.
 
-As a first formulation, let the traversal state immediately before jump `k`
-be
+As a first measurable specification of the geometric projection, let
 
 ```text
 X_k = (y_k, local deck intervals, activation boundaries,
@@ -509,19 +545,22 @@ X_k = (y_k, local deck intervals, activation boundaries,
        deactivation debts, realized heights).
 ```
 
-The next realized jump size is derived from this state and the fixed jump
-policy rather than treated as an independent component:
+When the operation following `k` is a jump, its realized size is derived from
+this geometric state and the fixed jump policy rather than treated as an
+independent component:
 
 ```text
 s_k = jumpPolicy(X_k).
 ```
 
-This tuple is provisional. Its purpose is to name a candidate sufficient state
-against which repeated runs can be compared. Failure of this particular tuple
-does not immediately refute the simple geometry conjecture: it may instead show
-that `X_k` omitted a relevant aspect of geometry or renderer progress. The
-simple conjecture is refuted only if the residual behavior cannot be explained
-by a defensible geometry-based refinement of the state.
+This tuple is provisional. Its purpose is to name a candidate sufficient
+geometric projection against which repeated runs can be compared. Failure of
+this particular tuple does not immediately refute the simple geometry
+conjecture: it may instead show that `X_k` omitted a relevant aspect of geometry
+or renderer progress. The tuple, and therefore the precise form of the
+conjecture, may be modified as the investigation proceeds. The simple
+conjecture is refuted only if the residual behavior cannot be explained by a
+defensible geometry-based refinement of the state.
 
 Wall-clock duration is deliberately absent from `X_k` because it is an outcome
 of the realized geometric path. Traversal speed still affects how much debt is
@@ -535,19 +574,21 @@ jump clamping, jump count, stabilization work, and hence measured time.
 
 For a fixed conversation, viewport, activation rule, jump policy, and browser
 renderer, repeated runs sample different schedules over the same geometric
-state machine. The tentative `X_k` formulation expresses the conjecture as:
+state machine. For a specified later landmark `k'`, let `S_{k'}^{rel}` denote
+its state with clocks expressed relative to `k`. The tentative `X_k` formulation
+expresses the conjecture as:
 
 ```text
-P(next observable transition, erasure | traversal history)
-    = P(next observable transition, erasure | X_k).
+P(S_{k'}^{rel} | S_k, traversal speed) =
+    P(S_{k'}^{rel} | X_k, traversal speed),  k' > k.
 ```
 
-Run identity and absolute clock time should add no predictive information once
-`X_k` and traversal speed are known. This is the strong, presently tentative
-form. A safer form, supported by the fixed-deck repetitions, is that geometry
-determines the repeatable *opportunities* for activation and deactivation,
-while scheduling determines which stage is observed before the extractor makes
-its next move.
+Equivalently, the non-geometric components `S_k ∖ X_k` should add no
+predictive information once `X_k` and traversal speed are known. This is the
+strong, presently tentative form. A safer form, supported by the fixed-deck
+repetitions, is that geometry determines the repeatable *opportunities* for
+activation and deactivation, while scheduling determines which stage is
+observed before the extractor makes its next move.
 
 This distinction gives the conjecture a falsification criterion. It fails if,
 after matching the same local deck-height profile, boundary distances, jump
