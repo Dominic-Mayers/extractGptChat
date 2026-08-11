@@ -308,7 +308,7 @@ and therefore the next clamp. More explicitly,
 
 $$
 \begin{aligned}
-s_k &= \operatorname{clamp}(\mathrm{maxJump}, \text{realized geometry at } k), \\
+s_k &= \mathrm{clamp}(\mathrm{maxJump}, \text{realized geometry at } k), \\
 \tau_{\mathrm{run}} &\approx \sum_k (F + Rs_k + W_k).
 \end{aligned}
 $$
@@ -496,8 +496,8 @@ activity are determined by the interval differences
 
 $$
 \begin{aligned}
-\operatorname{enter}_k &= A(y_k^*) \setminus A(y_k), \\
-\operatorname{leave}_k &= A(y_k) \setminus A(y_k^*).
+\mathrm{enter}_k &= A(y_k^*) \setminus A(y_k), \\
+\mathrm{leave}_k &= A(y_k) \setminus A(y_k^*).
 \end{aligned}
 $$
 
@@ -507,8 +507,8 @@ a formally inactive deck that is already geometrically inside the active area
 does not become active merely because it is there. It remains inactive until
 viewport movements move the deck outside $A(y)$ and back in the entering strip. Deactivation is conjectured to be triggered analogously by the leaving strip.
 
-On this conjecture, intersecting $\operatorname{enter}_k$ and
-$\operatorname{leave}_k$ with the ordered deck intervals predicts which deck
+On this conjecture, intersecting $\mathrm{enter}_k$ and
+$\mathrm{leave}_k$ with the ordered deck intervals predicts which deck
 boundaries jump $k$ asks the renderer to process.
 This is a proposed transition rule, not a directly exposed ChatGPT rule. It
 would be falsified by a deck activating while it remains in the overlap
@@ -544,7 +544,7 @@ When the operation following $k$ is a jump, its realized size is derived from
 this geometric state and the fixed jump policy rather than treated as an
 independent component:
 
-$$s_k = \operatorname{jumpPolicy}(X_k).$$
+$$s_k = \mathrm{jumpPolicy}(X_k).$$
 
 This tuple is provisional. Its purpose is to name a candidate sufficient
 geometric projection against which repeated runs can be compared. Failure of
@@ -633,7 +633,7 @@ within the preceding rAF rather than retained from some much earlier jump.
 Let $T$ be the total number of stabilization rAF callbacks in that wait and
 $E_2$ mean that the split's second jump is erased. The tempting quantity is
 
-$$P(E_2 \mid \operatorname{split} = \mathrm{true}, T = t).$$
+$$P(E_2 \mid \mathrm{split} = \mathrm{true}, T = t).$$
 
 It is descriptive, but it is not a causal erasure probability. $T$ is only
 known after the wait and is partly caused by $E_2$. With the minimum stable
@@ -658,7 +658,7 @@ The predictive ratio should instead be conditioned on variables fixed before
 the split's second jump. A first useful estimator is
 
 $$
-P(E_2 \mid \operatorname{split} = \mathrm{true},
+P(E_2 \mid \mathrm{split} = \mathrm{true},
   X_{\mathrm{pre\text{-}extra}}, O_{\mathrm{pre\text{-}extra}}).
 $$
 
