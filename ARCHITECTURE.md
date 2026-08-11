@@ -8,23 +8,18 @@ area and employs workers who act directly on its physical inventory. A foreman
 guides those workers using only the geometry they report. Once a supplied slab
 has been prepared and traversed, its extracted content is added to a walkway.
 The walkway is the accumulated Markdown output; it is not the structure on
-which supply preparation and movement occur. The supply architecture has six
+which supply preparation and movement occur. The supply architecture has seven
 levels, from broadest to finest:
 
 ```text
-supply area → active area → ready area → decks → slabs → anchors
+conversation → supply area → active area → ready area → decks → slabs → anchors
 ```
 
 This is a progression from broad environmental scope to fine operational
 detail, not a claim that every object is wholly contained by the state above
 it. A deck or slab can straddle the inferred ready-area boundary.
 
-The **supply area** is the complete conversation as a geometric document. In
-the current ChatGPT adapter it corresponds to the `documentElement`. Its
-scroll extent contains the geometry of the conversation, including regions
-represented only by virtualizer placeholders. This does not mean that all of
-the conversation's detailed DOM or extractable content is mounted. The
-geometry can be present while the corresponding inventory is unavailable.
+The **supply area** has a record of the complete list of decks, but not neccessrialy their content. In the current ChatGPT adapter it corresponds to the `documentElement`. This does not mean that all of the conversation's detailed DOM or extractable content is mounted. The geometry of a deck is not neccessarily available and the geometry can be present while the corresponding inventory is unavailable.
 
 The **active area** is the part of the supply area to which ChatGPT has
 assigned rendering activity. The **ready area** is the part of that active
@@ -34,9 +29,9 @@ operation. Active therefore does not mean ready.
 Within the ready area, **decks** organize the supplier's batches, **slabs** are
 the physical content units whose extracted representations are added to the
 walkway, and **anchors** are stable-enough local features used to move a long
-or partially prepared slab through the work zone safely.
+or partially prepared slab through the anchor-zone safely.
 
-The **work zone** is the viewport. It is not a seventh level. It is a moving
+The **anchor-zone** is the viewport. It is not a seventh level. It is a moving
 demand signal that intersects the layered model: moving it changes the
 active area, the workers attempt to extend the ready area around it, and this
 can expose or prepare more decks, slabs, and anchors.
@@ -58,9 +53,9 @@ distances and heights. The walkway remains a separate accumulated result.
 The current bottom-up traversal prepends each newly discovered entry to keep
 that result in chronological order.
 
-The supply area contains the complete conversation's geometry, but the
+The supply area contains the complete list of decks, but the
 environment boundary does **not** keep its entire detailed inventory in stock.
-New decks, slabs, anchors, and other observable supplies become available as
+New slabs, anchors, and other observable supplies become available as
 ChatGPT's rendering systems do their work. The boundary exposes a changing,
 partial realization of a geometrically complete document.
 `data-is-intersecting` is evidence that a deck is **active**; it is not proof
@@ -80,7 +75,7 @@ kinds of observations and one kind of action:
 - **Work Zone Movements**, which actively change the situation so that more supplies may become observable.
 
 Structural, activation, and readiness observations guide traversal from decks
-toward progressively finer structures such as slabs and anchors. Work-zone
+toward progressively finer structures such as slabs and anchors. Anchor-zone
 movements change the renderer's demand signal, allowing activation and
 preparation effects to propagate until new observations become available.
 
@@ -128,94 +123,47 @@ observation may now occur.
 Readiness observations are fallible. They are evidence, not proof. A readiness
 observation can time out, be too weak, or be invalidated by later diagnostics.
 
-## Issues
-
-### Activation, Collapsed Margins and Oscillation
-
-Activation can change geometry even when an active deck and its placeholder
-have the same height. In one observed deck, both states were 392 px high, but
-activation mounted a first child with `margin-top: 16px`. Because the deck had
-no border, padding, or formatting context to contain it, that margin collapsed
-through the deck and moved its top from 995.1 px to 1011.1 px below the
-viewport. Those positions straddled the 1000 px activation boundary:
-
-```text
-placeholder activates → child margin appears → deck moves outside boundary
-→ deck deactivates → child margin disappears → deck moves inside boundary
-```
-
-Setting only that first-child top margin to zero stopped the oscillation while
-preserving the deck's 392 px height and the child's bottom margin. Related
-effects of the same CSS rule include
-[virtualized content jumping when margin collapse changes](https://gitlab.com/catamphetamine/virtual-scroller#margin-collapse),
-[an IntersectionObserver reader measuring less than the leaked margin adds](https://jonwinsley.com/notes/armorer-web-reader),
-and [a fixed-height parent acquiring scroll from a collapsed child margin](https://stackoverflow.com/questions/47737935/why-does-this-page-scroll).
-
-### Jump Erasure
-
-Chromium sometimes erases a scripted jump after initially applying it. The
-scroll command changes only the viewport position: the DOM geometry does not
-change, and every DOM element consequently changes its position relative to the
-viewport by the requested amount. Before the next accepted stable state, the
-viewport returns to its pre-jump position. The retained extractor anchor is
-only the local measurement used to recognize that reversal. Observed erasures
-are strongly associated with deck deactivation, although the browser mechanism
-that restores the viewport position remains unresolved.
-
-The extractor detects an erasure when its retained anchor returns exactly to
-its pre-jump position and retries the movement once. Recent completed runs show
-that these retries normally succeed. A second consecutive erasure remains an
-explicit error. Erasure occurring later than the current detection window is a
-possibility, but it has not been established as the cause of an extraction
-failure.
-
-# Work-Zone Movements
+## Anchor-zone movements
 
 The Supplier does not keep the entire conversation in stock. New supplies
 become usable as movement changes the active area and ChatGPT's rendering
-systems attempt to extend the ready area around the work zone.
+systems attempt to extend the ready area around the anchor-zone.
 
-The work zone corresponds to the visible viewport. In the foreman
-analogy, it is a movable region over the supply area around which the
-Supplier's workers are currently active to maintain the ready area. It does
-not intersect or move over the completed walkway.
+The anchor-zone corresponds to the visible viewport. In the foreman
+analogy, it is a movable region over the supply area in which the foreman set anchors  to determine how to move the region. upplier's workers are currently active to maintain the ready area.
 
 The Supplier's workers are concerned with detailed structure rather than with
 slabs as traversal units. A deck can be active without being wholly ready, and
 a slab may fit
-entirely within one work zone or may extend across many successive work
-zones. Even while the foreman remains on the same slab, the workers may
+entirely within one anchor-zone or may extend across many successive anchor-zones. Even while the foreman remains on the same slab, the workers may
 still be preparing later anchors or portions of that slab.
 
-For the workers to operate predictably, each new work zone must remain within the ready area extending a few hundred pixels on each side of that work zone.
+For the workers to operate predictably, each new anchor-zone must remain within the ready area extending a few hundred pixels on each side of that anchor-zone.
 
 Within this safe part, the workers can
 reliably prepare the detailed structure required by the current and
 upcoming supplies.
 
 The geometric goal is to bring the current slab's top to the lower boundary of
-the active area above the work zone. This keeps it near the viewport while the
-next deck enters the active area and can render before reaching the work zone.
-The slab top cannot always be the immediate movement reference: a long or
+the active area above the anchor-zone. This keeps it near the viewport while the
+next deck enters the active area and can render before reaching the anchor-zone.
+The current slab top cannot always be the immediate movement reference: a long or
 partially prepared slab may have incomplete or unstable distant geometry.
 
 Anchors solve this by providing a sequence of local movement references near
-the top of the work zone. An anchor can belong to any active rendered deck; it
-does not have to belong to the slab being moved. This distinction matters
-because the anchor supervises movement while the current slab top remains the
-overall movement target. The browser's actual scroll anchor is not observable,
-so the extractor selects its own anchor near the top of the work zone. Its
+the top of the anchor-zone inside the anchor-zone. An anchor can belong to any active rendered deck; it does not have to belong to the current slab being moved. This distinction matters because the anchor supervises movement while the current slab top remains the overall movement target. The browser's actual scroll anchor is not observable,
+so the extractor selects its own anchor near the top of the anchor-zone. Its
 anchor should not lie far below the browser's effective anchor, because
 rendering between the two could preserve the browser anchor while displacing
 the extractor's reference.
 
 For each small movement, the worker stops when either the selected anchor
-reaches its target near the work-zone bottom or the current slab top reaches
+reaches its target near the anchor-zone bottom or the current slab top reaches
 its separate target above the viewport. If the anchor arrives first, the worker
-selects another ready anchor near the work-zone top and continues. Independent
+selects another ready anchor near the anchor-zone top and continues. Independent
 targets avoid using a distant slab boundary as the local reference.
 
-Consequently, the foreman advances the work zone in small jumps relative to
+Consequently, the foreman advances the anchor-zone in small jumps relative to
 the current anchor. After each jump, it waits until the newly reached safe part
 and the relevant anchor geometry have been prepared before making the next
 jump. These small jumps exist solely to satisfy the operating constraints of
@@ -223,13 +171,13 @@ the Supplier's workers; anchors make those constraints usable even when the
 ultimate slab boundary is still beyond reliable observation.
 
 A small jump does not necessarily make a new slab available. Some slabs extend
-across many successive work zones, so several small jumps may occur while the
+across many successive anchor-zones, so several small jumps may occur while the
 foreman is still working with anchors in the same slab. Small jumps are
 therefore not considered traversal events.
 
-Instead, the foreman groups successive small jumps into a single **large work-zone movement**. A large work-zone movement begins when traversal cannot continue without advancing the work zone. It consists of as many small jumps as needed, each followed by waiting for the newly reached safe part to become ready. It ends when the current slab top reaches the lower boundary of the active area above the work zone.
+Instead, the foreman groups successive small jumps into a single **anchor-zone movement**. An anchor-zone movement begins when traversal cannot continue without advancing the anchor-zone. It consists of as many small jumps as needed, each followed by waiting for the newly reached safe part to become ready. It ends when the current slab top reaches the lower boundary of the active area above the anchor-zone.
 
-Only after the large work-zone movement is complete does normal slab traversal resume. The intermediate jumps are merely the mechanism by which the Supplier's workers progressively prepare the supply area needed for the current and upcoming operations.
+Only after the anchor-zone movement is complete does normal slab traversal resume. The intermediate jumps are merely the mechanism by which the Supplier's workers progressively prepare the supply area needed for the current and upcoming operations.
 
 
 ## Decks, Slabs, Anchors, and Message Slab Selectors
@@ -256,6 +204,48 @@ Non-message slabs need their own selectors. They should not be forced into the
 ordinary-message selector model. A deck may contain multiple selected slab
 types, so deck geometry and slab geometry remain distinct.
 
+## Issues
+
+### Activation, Collapsed Margins and Oscillation
+
+Activation can change geometry even when an active deck and its placeholder
+have the same height. In one observed deck, both states were 392 px high, but
+activation mounted a first child with `margin-top: 16px`. Because the deck had
+no border, padding, or formatting context to contain it, that margin collapsed
+through the deck and moved its top from 995.1 px to 1011.1 px below the
+viewport. Those positions straddled the 1000 px activation boundary:
+
+```text
+placeholder activates → child margin appears → deck moves outside boundary
+→ deck deactivates → child margin disappears → deck moves inside boundary
+```
+
+Setting only that first-child top margin to zero stopped the oscillation while
+preserving the deck's 392 px height and the child's bottom margin. Related
+effects of the same CSS rule include
+[virtualized content jumping when margin collapse changes](https://gitlab.com/catamphetamine/virtual-scroller#margin-collapse),
+[an IntersectionObserver reader measuring less than the leaked margin adds](https://jonwinsley.com/notes/armorer-web-reader),
+and [a fixed-height parent acquiring scroll from a collapsed child margin](https://stackoverflow.com/questions/47737935/why-does-this-page-scroll).
+
+### Jump Erasure
+
+The main application sometimes erases a scripted jump after initially applying it. The
+scroll command changes only the viewport position: the DOM geometry does not
+change, and every DOM element consequently changes its position relative to the
+viewport by the requested amount. Before the next accepted stable state, the
+viewport returns to its pre-jump position. The extractor anchor is
+the local measurement used to recognize that reversal. Observed erasures
+are strongly associated with deck deactivation, although the browser mechanism
+that restores the viewport position remains unresolved.
+
+The extractor detects an erasure when its anchor returns exactly to
+its pre-jump position. It retries the movement once. Completed runs show
+that these retries normally succeed. A second consecutive erasure remains an
+explicit error. Erasure occurring later than the current detection window is a
+possibility, but it has not been established as the cause of an extraction
+failure.
+
+
 ## Current Production Flow
 
 The production traversal begins at the bottom of the conversation. It uses the
@@ -263,23 +253,21 @@ bottom-most measured deck boundary as its initial search boundary, then selects
 decks and slabs upward by geometry. A selected deck must expose activation
 through `data-is-intersecting` before its slabs are used.
 
-Each selected slab passes one consolidated content-readiness operation before
-serialization. Ordinary messages require a mounted content scope, extractable
-text or images, no recognized placeholder elements, and sources for their
+TO COMPARE WITH CODE: Each selected slab passes one consolidated content-readiness operation before extraction. Ordinary messages require a mounted content scope, extractable text or images, no recognized placeholder elements, and sources for their
 images. Generated-image slabs additionally require a loaded image with non-zero
 natural dimensions and completed decoding. Canvas/textdoc slabs require a
 mounted ProseMirror content surface that produces non-empty Markdown. Explicit
 empty slabs are ready immediately.
 
-The slab is serialized as soon as that readiness operation succeeds. Because
+The slab is extracted as soon as that readiness operation succeeds. Because
 discovery runs from newest to oldest, each extracted entry is inserted at the
 front of the accumulated result. This restores chronological reading order
 without changing traversal direction.
 
 On a later cycle, if traversal cannot reach the next slab directly, the current
-slab is moved geometrically toward the active area above the work zone. A ready
-anchor near the top of the work zone supervises each jump. The anchor moves
-toward the bottom of the work zone while the current slab top moves toward its
+slab is moved geometrically toward the active area above the anchor-zone. A ready
+anchor near the top of the anchor-zone supervises each jump. The anchor moves
+toward the bottom of the anchor-zone while the current slab top moves toward its
 separate boundary above the viewport. Each jump is followed by stabilization.
 
 Traversal ends when no next deck exists above the current boundary and returns
@@ -289,114 +277,22 @@ snapshot either with companion asset files or with embedded base64 images and
 inline Canvas content, then downloads the final transcript. Consumers that do
 not need the standalone download workflow can use the snapshot directly.
 
-## Traversal Safeguards
-
-The safeguards below do not make ChatGPT's virtualized DOM reliable. They keep
-the extractor within an observed operating regime, detect several ways in
-which that regime can fail, and avoid silently committing incomplete content.
-
-### Establishing the starting boundary
-
-Traversal starts with a best-effort jump to ChatGPT's last prompt, waits for
-layout stabilization, scrolls to the literal end of the scroll container, and
-waits again. Only then does it measure the bottom-most deck boundary used to
-start traversal. The navigation control accelerates preparation; the literal
-container-end movement establishes the boundary.
-
-### Activation and content readiness
-
-A selected deck is not used until it reports activation. Waiting fails if the
-deck disconnects or does not activate before its operation-specific timeout.
-Activation alone is not treated as content readiness.
-
-Every selected slab then passes a type-specific readiness check. Messages
-require mounted non-placeholder content and usable image sources. Generated
-images require completed loading, non-zero natural dimensions, and decoding.
-Canvas/textdoc slabs require a mounted ProseMirror surface that already
-produces non-empty Markdown. A slab that disconnects or exceeds its readiness
-timeout stops extraction.
-
-Compilation repeats the readiness test for every slab in the deck. This second
-check prevents a deck from being committed if a previously selected slab is no
-longer ready when the deck is serialized.
-
-### Bounded movement and stabilization
-
-The work zone advances through calibrated jumps rather than teleporting into
-unprepared territory. A ready anchor near the top of the viewport supervises
-each jump. Separate clamps prevent the anchor from passing its target near the
-bottom of the viewport and the current slab top from passing its target above
-the viewport.
-
-After each jump, stabilization observes scroll-container height, scroll
-position, deck activation transitions, and the retained anchor across animation
-frames and additional event-loop yields. Sub-pixel height noise is tolerated.
-An activation boundary close above the viewport requires an additional stable
-animation frame. A bounded maximum number of frames converts failure to
-stabilize into an explicit error.
-
-Chromium can erase a scripted jump after the scroll command initially succeeds.
-When the retained anchor returns exactly to its pre-jump position, the
-extractor retries the movement once. A second consecutive erasure is an error
-rather than an invitation to retry indefinitely.
-
-### Late rendering before deactivation
-
-Readiness is operation-specific and can still be invalidated by later
-rendering. Before every jump, the extractor identifies compiled active decks
-that the jump is expected to move across the below-viewport deactivation
-boundary. It compares each deck's current height with the height stored in the
-walkway.
-
-If the deck has grown, the extractor re-enumerates its currently observable
-slabs, rechecks their readiness, recompiles the complete deck, and atomically
-replaces its walkway unit before allowing deactivation. This safeguard captures
-late content such as a Canvas that appears after the deck's initial traversal.
-A deck-height decrease is treated as a model violation and stops extraction.
-
-### Failing rather than continuing from invalid physical state
-
-Retained decks, slabs, and anchors are temporary physical references. The
-extractor stops when a required deck or slab disconnects, when no required slab
-or anchor can be selected, or when a readiness or stabilization limit is
-exceeded. These errors are deliberate safeguards against continuing with stale
-geometry. Recovery from a disconnected current slab is not yet implemented.
-
-## Diagnostics
-
-Diagnostics are not the traversal model. They observe whether the current
-implementation still behaves as the model expects.
-
-Important diagnostic questions include:
-
-- Did the expected structural development fail to occur?
-- Did a readiness observation time out or prove too weak?
-- Did an active region fail to produce the required ready area?
-- Did a work-zone movement fail to expose enough new surface?
-- Was a jump rejected, committed, or later erased during recomputation?
-- Did deck or slab geometry violate an expected adjacency or containment rule?
-- Did extraction serialize a selected slab after its own readiness condition
-  was satisfied?
-
-When the model fails, diagnostics should identify which boundary failed:
-structural observation, readiness observation, work-zone movement, geometry,
-ordering, or extraction.
-
 ## Execution-Time Model
 
-Recent runs suggest that most execution time is explained by work-zone
+Recent runs suggest that most execution time is explained by anchor-zone
 movement, not by Markdown serialization. The useful first-order model treats a
 run as a sequence of small scripted scroll jumps.
 
-For the current small-jump algorithm:
+For the current small-jump algorithm, the earlier first-order approximation
+was:
 
 ```text
-T ≈ J × (F + R × S)
+τ_run ≈ J × (F + R × S)
 ```
 
 where:
 
-- `T` is total jump-related time;
+- `τ_run` is total jump-related time;
 - `J` is the number of jumps;
 - `S` is average jump size in pixels;
 - `F` is fixed per-jump overhead;
@@ -405,8 +301,26 @@ where:
 Equivalently, if `D` is the total scripted distance covered:
 
 ```text
-T ≈ J × F + D × R
+τ_run ≈ J × F + D × R
 ```
+
+`J`, `S`, and even the realized scripted distance `D` are outcomes of the
+traversal, not fixed inputs. At jump `k`, the selected anchor, slab target,
+activation guard, and current supply geometry clamp the requested maximum to a
+realized jump `s_k`. Geometry changes after that jump alter the next distances
+and therefore the next clamp. More explicitly,
+
+```text
+s_k = clamp(maxJump, realized geometry at k)
+τ_run ≈ Σ_k (F + R × s_k + W_k)
+```
+
+where `W_k` is additional stabilization work induced by changes in realized
+geometry. Variation in realized geometry therefore produces variation in
+clamped jump sizes, jump count, distance exposed per jump, stabilization work,
+and total measured time. The timing variation is not an independent source of
+traversal variation; it is an aggregate consequence of the realized geometric
+path.
 
 This explains why increasing the maximum jump size helps strongly at first but
 then gives diminishing returns. Larger jumps reduce `J`, but each additional
@@ -419,7 +333,7 @@ different because each high-level move paid roughly one rendered-region cost,
 not one cost per small jump:
 
 ```text
-T_old ≈ N × (F + R × H)
+τ_old ≈ N × (F + R × H)
 ```
 
 where:
@@ -494,14 +408,18 @@ The fixed-deck runs make it useful to separate two meanings of geometry:
   repeatable input to a traversal.
 - **Realized geometry** is what a particular animation frame exposes after
   activation, deactivation, placeholder substitution, margin collapse, and
-  scroll-position adjustment. It is an observation of the conversation
-  geometry plus work that is still in flight.
+  scroll-position adjustment. It is the current realization of the
+  conversation geometry plus work that is still in flight.
 
 The first is the proposed cause of the repeatable baseline. The second is the
-trace from which that cause and the renderer's progress are inferred. A DOM
-mutation is therefore not an independent input merely because it happens at a
-different wall-clock time in two runs; it may be a delayed realization of the
-same geometric boundary crossing.
+state on which the traversal immediately acts. It determines the anchor and
+target distances, the size of each clamped jump, whether another jump is
+needed, and how much stabilization follows. The resulting sequence of realized
+geometries therefore mediates between fixed conversation geometry and measured
+execution time. A DOM mutation is not an independent input merely because it
+happens at a different wall-clock time in two runs; it may be a delayed
+realization of the same geometric boundary crossing, but it can change the
+subsequent traversal path and its duration.
 
 ### State of a traversal
 
@@ -555,9 +473,13 @@ X_k = (y_k, s_k, local deck intervals, activation boundaries,
        activation debts, deactivation debts, realized heights).
 ```
 
-Wall-clock duration is deliberately absent. Traversal speed affects how much
-debt is discharged between movements, so comparisons across speeds must use an
-observation clock (rAF opportunities or stage transitions), not milliseconds.
+Wall-clock duration is deliberately absent from `X_k` because it is an outcome
+of the realized geometric path. Traversal speed still affects how much debt is
+discharged between movements, so comparisons across speeds must use an
+observation clock (rAF opportunities or stage transitions), not raw
+milliseconds. The two directions must be kept distinct: speed changes which
+realization is observed at the next jump, while the realized geometry changes
+jump clamping, jump count, stabilization work, and hence measured time.
 
 ### Baseline-geometry conjecture
 
@@ -618,10 +540,10 @@ which lost height alone cancels the movement.
 ### Why `split = true` and `T` appear to explain the erasure ratio
 
 A split movement contains two scroll jumps inside one stabilization wait.
-The first command stops at an activation guard; the remaining `extraJump` is
-issued in stabilization rAF 1. If the second command is erased at the next
+The first jump stops at an activation guard; the remaining `extraJump` is
+issued in stabilization rAF 1. If the second jump is erased at the next
 observation, the position restored is the position immediately after the
-first command. Thus the split experiment localizes the capture: it is refreshed
+first jump. Thus the split experiment localizes the capture: it is refreshed
 within the preceding rAF rather than retained from some much earlier jump.
 
 Let `T` be the total number of stabilization rAF callbacks in that wait and
@@ -651,7 +573,7 @@ until a wait has `T = 4` causes erasure; an erasure can be one reason the wait
 reaches four frames.
 
 The predictive ratio should instead be conditioned on variables fixed before
-the second command. A first useful estimator is
+the split's second jump. A first useful estimator is
 
 ```text
 P(E_2 | split = true, X_pre-extra, O_pre-extra),
@@ -662,7 +584,7 @@ activation boundaries, first-jump distance, `extraJump`, and all open debts,
 and `O_pre-extra` is the number and kind of observation opportunities since
 the boundary crossing. `T` remains an outcome used to check the model. This
 also explains why split movements have a different raw erasure ratio: they
-place a second command deliberately inside the stabilization window, where a
+place a second jump deliberately inside the stabilization window, where a
 pending deactivation can still commit.
 
 ### Predictions and required tests
