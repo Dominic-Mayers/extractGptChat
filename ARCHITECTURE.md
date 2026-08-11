@@ -448,12 +448,25 @@ enter_k = A(y_k*) ∖ A(y_k)
 leave_k = A(y_k) ∖ A(y_k*).
 ```
 
-Intersecting these strips with the ordered deck intervals predicts which deck
-boundaries the movement asks the renderer to process. Heights matter in
-addition to deck count: a long deck can span a boundary for several jumps,
-while several short decks can cross it in one jump. The relevant geometric
-input is consequently the local ordered height profile, not a deck ID and not
-just total scroll distance.
+The **strip-trigger conjecture** is that activation is caused by crossing the
+newly entered strip, rather than by membership in `A(y)` alone. In particular,
+a formally inactive deck that is already geometrically inside the active area
+does not become active merely because it is there. It remains inactive until
+viewport movement sweeps the relevant entering strip across its interval or
+boundary. Deactivation is conjectured to be triggered analogously by the
+leaving strip.
+
+On this conjecture, intersecting `enter_k` and `leave_k` with the ordered deck
+intervals predicts which deck boundaries jump `k` asks the renderer to process.
+This is a proposed transition rule, not a directly exposed ChatGPT rule. It
+would be falsified by a deck activating while it remains in the overlap
+`A(y_k) ∩ A(y_k*)`, without a relevant strip crossing or another identified
+activation stimulus.
+
+Heights matter in addition to deck count: a long deck can span a boundary for
+several jumps, while several short decks can cross it in one jump. The relevant
+geometric input is consequently the local ordered height profile, not a deck ID
+and not just total scroll distance.
 
 For each deck, use the observable stage state
 
