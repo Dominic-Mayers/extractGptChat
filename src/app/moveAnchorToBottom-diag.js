@@ -111,7 +111,10 @@ export async function moveAnchorToBottom(
             geometricallyPredictedDeckCount:
                 predictedDeactivationDecks.length
         });
-        const jumpRafClock = await moveWorkZoneBy(jump);
+        const {
+            rafClock: jumpRafClock,
+            geometricallyActivated
+        } = await moveWorkZoneBy(jump);
         const supplyRoomAfter = supplyRoom();
 
         if (supplyRoomAfter === supplyRoomBefore) {
@@ -128,6 +131,7 @@ export async function moveAnchorToBottom(
 
         await waitLayoutStable({
             trackAnchor: true,
+            geometricallyActivated,
             previousRafClock: jumpRafClock
         });
 

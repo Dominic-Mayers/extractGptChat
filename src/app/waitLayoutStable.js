@@ -25,6 +25,7 @@ export async function waitLayoutStable(
     {
         maxFrames = MAX_FRAMES_FOR_STABILIZATION,
         trackAnchor = false,
+        geometricallyActivated = false,
         previousRafClock: startRafClock = null
     } = {}
 ) {
@@ -36,8 +37,8 @@ export async function waitLayoutStable(
         activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
     const deactivationNear =
         deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
-    const stableFrames = trackAnchor && !activationNear
-        ? 1
+    const stableFrames = trackAnchor
+        ? geometricallyActivated ? 2 : 1
         : 2;
 
     let recentFrames = [{ geometry: geometrySnapshot(), ignorable: false }];

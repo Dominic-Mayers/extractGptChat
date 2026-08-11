@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor (diagnostic)
 // @namespace    http://tampermonkey.net/
-// @version      6.31
+// @version      6.32
 // @description  Extracts ChatGPT conversations with the geometric traversal.
 // @author       Dominic Mayers
 // @license      MIT
@@ -4007,10 +4007,8 @@ ${fence}
       clock: probeDiagnostics.commandClock,
       requestedJump: jump
     });
-    const commandedJump = beginSplitJump(
-      jump,
-      roomUntilFirstNotReadyDeck()
-    );
+    const activationDistance = roomUntilFirstNotReadyDeck();
+    const commandedJump = beginSplitJump(jump, activationDistance);
     moveWorkZone(commandedJump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
       previousViewportSampleDiagnostics.extractorJump = {
@@ -4044,7 +4042,10 @@ ${fence}
       supplyArea,
       workZone
     );
-    return rafClock;
+    return {
+      rafClock,
+      geometricallyActivated: Number.isFinite(activationDistance) && activationDistance >= MIN_ACTIVATION_DISTANCE && activationDistance - jump < MIN_ACTIVATION_DISTANCE
+    };
   }
   function sampleStabilizationDecksDiagnostics(frame, clock) {
     sampleDeckDeactivationRafDiagnostics(
@@ -4405,13 +4406,14 @@ ${fence}
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false,
+    geometricallyActivated = false,
     previousRafClock: startRafClock = null
   } = {}) {
     const activationDistanceAbove = roomUntilFirstNotReadyDeck();
     const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
     const activationNear = activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
     const deactivationNear = deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
-    const stableFrames = trackAnchor && !activationNear ? 1 : 2;
+    const stableFrames = trackAnchor ? geometricallyActivated ? 2 : 1 : 2;
     recordStabilizationRuleDiagnostics({
       trackAnchor,
       activationNear,
@@ -4430,6 +4432,7 @@ ${fence}
     saveDeckActivationStatus(thresholdDeckSnapshot());
     beginStabilizationDiagnostics({
       stableFrames,
+      geometricallyActivated,
       activationDistanceAbove,
       deactivationDistanceBelow,
       activationNear,
@@ -4734,7 +4737,10 @@ ${fence}
         beforeCommand: pendingPredictionsBeforeCommandDiagnostics,
         geometricallyPredictedDeckCount: predictedDeactivationDecks.length
       });
-      const jumpRafClock = await moveWorkZoneBy(jump);
+      const {
+        rafClock: jumpRafClock,
+        geometricallyActivated
+      } = await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         finishJumpDiagnostics({
@@ -4749,6 +4755,7 @@ ${fence}
       }
       await waitLayoutStable({
         trackAnchor: true,
+        geometricallyActivated,
         previousRafClock: jumpRafClock
       });
       const obtainedRoom = anchorRoom();
@@ -5416,7 +5423,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap-diag.js
-  var VERSION = true ? "6.31" : "unbuilt";
+  var VERSION = true ? "6.32" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run diagnostic extractor",

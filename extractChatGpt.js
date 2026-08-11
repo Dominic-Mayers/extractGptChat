@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Chat Extractor
 // @namespace    http://tampermonkey.net/
-// @version      6.31
+// @version      6.32
 // @description  Extracts a full ChatGPT conversation to Markdown via automated scrolling.
 // @author       Dominic Mayers
 // @license      MIT
@@ -1162,12 +1162,13 @@ ${fence}
   async function moveWorkZoneBy(jump) {
     const { supplyArea, workZone } = environment();
     const rafClock = await nextAnimationFrame();
-    const commandedJump = beginSplitJump(
-      jump,
-      roomUntilFirstNotReadyDeck()
-    );
+    const activationDistance = roomUntilFirstNotReadyDeck();
+    const commandedJump = beginSplitJump(jump, activationDistance);
     moveWorkZone(commandedJump, supplyArea, workZone);
-    return rafClock;
+    return {
+      rafClock,
+      geometricallyActivated: Number.isFinite(activationDistance) && activationDistance >= MIN_ACTIVATION_DISTANCE && activationDistance - jump < MIN_ACTIVATION_DISTANCE
+    };
   }
   function closestDeck(referenceRoom, candidates, workZone) {
     let selected = null;
@@ -1338,13 +1339,14 @@ ${fence}
   async function waitLayoutStable({
     maxFrames = MAX_FRAMES_FOR_STABILIZATION,
     trackAnchor = false,
+    geometricallyActivated = false,
     previousRafClock: startRafClock = null
   } = {}) {
     const activationDistanceAbove = roomUntilFirstNotReadyDeck();
     const deactivationDistanceBelow = roomUntilFirstActiveDeckBelow();
     const activationNear = activationDistanceAbove <= MIN_ACTIVATION_DISTANCE;
     const deactivationNear = deactivationDistanceBelow <= MIN_ACTIVATION_DISTANCE;
-    const stableFrames = trackAnchor && !activationNear ? 1 : 2;
+    const stableFrames = trackAnchor ? geometricallyActivated ? 2 : 1 : 2;
     let recentFrames = [{ geometry: geometrySnapshot(), ignorable: false }];
     const deactivatedDecks = /* @__PURE__ */ new Set();
     let previousRafClock = startRafClock;
@@ -1451,7 +1453,10 @@ ${fence}
         slabDestination
       );
       const predictedDeactivationDecks = await checkUpdateNeededBeforeDeactivation(jump);
-      const jumpRafClock = await moveWorkZoneBy(jump);
+      const {
+        rafClock: jumpRafClock,
+        geometricallyActivated
+      } = await moveWorkZoneBy(jump);
       const supplyRoomAfter = supplyRoom();
       if (supplyRoomAfter === supplyRoomBefore) {
         cancelSplitJump();
@@ -1459,6 +1464,7 @@ ${fence}
       }
       await waitLayoutStable({
         trackAnchor: true,
+        geometricallyActivated,
         previousRafClock: jumpRafClock
       });
       const obtainedRoom = anchorRoom();
@@ -1944,7 +1950,7 @@ Do not omit or combine any item.`;
   }
 
   // src/bootstrap.js
-  var VERSION = true ? "6.31" : "unbuilt";
+  var VERSION = true ? "6.32" : "unbuilt";
   var install = () => installExtractorApp({
     version: VERSION,
     runLabel: "Run extractor",

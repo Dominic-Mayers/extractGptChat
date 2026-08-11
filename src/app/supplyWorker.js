@@ -580,13 +580,17 @@ export async function moveWorkZoneBy(jump) {
 
     const rafClock = await nextAnimationFrame();
 
-    const commandedJump = beginSplitJump(
-        jump,
-        roomUntilFirstNotReadyDeck()
-    );
+    const activationDistance = roomUntilFirstNotReadyDeck();
+    const commandedJump = beginSplitJump(jump, activationDistance);
     moveWorkZone(commandedJump, supplyArea, workZone);
 
-    return rafClock;
+    return {
+        rafClock,
+        geometricallyActivated:
+            Number.isFinite(activationDistance) &&
+            activationDistance >= MIN_ACTIVATION_DISTANCE &&
+            activationDistance - jump < MIN_ACTIVATION_DISTANCE
+    };
 }
 
 function closestDeck(referenceRoom, candidates, workZone) {

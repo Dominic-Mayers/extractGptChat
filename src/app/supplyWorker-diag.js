@@ -1202,10 +1202,8 @@ export async function moveWorkZoneBy(jump) {
         clock: probeDiagnostics.commandClock,
         requestedJump: jump
     });
-    const commandedJump = beginSplitJump(
-        jump,
-        roomUntilFirstNotReadyDeck()
-    );
+    const activationDistance = roomUntilFirstNotReadyDeck();
+    const commandedJump = beginSplitJump(jump, activationDistance);
     moveWorkZone(commandedJump, supplyArea, workZone);
     if (previousViewportSampleDiagnostics != null) {
         previousViewportSampleDiagnostics.extractorJump = {
@@ -1245,7 +1243,13 @@ export async function moveWorkZoneBy(jump) {
         workZone
     );
 
-    return rafClock;
+    return {
+        rafClock,
+        geometricallyActivated:
+            Number.isFinite(activationDistance) &&
+            activationDistance >= MIN_ACTIVATION_DISTANCE &&
+            activationDistance - jump < MIN_ACTIVATION_DISTANCE
+    };
 }
 
 export function sampleStabilizationDecksDiagnostics(frame, clock) {
