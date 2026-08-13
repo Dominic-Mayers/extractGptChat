@@ -395,308 +395,79 @@ conditions were not controlled.
 Large viewport drifts are not part of this model. They are usually artifacts of
 ChatGPT's virtualized rendering and should not be used as explanatory telemetry.
 
-## Geometric Traversal Model and Current Conjectures
+## Geometric Traversal Research Program and Current Conjectures
 
-The fixed-deck runs make it useful to separate two meanings of geometry:
+### Research program
 
-- **Conversation geometry** is the ordered set of deck intervals and heights
-  in the supply area. For a fixed conversation and fixed viewport, this is the
-  repeatable input to a traversal.
-- **Realized geometry** is what a particular animation frame exposes after
-  activation, deactivation, placeholder substitution, margin collapse, and
-  scroll-position adjustment. It is the current realization of the
-  conversation geometry plus work that is still in flight.
+The fixed conversation supplies a repeatable ordered geometry, but each run realizes it somewhat differently. Activation, deactivation, height substitution, clamping, and scroll adjustment can alter the sequence and timing of jumps.
 
-The first is the proposed cause of the repeatable baseline. The second is the
-state on which the traversal immediately acts. It determines the anchor and
-target distances, the size of each clamped jump, whether another jump is
-needed, and how much stabilization follows. The resulting sequence of realized
-geometries therefore mediates between fixed conversation geometry and measured
-execution time. A DOM mutation is not an independent input merely because it
-happens at a different wall-clock time in two runs; it may be a delayed
-realization of the same geometric boundary crossing, but it can change the
-subsequent traversal path and its duration.
+Our research program is to explain the repeatable distributions of activations, deactivations, and erasures from:
 
-### Baseline-geometry conjecture
+- the fixed geometry of the conversation;
+- its run-dependent realized geometry;
+- the traversal speed, measured in rAF opportunities rather than milliseconds.
 
-The conjecture in its simplest form is:
+This is a research program, not itself a falsifiable conjecture. It guides the construction of narrower conjectures below.
 
-> After adjusting for traversal speed, the repeatable baseline behavior of
-> activations, deactivations, and jump erasures depends entirely on the
-> geometry of the conversation.
+### Basic assumptions
 
-Conversation geometry supplies the fixed structure, while variations in its
-realized geometry determine the path actually taken through that structure:
-which jumps are clamped, how many jumps are needed, which activation boundaries
-are crossed, and which activation or deactivation work remains pending. The
-conjecture says that these geometric facts are sufficient to explain the
-baseline distribution observed across repeated traversals. It does not say
-that every run realizes the geometry in exactly the same sequence.
+The supply area is modelled as an ordered sequence of deck intervals. An active area extends above and below the viewport.
 
-The definitions below are a tentative attempt to make this simple conjecture
-precise enough to test. They are part of the conjecture, not established facts.
-In particular, the proposed state $X_{k}$ may need fields added, removed, or
-redefined as the fixed-deck investigation reveals what information is actually
-required.
+A movement can sweep deck boundaries through two geometric strips:
 
-### Tentative traversal state
+- an entering strip, which can request activation;
+- a leaving strip, which can request deactivation.
 
-To formulate the conjecture, first choose a **traversal position** `k`. This is
-an observable landmark in the ordered traversal, not necessarily a jump number
-or a document coordinate. For example, `k` can be the position immediately
-after the first geometric activation of the deck with a specified turn ID.
+Geometric deactivation and formal deactivation are distinct landmarks. Geometry first requests that a deck deactivate; the observable formal transition may occur later. Their separation is the **deactivation debt**.
 
-A valid specification of `k` must:
+The sequence of jumps is expected to be regular across fixed-deck runs, with random variation caused by realized geometry. Absolute jump rank is therefore investigated as a possible identifier of recurring jump opportunities, but is not assumed to be universally stable.
 
-- use only information observable at or before the landmark, rather than a
-  future outcome such as whether the next jump is erased;
-- identify corresponding positions across runs of the same conversation;
-- specify whether the state is sampled immediately before or after the named
-  event; and
-- disambiguate repeated events by traversal direction and occurrence number,
-  such as the first upward geometric activation of a given deck.
+### Strip-trigger conjecture
 
-The ordering $k' > k$ means that landmark $k'$ occurs later in the traversal;
-it does not require consecutive jump numbers.
+A formally inactive deck already inside the active area remains inactive until an entering strip crosses its interval or boundary. Deactivation is triggered analogously by a leaving-strip crossing.
 
-Let $S_{k}$ be the complete observable traversal state at position $k$. Even for
-a fixed conversation and fixed browser settings, $S_{k}$ may vary across runs.
-It includes the clock time, rAF and jump history, formal deck states, pending
-renderer work, scroll position, and all realized geometry observable at that
-landmark. Absolute clock time belongs to $S_{k}$ even though the conjecture
-proposes that it is not relevant once traversal speed and geometry are
-accounted for.
+This conjecture would be falsified by a deck activating inside the overlap of two consecutive active areas without a relevant boundary crossing or another identified stimulus.
 
-Let $X_{k}$ be the geometric part of $S_{k}$. The central conjecture is that, after
-adjusting for traversal speed, $X_{k}$ is sufficient for the distribution of a
-future state at any specified position $k' > k$. The other components of
-$S_{k}$, including its absolute clock time and run identity, should add no
-predictive information. When future clock values are compared, they must be
-expressed relative to $k$ or in the normalized observation clock; otherwise
-the absolute clock at $k$ is trivially carried into $S_{k'}$.
+### Deactivation-window conjecture
 
-This statement does not yet require a detailed definition of $X_{k}$. The tuple
-below is a first proposal for making its geometric content measurable.
+Let:
 
-Let the supply area be an ordered one-dimensional document with deck intervals
+- \(G_r(d)\) be the rank of the jump geometrically deactivating deck \(d\);
+- \(F_r(d)\) be the rank of the jump interval containing its formal deactivation;
+- \(D_r(d)=F_r(d)-G_r(d)\) be its deactivation debt;
+- \(j\) be a recurring jump rank associated with \(d\);
+- \(N_r(j,d)=j-G_r(d)\);
+- \(k_r(j,d)=j-F_r(d)=N_r(j,d)-D_r(d)\).
 
-$$D_{i} = [b_{i}, b_{i} + h_{i})$$
+Larger \(k\) means that jump \(j\) occurs later relative to formal deactivation.
 
-where $b_{i}$ is the deck's document-coordinate top and $h_{i}$ is its supplied
-height. Let $y_{k}$ be the viewport's document-coordinate position at landmark
-$k$, $v$ the viewport height, and $a$ the activation distance. Ignoring the
-boundary asymmetry visible in diagnostics, the geometric active interval at
-that landmark is approximately
+The primary conjecture concerns \(N=1\):
 
-$$A(y_{k}) = [y_{k} - a, y_{k} + v + a].$$
+> When jump \(j-1\) geometrically deactivates deck \(d\), increasing its stabilization count \(T_{j-1}\) tends to reduce \(D_r(d)\), thereby increasing \(k_r(j,d)\). Formal deactivation is then more likely to commit before jump \(j\), suppressing its erasure.
 
-If the next operation after $k$ is an upward jump of size $s_{k}$, its commanded
-position is $y_{k}^{*} = y_{k} - s_{k}$. The sets of decks predicted to enter and leave
-activity are determined by the interval differences
+This is falsified if, for recurring \((j,d)\) pairs, larger \(T_{j-1}\) does not shift \(k_r(j,d)\) upward, or systematically shifts it downward.
 
-$$
-\begin{aligned}
-{\mathrm{enter}}_{k} &= A(y_{k}^{*}) \setminus A(y_{k}), \\
-{\mathrm{leave}}_{k} &= A(y_{k}) \setminus A(y_{k}^{*}).
-\end{aligned}
-$$
+For \(N=0\), the analogous timing relation uses \(T_j\). Because \(T_j\) is measured during stabilization after jump \(j\), it cannot be a pre-jump explanation of that jump’s erasure.
 
-The **strip-trigger conjecture** is that activation is caused by crossing the
-newly entered strip, rather than by membership in $A(y)$ alone. In particular,
-a formally inactive deck that is already geometrically inside the active area
-does not become active merely because it is there. It remains inactive until
-viewport movements move the deck outside $A(y)$ and back in the entering strip. Deactivation is conjectured to be triggered analogously by the leaving strip.
+### Identification of recurring pairs
 
-On this conjecture, intersecting ${\mathrm{enter}}_{k}$ and
-${\mathrm{leave}}_{k}$ with the ordered deck intervals predicts which deck
-boundaries jump $k$ asks the renderer to process.
-This is a proposed transition rule, not a directly exposed ChatGPT rule. It
-would be falsified by a deck activating while it remains in the overlap
-$A(y_{k}) \cap A(y_{k}^{*})$, without a relevant strip crossing or another identified
-activation stimulus.
+Candidate pairs \((j,d)\) are discovered from erased jumps near the formal deactivation of \(d\). For each deck, ranks are compared across the relative rAF positions in which nearby erasures occur.
 
-Heights matter in addition to deck count: a long deck can span a boundary for
-several jumps, while several short decks can cross it in one jump. The relevant
-geometric input is consequently the local ordered height profile, not a deck ID
-and not just total scroll distance.
+The quantity \(m(d)\) counts the distinct ranks that maximize the erasure count at one or more such positions. Decks with \(m(d)=1\) provide the clearest initial test: the same rank \(j\) is identified despite variation in its position relative to formal deactivation.
 
-For each deck, use the observable stage state
+### Current corroboration
 
-```text
-inactive → geometrically active → formally active
-formally active → geometrically inactive → height recorded → formally inactive
-```
+In the 21-run 6.23 batch:
 
-as an ordering model, not as a claim about ChatGPT's internal implementation.
-The stages can coincide at one observation point. A deck between geometric
-exit and formal inactivity carries a **deactivation debt**: the geometry has
-requested deactivation, but the later observable work has not completed.
+- \(425\) of \(756\) decks have \(m(d)=1\);
+- geometric-to-formal debt was always zero or one jump;
+- among \(m(d)=1\) decks with variation in both \(T\) and \(k\), all \(13\) comparable \(N=1\) decks shifted toward larger \(k\) at higher \(T_{j-1}\);
+- all \(38\) comparable \(N=0\) decks showed the analogous relation with \(T_j\).
 
-As a first measurable specification of the geometric projection, let
+The \(13/13\) \(N=1\) result is the primary corroboration of the proposed mechanism. The \(38/38\) \(N=0\) result corroborates a relationship between stabilization and deactivation progress, but does not explain erasure prospectively.
 
-$$
-X_{k} = (y_{k},\ \text{local deck intervals},\ \text{activation boundaries},
-       \text{anchor and slab clamp distances},\ \text{activation debts},
-       \text{deactivation debts},\ \text{realized heights}).
-$$
+These results are exploratory because the candidate pairs were discovered and evaluated in the same batch. Confirmation requires freezing the pairs and testing the predictions on new runs.
 
-When the operation following $k$ is a jump, its realized size is derived from
-this geometric state and the fixed jump policy rather than treated as an
-independent component:
+---
 
-$$s_{k} = \mathrm{jumpPolicy}(X_{k}).$$
-
-This tuple is provisional. Its purpose is to name a candidate sufficient
-geometric projection against which repeated runs can be compared. Failure of
-this particular tuple does not immediately refute the simple geometry
-conjecture: it may instead show that $X_{k}$ omitted a relevant aspect of geometry
-or renderer progress. The tuple, and therefore the precise form of the
-conjecture, may be modified as the investigation proceeds. The simple
-conjecture is refuted only if the residual behavior cannot be explained by a
-defensible geometry-based refinement of the state.
-
-Wall-clock duration is deliberately absent from $X_{k}$ because it is an outcome
-of the realized geometric path. Traversal speed still affects how much debt is
-discharged between movements, so comparisons across speeds must use an
-observation clock (rAF opportunities or stage transitions), not raw
-milliseconds. The two directions must be kept distinct: speed changes which
-realization is observed at the next jump, while the realized geometry changes
-jump clamping, jump count, stabilization work, and hence measured time.
-
-### Probabilistic interpretation and falsification
-
-For a fixed conversation, viewport, activation rule, jump policy, and browser
-renderer, repeated runs sample different schedules over the same geometric
-state machine. For a specified later landmark $k'$, let
-$S_{k'}^{\mathrm{rel}}$ denote its state with clocks expressed relative to
-$k$. The tentative $X_{k}$ formulation expresses the conjecture as:
-
-$$
-P(S_{k'}^{\mathrm{rel}} \mid S_{k}, \text{traversal speed})
-= P(S_{k'}^{\mathrm{rel}} \mid X_{k}, \text{traversal speed}), \qquad k' > k.
-$$
-
-Equivalently, the non-geometric components $S_{k} \setminus X_{k}$ should add no
-predictive information once $X_{k}$ and traversal speed are known. This is the
-strong, presently tentative form. A safer form, supported by the fixed-deck
-repetitions, is that geometry determines the repeatable *opportunities* for
-activation and deactivation, while scheduling determines which stage is
-observed before the extractor makes its next move.
-
-This distinction gives the conjecture a falsification criterion. It fails if,
-after matching the same local deck-height profile, boundary distances, jump
-size, debt state, and rAF opportunity count, erasure rates still vary
-systematically by run, wall-clock phase, content identity, or another omitted
-variable. Such a result first rejects this definition of $X_{k}$. It rejects the
-simple conjecture only if the residual cannot be explained by a defensible
-geometry-based refinement of the state.
-
-### Erasure conjecture
-
-The observations support the following narrow model:
-
-1. A jump moves one or more decks across an activation boundary.
-2. At least one resulting deactivation is still pending after the movement's
-   first observation opportunity.
-3. The extractor issues another scroll command while that debt remains open.
-4. Completion of the pending work restores the position captured after the
-   preceding movement, erasing the new command.
-
-The fixed-deck evidence establishes exact position restoration and its strong
-association with pending deactivation. It does **not** establish who performs
-the restoration. CSS scroll anchoring and ChatGPT's virtualizer remain
-candidate mechanisms. Nor does it establish that every deactivation debt can
-erase a jump. The geometric model predicts the exposure window; it does not
-yet identify the internal commit operation.
-
-For a non-split jump, erasure is detected by
-
-```text
-y_following = y_before
-```
-
-together with the retained anchor returning to its pre-command position. A
-supply-height change is neither necessary nor sufficient: in the reference
-geometry-only runs, 339 of 381 non-split erasures restored the pre-jump scroll
-position without any supply-height change. This rules out an explanation in
-which lost height alone cancels the movement.
-
-### Why `split = true` and `T` appear to explain the erasure ratio
-
-A split movement contains two scroll jumps inside one stabilization wait.
-The first jump stops at an activation guard; the remaining `extraJump` is
-issued in stabilization rAF 1. If the second jump is erased at the next
-observation, the position restored is the position immediately after the
-first jump. Thus the split experiment localizes the capture: it is refreshed
-within the preceding rAF rather than retained from some much earlier jump.
-
-Let $T$ be the total number of stabilization rAF callbacks in that wait and
-$E_{2}$ mean that the split's second jump is erased. The tempting quantity is
-
-$$P(E_{2} \mid \mathrm{split} = \mathrm{true}, T = t).$$
-
-It is descriptive, but it is not a causal erasure probability. $T$ is only
-known after the wait and is partly caused by $E_{2}$. With the minimum stable
-frame rule, an uneventful split can finish at its floor. An erasure changes the
-observed scroll/anchor geometry, resets stability, and forces more callbacks.
-Schematically,
-
-```text
-pending deactivation ─┬─→ second-jump erasure ─→ larger T
-                      └─→ later stage observed ──→ larger T
-```
-
-Conditioning on $T$ therefore conditions on a post-command common effect. It
-sorts waits by what happened during them rather than holding the opportunity
-population fixed. This explains the otherwise striking reference result:
-second-jump erasures were absent from 5,732 split waits ending at $T = 2$ or
-$T = 3$, then appeared in the longer strata. It does not follow that waiting
-until a wait has $T = 4$ causes erasure; an erasure can be one reason the wait
-reaches four frames.
-
-The predictive ratio should instead be conditioned on variables fixed before
-the split's second jump. A first useful estimator is
-
-$$
-P(E_{2} \mid \mathrm{split} = \mathrm{true},
-  X_{\mathrm{pre\text{-}extra}}, O_{\mathrm{pre\text{-}extra}}).
-$$
-
-where $X_{\mathrm{pre\text{-}extra}}$ contains the local deck intervals,
-distances to both activation boundaries, first-jump distance, `extraJump`, and
-all open debts, and $O_{\mathrm{pre\text{-}extra}}$ is the number and kind of
-observation opportunities since the boundary crossing. $T$ remains an outcome
-used to check the model. This
-also explains why split movements have a different raw erasure ratio: they
-place a second jump deliberately inside the stabilization window, where a
-pending deactivation can still commit.
-
-### Predictions and required tests
-
-The model makes the following testable predictions:
-
-- Replaying the same conversation geometry and jump policy should reproduce
-  per-region activation, deactivation, and erasure rates after matching rAF
-  opportunity counts, even when absolute run time changes.
-- Geometrically similar local height profiles should have similar transition
-  rates even when their deck IDs and content differ.
-- Among pre-command-equivalent states, open deactivation debt should dominate
-  completed deactivation and no boundary crossing as an erasure predictor.
-- Requiring one additional stable rAF before permitting the next jump
-  should sharply reduce erasure by allowing debt to close. This intervention
-  changes opportunity count and is more informative than stratifying on
-  realized `T` afterward.
-- If a split second jump is erased, the restored position should continue
-  to be the post-first-command position. Restoration to an older position
-  would falsify the proposed refresh point.
-- A model using local geometry, debt stages, jump size, and pre-command rAF
-  opportunities should generalize across repeated fixed-deck cycles. Residual
-  predictive power from deck ID is evidence that the geometric state is
-  incomplete, not evidence to absorb the ID as geometry.
-
-Future diagnostic summaries should report both causal and outcome columns.
-The causal table is keyed by the pre-command geometry/debt state and
-observation opportunities. The outcome table reports erasure, resulting `T`,
-height delta, formal transitions, and exact restoration. Keeping the two
-tables separate prevents the `split`/`T` ratio from being mistaken for a
-mechanism.
+This removes the provisional \(X_k\) formalism from the main section. If it remains useful, I would place it later under a short “Possible general state model” subsection, clearly presented as part of the broader research program rather than as a current falsifiable conjecture.
