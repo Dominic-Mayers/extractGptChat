@@ -433,7 +433,10 @@ This conjecture would be falsified by a deck activating inside the overlap of tw
 Let:
 
 - \(G_r(d)\) be the rank of the jump geometrically deactivating deck \(d\);
-- \(F_r(d)\) be the rank of the jump interval containing its formal deactivation;
+- \(F_r(d)\) be the rank of the first-attempt jump whose observation sequence
+  contains the rAF interval where formal deactivation is observed; this can be
+  the jump rAF, which contains the synchronous jump in its callback, or a
+  subsequent stabilization rAF for that jump;
 - \(D_r(d)=F_r(d)-G_r(d)\) be its deactivation debt;
 - \(j\) be a recurring jump rank associated with \(d\);
 - \(N_r(j,d)=j-G_r(d)\);
@@ -466,8 +469,6 @@ In the 21-run 6.23 batch:
 
 The \(13/13\) \(N=1\) result is the primary corroboration of the proposed mechanism. The \(38/38\) \(N=0\) result corroborates a relationship between stabilization and deactivation progress, but does not explain erasure prospectively.
 
-These results are exploratory because the candidate pairs were discovered and evaluated in the same batch. Confirmation requires freezing the pairs and testing the predictions on new runs.
-
----
-
-This removes the provisional \(X_k\) formalism from the main section. If it remains useful, I would place it later under a short “Possible general state model” subsection, clearly presented as part of the broader research program rather than as a current falsifiable conjecture.
+These results are exploratory because the candidate pairs were discovered and
+evaluated in the same batch. Confirmation requires freezing the pairs and
+testing the predictions on new runs.
