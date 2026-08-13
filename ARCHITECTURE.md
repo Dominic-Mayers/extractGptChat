@@ -469,6 +469,7 @@ In the 21-run 6.23 batch:
 
 The \(13/13\) \(N=1\) result is the primary corroboration of the proposed mechanism. The \(38/38\) \(N=0\) result corroborates a relationship between stabilization and deactivation progress, but does not explain erasure prospectively.
 
-These results are exploratory because the candidate pairs were discovered and
-evaluated in the same batch. Confirmation requires freezing the pairs and
-testing the predictions on new runs.
+These results strongly corroborate the conjecture within the 6.23 batch. It
+can be tested independently in other batches by reconstructing their matching
+pairs using the same procedure. Whether the same pairs persist across batches
+is a separate, stronger conjecture about batch stability.
